@@ -89,3 +89,20 @@ curl -s -H "Authorization: Bearer $YOUTRACK" \
 Tell the user plainly: e.g. "I need a YouTrack API token (`$YOUTRACK`) to do this. Set it in
 your environment, or do the step manually: …". For low-stakes steps (like posting a PR-link
 comment) note that it's skipped and continue; for read operations you cannot proceed without it.
+
+## 5. Alternative: the YouTrack MCP server
+
+For tools that speak MCP, YouTrack also exposes an MCP endpoint that can be configured
+instead of raw REST (e.g. in VS Code's `AppData\Roaming\Code\User\mcp.json`):
+
+```json
+"youtrack": {
+    "url": "https://silbloom.youtrack.cloud/mcp",
+    "type": "http",
+    "headers": {
+        "Authorization": "Bearer your-token-from-youtrack"
+    }
+}
+```
+
+The REST calls above remain the reliable baseline; this is optional convenience.

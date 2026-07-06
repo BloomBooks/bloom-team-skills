@@ -7,6 +7,19 @@ user-invocable: true
 
 # Devin Review Skill
 
+## The deal with Devin — read this first
+
+Unlike other review bots we have wired up (Greptile, CodeRabbit, …), **Devin never pushes its
+findings or fixes to the PR for us** — that is a paid feature we don't have. Everything Devin
+produces lives only on its website. So it is **always our job** to:
+
+1. wait for the analysis to finish,
+2. go to the review page and gather the findings, and
+3. mirror them to the PR as review comments (Procedure §3–§5).
+
+If nobody does that, the review might as well not have happened — none of it is visible on
+GitHub. That gathering-and-mirroring job is what this skill is.
+
 ## When To Use
 
 - When a new PR is created or a new commit pushed, as part of the bot-wait phase before human review.
@@ -56,8 +69,10 @@ gh pr view <n> --json state,mergedAt,commits,reviews,comments,statusCheckRollup
   was triggered for the latest commit. (It almost always is.)
 - **Finished with findings?** A `devin-ai-integration` review/comment (badge marker
   `<!-- devin-review-badge-begin`) dated **after** the latest commit ⇒ Devin finished and had
-  findings — treat those as review comments to weigh. **No** such post ⇒ either still running
-  **or** it found nothing — indistinguishable from the API.
+  findings — treat those as review comments to weigh. But remember the mental model above:
+  at most this is a badge/summary — the actionable findings still have to be gathered from
+  the website and mirrored by this skill. And **no** such post proves nothing: still running
+  or finished-clean look identical from the API.
 - A `Devin Review` *status context* in `statusCheckRollup` is unreliable / often absent — do
   **not** depend on it. Devin reports via the review **comment**, not a status check.
 - Because "finished but clean" and "still running" look identical from the API, durable memory
