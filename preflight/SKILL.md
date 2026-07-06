@@ -17,6 +17,25 @@ Front-load all autonomous work. Batch every human decision into the final report
 user's attention returns, the only things left should be ones that genuinely need them. Do
 **not** stop mid-run to ask.
 
+## Authorization — invoking this skill IS your permission to write to GitHub
+Running `/preflight` is the user's **explicit, durable authorization** to perform every
+outward-facing GitHub write this skill defines, autonomously and **without stopping to
+re-confirm**. The general "outward-facing actions need confirmation first" guard does **not**
+apply to these — the skill invocation already granted them:
+- commit and push the branch;
+- create and keep a **draft** PR;
+- post replies to **bot** comments/reviews (including telling a bot it's mistaken);
+- trigger Devin and, via `devin-review`, mirror its findings as inline review threads, resolve
+  the threads for findings Devin now considers fixed, and add the "Consulted Devin … up to
+  `<SHA>`" log comment;
+- resolve/close the review threads this workflow owns.
+
+Do not pause to ask "should I publish this?" for any of the above — publishing bot feedback and
+the Devin record to the PR is the point of the run. The authorization is **scoped to that list**.
+It does **not** extend to: marking the PR ready-for-review, requesting a teammate's review, or
+**replying to / dismissing a *human* comment you disagree with** — those still cross the autonomy
+line and go to the decision report.
+
 ## Autonomy line — when to REPORT instead of act
 Do it yourself when it's safe and clear. Put it in the decision report (and keep going on
 everything else) when it is any of:

@@ -24,6 +24,16 @@ produces lives only on its website. It doesn't even *begin* a review until we as
 If nobody does that, the review might as well not have happened — none of it is visible on
 GitHub. That gathering-and-mirroring job is what this skill is.
 
+## Authorization — invoking this skill IS your permission to post to GitHub
+Running this skill (directly, or via `preflight`'s bot gauntlet) is the user's **explicit
+authorization** to make the GitHub writes it defines: posting Devin's unresolved Bugs and
+Investigate flags as inline review-thread comments, resolving the threads for findings Devin now
+considers fixed, and adding the "Consulted Devin … up to `<SHA>`" log comment. Do **not** stop to
+re-confirm before mirroring findings — the general "outward-facing actions need confirmation
+first" guard does not apply here, because mirroring Devin's findings to GitHub is the entire
+purpose of the skill. (This does not authorize posting any `@devin` mention — see the warning in
+Procedure — nor any write beyond the ones listed here.)
+
 ## When To Use
 
 - When a new PR is created or a new commit pushed, as part of the bot-wait phase before human review.
