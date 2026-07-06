@@ -11,11 +11,15 @@ user-invocable: true
 
 Unlike other review bots we have wired up (Greptile, CodeRabbit, …), **Devin never pushes its
 findings or fixes to the PR for us** — that is a paid feature we don't have. Everything Devin
-produces lives only on its website. So it is **always our job** to:
+produces lives only on its website. It doesn't even *begin* a review until we ask for one, and
+"asking" means loading the review URL. So it is **always our job** to:
 
-1. wait for the analysis to finish,
-2. go to the review page and gather the findings, and
-3. mirror them to the PR as review comments (Procedure §3–§5).
+1. **trigger the review** by navigating to the review page for the PR (see "Triggering a
+   review" — in BloomDesktop, `pr-automation.yml` does this on every push by loading that URL
+   from a CI runner; without some such visit, no review ever runs),
+2. wait for the analysis to finish,
+3. go back to the review page and gather the findings, and
+4. mirror them to the PR as review comments (Procedure §3–§5).
 
 If nobody does that, the review might as well not have happened — none of it is visible on
 GitHub. That gathering-and-mirroring job is what this skill is.
