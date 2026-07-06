@@ -1,7 +1,7 @@
 ---
 name: preflight
-description: Run the pre-review preflight on whatever is on the current branch — the automated checklist before the "flight" of human review. Runs typecheck/lint/tests (cycling on changes), commits & pushes, opens a DRAFT PR if none exists, then runs the bot gauntlet (triggers Devin, gathers Devin/Greptile/CI + other bot feedback), auto-fixes and auto-replies to bots, ensures the branch merges cleanly with the base, and finishes by landing the work for the user's own final review with a ranked decision report for anything that needs a human. The local review defaults to a LIGHT single-sub-agent pass (high-confidence bugs only); say "/preflight with code-review" for the full (token-hungry) /code-review + fix loop, or "/preflight without review" to skip local review entirely. Does everything reasonable autonomously; the only things left when the user returns are the ones truly waiting on them. Never marks the PR ready-for-review and never requests a teammate's review.
-argument-hint: "optional: PR number or branch name — defaults to the current branch/worktree. Local review level: light sub-agent pass by default; 'with code-review' = full /code-review + fix loop; 'without review' = none."
+description: Run the pre-review preflight on whatever is on the current branch — the automated checklist before the "flight" of human review. Runs typecheck/lint/tests (cycling on changes), commits & pushes, opens a DRAFT PR if none exists, then runs the bot gauntlet (triggers Devin, gathers Devin/Greptile/CI + other bot feedback), auto-fixes and auto-replies to bots, ensures the branch merges cleanly with the base, and finishes by landing the work for the user's own final review with a ranked decision report for anything that needs a human. The local review defaults to a LIGHT single-sub-agent pass (high-confidence bugs only); asking for a "thorough review" or "expensive review" means the full (token-hungry) /code-review + fix loop, and "/preflight without review" skips local review entirely. Does everything reasonable autonomously; the only things left when the user returns are the ones truly waiting on them. Never marks the PR ready-for-review and never requests a teammate's review.
+argument-hint: "optional: PR number or branch name — defaults to the current branch/worktree. Local review level: light sub-agent pass by default; 'thorough review' / 'expensive review' = full /code-review + fix loop; 'without review' = none."
 user-invocable: true
 ---
 
@@ -46,7 +46,9 @@ The local review runs at one of three levels — the full `/code-review` + fix l
 lot of tokens, so it is opt-in:
 
 - **Light (the DEFAULT):** one sub-agent review pass — see below.
-- **Full** — only when the user asked (e.g. **"/preflight with code-review"**): the
+- **Thorough** — only when the user asked for a **"thorough review"** or **"expensive
+  review"** (e.g. "/preflight with a thorough review"; both phrasings mean the same thing —
+  since preflight always includes *a* review, "with code-review" would be ambiguous): the
   `/code-review` + fix loop below.
 - **None** — only when the user asked (e.g. **"/preflight without review"**), for
   tiny/mechanical changes: skip straight to typecheck/lint/fast tests.
@@ -63,7 +65,7 @@ verification loop, no re-review after fixes (typecheck/lint/tests are the re-che
 its findings exactly like full-mode findings: safe and clear → fix; crosses the autonomy
 line → decision report; wrong → dismiss with a one-line reason.
 
-**Full review ("with code-review")** — each cycle is:
+**Thorough review ("thorough review" / "expensive review")** — each cycle is:
 1. Run the `/code-review` skill at `high` effort with `--fix` on the working diff.
 2. For any finding that crosses the **autonomy line**, do NOT apply it — add it to the decision
    report and continue with the rest.
@@ -102,8 +104,8 @@ autonomously fixable → decision report + (via the board skill) a "needs respon
 - **Semantic** conflicts → decision report; (via the board skill) a "needs response" state.
 
 ## Phase 4 — Bot gauntlet
-The local review from Phase 1 (light sub-agent pass by default, or the full `/code-review` when
-requested) is the first bot through the gauntlet; its captured outcome (level ran, findings
+The local review from Phase 1 (light sub-agent pass by default, or the thorough `/code-review`
+when requested) is the first bot through the gauntlet; its captured outcome (level ran, findings
 raised / fixed / escalated / dismissed) is part of this section's results even though it ran
 earlier. The remote bots below join it.
 
@@ -147,7 +149,7 @@ branch mergeable, and only human-decision items (if any) remain.
 ### Final summary (always)
 Branch/PR link & draft status; typecheck/lint/test results; what changed this run; bot outcomes
 (fixed / replied / pending) — **including the local review as its own bot line** (which level ran
-— light sub-agent pass or full `/code-review` — findings raised / fixed / escalated / dismissed,
+— light sub-agent pass or thorough `/code-review` — findings raised / fixed / escalated / dismissed,
 or "clean", or "skipped at user request"); Devin status (incl. how long we waited if it timed
 out); mergeability; final board state; and the count of items now waiting on the user.
 
@@ -183,7 +185,7 @@ The artifact must follow all of this:
 - **The whole run at a glance:** quality-gate table, what changed this run (each commit), bot
   outcomes, and the decision items. The **bot-outcomes** block lists every reviewer that ran,
   **one row per bot** — the local review first, labeled with the level that ran ("light
-  sub-agent pass" / "full /code-review" / "skipped at user request") plus findings raised /
+  sub-agent pass" / "thorough /code-review" / "skipped at user request") plus findings raised /
   fixed / escalated / dismissed, or "clean — no findings". Then Devin, Greptile, CodeRabbit,
   CI, etc. Never omit the local review row; a run where it found nothing (or where it was
   skipped) still gets a row so that is visible.
