@@ -41,41 +41,7 @@ tool; the "for" column says which ones.
 | ----------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | [**GitHub CLI](https://cli.github.com/) (`gh`)**            | `preflight`, `pr-ready-for-human`, `devin-review` | Authenticate once with `gh auth login`.                                                                                |
 | `**reviewable` CLI**                                        | `reviewable-replies`                              | Install globally: `npm install -g reviewable`. See the [Reviewable agent/CLI docs](https://docs.reviewable.io/agents). |
-| **`chrome-devtools`** | `devin-review` findings extraction | Install the Chrome team's [Chrome DevTools for agents](https://developer.chrome.com/docs/devtools/agents) plugin in Claude Code: `/plugin marketplace add ChromeDevTools/chrome-devtools-mcp` then `/plugin install chrome-devtools-mcp@chrome-devtools-plugins`. Verify with `chrome-devtools status`. If `/plugin` isn't recognized, see the fallback below. |
-
-<details>
-<summary><strong>If <code>/plugin</code> is not recognized</strong> (e.g. VS Code extension)</summary>
-
-`/plugin` (and often the `claude` CLI on your PATH) isn't wired up in those environments —
-install the same server directly as an MCP server instead. Requires Node.js (the server runs
-via `npx`).
-
-If the `claude` CLI *is* on your PATH, one command does it (user scope, so it's available in
-every project):
-
-```
-claude mcp add --scope user chrome-devtools -- npx -y chrome-devtools-mcp@latest
-```
-
-If the `claude` CLI is also unavailable (typical inside the IDE extension), add the server by
-hand to your user config at `~/.claude.json` (`C:\Users\<you>\.claude.json` on Windows). Add a
-`chrome-devtools` entry under the top-level `mcpServers` object (create it if it's missing):
-
-```json
-"mcpServers": {
-  "chrome-devtools": {
-    "command": "npx",
-    "args": ["chrome-devtools-mcp@latest"]
-  }
-}
-```
-
-Restart Claude Code (or reload the window) so it picks up the new server, then confirm with
-`/mcp` — `chrome-devtools` should be listed as connected and its `mcp__chrome-devtools__*` tools
-available. (There's no `chrome-devtools status` command on this path; that's a plugin-only
-convenience.)
-
-</details>
+| **`chrome-devtools` CLI** | `devin-review` browser automation | Only needed for `devin-review`, which drives the [Chrome DevTools for agents](https://developer.chrome.com/docs/devtools/agents) **CLI** (not the MCP-server form). Install it globally: `npm i chrome-devtools-mcp@latest -g` (needs Node.js — this puts a `chrome-devtools` binary on your PATH). Verify with `chrome-devtools status`. Works in any environment; no `/plugin` required. |
 
 ### Prerequisites — environment variables
 
