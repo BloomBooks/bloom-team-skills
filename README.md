@@ -63,8 +63,13 @@ discover them in every project:
 **Windows (PowerShell; needs Developer Mode or an elevated shell for symlinks):**
 
 ```powershell
-git clone https://github.com/BloomBooks/bloom-team-skills d:/bloom-team-skills
-Get-ChildItem d:/bloom-team-skills -Directory | ForEach-Object {
+# Set this to the folder where you keep your repos:
+$parent = "C:\dev"
+
+$repo = "$parent\bloom-team-skills"
+git clone https://github.com/BloomBooks/bloom-team-skills $repo
+New-Item -ItemType Directory -Force -Path "$HOME\.claude\skills" | Out-Null
+Get-ChildItem $repo -Directory | ForEach-Object {
   New-Item -ItemType SymbolicLink -Path "$HOME\.claude\skills\$($_.Name)" -Target $_.FullName
 }
 ```
@@ -72,8 +77,13 @@ Get-ChildItem d:/bloom-team-skills -Directory | ForEach-Object {
 **macOS / Linux:**
 
 ```bash
-git clone https://github.com/BloomBooks/bloom-team-skills ~/bloom-team-skills
-for d in ~/bloom-team-skills/*/; do ln -s "$d" ~/.claude/skills/"$(basename "$d")"; done
+# Set this to the folder where you keep your repos:
+parent=~/src
+
+repo="$parent/bloom-team-skills"
+git clone https://github.com/BloomBooks/bloom-team-skills "$repo"
+mkdir -p ~/.claude/skills
+for d in "$repo"/*/; do ln -s "$d" ~/.claude/skills/"$(basename "$d")"; done
 ```
 
 (Re-run the loop after pulling a new skill; existing links keep working since they point at
