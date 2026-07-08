@@ -1,6 +1,6 @@
 ---
 name: preflight
-description: Run the pre-review preflight on whatever is on the current branch — the automated checklist before the "flight" of human review. Runs typecheck/lint/tests (cycling on changes), commits & pushes, opens a DRAFT PR if none exists, then runs the bot gauntlet (triggers Devin, gathers Devin/Greptile/CI + other bot feedback), auto-fixes and auto-replies to bots, ensures the branch merges cleanly with the base, and finishes by landing the work for the user's own final review with a ranked decision report for anything that needs a human. The local review defaults to a LIGHT single-sub-agent pass (high-confidence bugs only); asking for a "thorough review" or "expensive review" means the full (token-hungry) /code-review + fix loop, and "/preflight without review" skips local review entirely. Does everything reasonable autonomously; the only things left when the user returns are the ones truly waiting on them. Never marks the PR ready-for-review and never requests a teammate's review.
+description: Run the pre-review preflight on whatever is on the current branch — the automated checklist before the "flight" of human review. Runs typecheck/lint/tests (cycling on changes), commits & pushes, opens a DRAFT PR if none exists (linking it once on the YouTrack card), then runs the bot gauntlet (triggers Devin, then WAITS — bounded by a per-run timeout — for the async reviewers Devin/Greptile/CI/etc. to actually finish, gathering their feedback; a reviewer that doesn't finish in time is reported as "timed out after N min", never left "pending"), auto-fixes and auto-replies to bots, ensures the branch merges cleanly with the base, and finishes by landing the work for the user's own final review with a ranked decision report for anything that needs a human. The local review defaults to a LIGHT single-sub-agent pass (high-confidence bugs only); asking for a "thorough review" or "expensive review" means the full (token-hungry) /code-review + fix loop, and "/preflight without review" skips local review entirely. Does everything reasonable autonomously; the only things left when the user returns are the ones truly waiting on them. Never marks the PR ready-for-review and never requests a teammate's review.
 argument-hint: "optional: PR number or branch name — defaults to the current branch/worktree. Local review level: light sub-agent pass by default; 'thorough review' / 'expensive review' = full /code-review + fix loop; 'without review' = none."
 user-invocable: true
 ---
@@ -35,6 +35,13 @@ the Devin record to the PR is the point of the run. The authorization is **scope
 It does **not** extend to: marking the PR ready-for-review, requesting a teammate's review, or
 **replying to / dismissing a *human* comment you disagree with** — those still cross the autonomy
 line and go to the decision report.
+
+This is *intent* authorization for the agent; it is **not** harness permission. In **auto mode**
+the classifier can still **deny** these `gh` writes ("denied by the Claude Code auto mode
+classifier") — the skill can't grant itself that permission. If a GitHub write is blocked, don't
+work around it: surface the item in the decision report and note that the write is pending on a
+one-time settings change. See the repo README's **"Making the review skills actually autonomous"**
+for the `autoMode.allow` / `permissions.allow` setup that unblocks it.
 
 ## Autonomy line — when to REPORT instead of act
 Do it yourself when it's safe and clear. Put it in the decision report (and keep going on
@@ -114,6 +121,13 @@ autonomously fixable → decision report + (via the board skill) a "needs respon
   none: `gh pr create --draft --base <base> --title "<summary> (<TICKET>)" --body "<summary>\n\nRef: <tracker-url-if-known>"`.
   (Do NOT do the promote-to-human ceremony — that's the other skill.)
 - Record PR number & URL.
+- **Link the PR on the tracker card (once).** If a ticket id was found in Phase 0, use the
+  **`youtrack-api`** skill for the mechanics: list the issue's comments, check a PR link isn't
+  already there (`grep -i "github.com.*pull"`), and only if none post a comment `PR: <PR URL>`
+  (prefixed with an identifier of which model you are). This is idempotent — never post a second
+  PR link. If no YouTrack token is available or no ticket id was found, skip silently and note it
+  in the report. (`pr-ready-for-human` performs the same dedup-checked step later, so a link
+  posted here means that step finds it already present and does nothing.)
 
 ## Phase 3 — Mergeability with the base
 - `git fetch origin`. Determine whether the branch merges cleanly into `origin/<base>`.
@@ -128,30 +142,73 @@ when requested) is the first bot through the gauntlet; its captured outcome (lev
 raised / fixed / escalated / dismissed) is part of this section's results even though it ran
 earlier. The remote bots below join it.
 
-1. **Trigger Devin.** Use the **`devin-review`** skill — it is the single source for Devin
-   mechanics (its CI-based re-trigger is more reliable than the browser, and Devin also
-   auto-triggers on push). Record that it was triggered for this commit.
-2. **Gather all currently-available bot feedback** (don't wait for Devin yet):
+**The gauntlet is not done until every reviewer that runs on this PR has actually FINISHED (or we
+hit its wait timeout).** A reviewer that is still analyzing has not "passed" — it just hasn't
+spoken yet. Preflight's whole job is to front-load this waiting so the user returns to *finished*
+reviews. So **"pending" / "still running" is never an acceptable terminal outcome for a bot.** By
+the end of the run each remote reviewer is in exactly one of two states:
+- **complete** — its review for the **current HEAD sha** finished and we folded its findings into
+  the loop below; or
+- **timed out** — we waited the cap and it still hadn't finished, recorded verbatim as
+  **"timed out after N min"** (with the note that re-running `preflight` folds in late results).
+
+If you ever find yourself about to write "pending" as a bot's final status, you have exited too
+early — go back and either wait it out or record the timeout.
+
+1. **Identify the async remote reviewers wired up for this PR.** These review on push and report
+   back asynchronously — typically **Devin**, **Greptile**, **CodeRabbit**, and the **CI** checks.
+   Detect which are actually active for this repo (a prior review/comment from that bot on this or a
+   recent PR; a check context showing in `gh pr checks <n>`; a config file such as `.greptile*` /
+   `.coderabbit*`). You will wait (step 5) for **each one that is active** — not just Devin.
+2. **Trigger Devin.** Use the **`devin-review`** skill — the single source for Devin mechanics (its
+   CI-based re-trigger is more reliable than the browser; Devin also auto-triggers on push). Record
+   that it was triggered for this commit. (Greptile / CodeRabbit / CI trigger themselves on push.)
+3. **First pass — gather whatever feedback is already available and act on it** (don't idle waiting
+   for the slow ones yet):
    - CI: `gh pr checks <n>`.
    - Bot comments/reviews — Devin (`devin-ai-integration`), Greptile, CodeRabbit, etc. — via
      `gh api repos/<owner>/<repo>/pulls/<n>/comments`, `.../issues/<n>/comments`,
      `.../pulls/<n>/reviews`. Consider items newer than our last commit / not yet resolved.
-3. **Evaluate each item:**
+   Evaluate each item:
    - Clear, correct, within the autonomy line → **fix it**.
    - Bot is mistaken → **post a reply on GitHub** explaining why (prefix the body with an
      identifier of which model you are). No need to ask the user.
    - Crosses the autonomy line, **or is a disagreement with a human** → **decision report**
      (never auto-dismiss a human).
-4. If any fixes were made → re-run Phase 1 (fast), commit, push, and **re-trigger the bots**
-   (cap the overall cycle count; note if capped).
-5. **Devin polling:** after the other work, poll every ~5 min, **non-blocking**, up to a cap
-   (~20–25 min); never block-sleep. Fold any Devin findings into step 3's logic. **On timeout,
-   re-trigger Devin once**, and record in the report how long we waited before giving up (its
-   results may post later — re-running `preflight` will fold them in).
+4. If any fixes were made → re-run Phase 1 (fast), commit, push. A new commit **restarts** every
+   async reviewer, so re-trigger Devin and **reset the wait clock** (cap the overall cycle count;
+   note if capped).
+5. **Wait for every async reviewer to finish — do NOT converge while one is still working.** This is
+   the step the run must not skip (skipping it is what leaves bots reported as "pending"). Poll until
+   each reviewer identified in step 1 is **complete** or **timed out**. Keep it **non-blocking** — do
+   any remaining work between polls and never block-sleep the whole interval — but do not enter
+   Phase 5 until each is terminal. Shared cap: **~30 min from the latest push**; poll roughly every
+   2–3 min. Per reviewer:
+   - **Devin:** run the **`devin-review`** skill through to its terminal result — it waits internally
+     (both the `Generating` summary panel **and** the `PR analysis in progress` findings pass must
+     clear for the current HEAD sha; ~30-min internal cap) and then gathers/mirrors findings. Use
+     **its** returned outcome ("findings posted …" / "re-review clean — bots quiet" / timed out) as
+     Devin's state. Do **NOT** infer Devin's state from `gh` signals alone: "finished clean" and
+     "still running" look identical over the API (the absence of a `devin-ai-integration` comment
+     proves nothing), so reporting "pending" off a missing comment is exactly the bug to avoid.
+   - **Greptile / CodeRabbit:** complete when the bot has posted its review/summary for the **current
+     HEAD sha** (a review/comment dated after the latest commit, **or** its check context in a
+     terminal `completed` conclusion). A "reviewing…" / in-progress placeholder, or an in-progress
+     check, means keep waiting. Once complete, fold its findings into step 3's evaluate/fix/reply
+     logic.
+   - **CI:** complete when every required check is terminal (success/failure), not queued/in-progress.
+     Failures → treat like any finding (fix if safe; else decision report).
+   - **On timeout for any reviewer:** record it as **"timed out after N min"** (for Devin, re-trigger
+     once as you give up). **Never** record it as "pending". Late results get folded in on a re-run.
+6. If the wait surfaced new findings and you fixed anything → re-cycle from step 4 (bounded; note if
+   capped). Otherwise, with every reviewer **complete-or-timed-out**, proceed to Phase 5.
 
 ## Phase 5 — Converge, land, report
-Enter when: quality gate clean, CI passing, all **bot** comments resolved (fixed or replied),
-branch mergeable, and only human-decision items (if any) remain.
+Enter when: quality gate clean, CI passing, **every async remote reviewer has finished — or hit its
+wait timeout and been recorded as "timed out after N min" (Phase 4 step 5)**, all **bot** comments
+resolved (fixed or replied), branch mergeable, and only human-decision items (if any) remain. A
+reviewer still mid-analysis is **not** a reason to converge early: either wait it out or record its
+timeout — never leave it as "pending".
 - **If decision items remain** → (via the board skill) a "needs response / ball in the user's
   court" state, and deliver the **decision report**.
 - **If nothing remains** → (via the board skill) the user's **"ready for my own final review
@@ -167,10 +224,12 @@ branch mergeable, and only human-decision items (if any) remain.
 
 ### Final summary (always)
 Branch/PR link & draft status; typecheck/lint/test results; what changed this run; bot outcomes
-(fixed / replied / pending) — **including the local review as its own bot line** (which level ran
-— light sub-agent pass or thorough `/code-review` — findings raised / fixed / escalated / dismissed,
-or "clean", or "skipped at user request"); Devin status (incl. how long we waited if it timed
-out); mergeability; final board state; and the count of items now waiting on the user.
+(fixed / replied / **complete / timed-out** — **never a bare "pending"**; a remote reviewer that
+didn't finish in time reads as "timed out after N min", not "pending") — **including the local
+review as its own bot line** (which level ran — light sub-agent pass or thorough `/code-review` —
+findings raised / fixed / escalated / dismissed, or "clean", or "skipped at user request"); Devin
+status (incl. how long we waited if it timed out); mergeability; final board state; and the count of
+items now waiting on the user.
 
 ### Report artifact (always) — publish as a Claude Artifact
 In addition to the chat summary, **always** render this report as a **Claude Artifact**: load the
@@ -207,7 +266,10 @@ The artifact must follow all of this:
   sub-agent pass" / "thorough /code-review" / "skipped at user request") plus findings raised /
   fixed / escalated / dismissed, or "clean — no findings". Then Devin, Greptile, CodeRabbit,
   CI, etc. Never omit the local review row; a run where it found nothing (or where it was
-  skipped) still gets a row so that is visible.
+  skipped) still gets a row so that is visible. **Every remote-reviewer row must show a terminal
+  state — "complete" (with its findings summary) or "timed out after N min" — never "pending" or
+  "still running".** If a row would say "pending", the run converged too early (see Phase 4 step 5);
+  fix that rather than papering over it in the report.
 - **Links everywhere they exist.** PR, Files-changed, Commits; each commit page; each bot's
   summary/review and every resolved/open thread (fetch the real comment/thread ids via `gh`) — for
   Devin, link its review page `https://devinreview.com/<owner>/<repo>/pull/<n>`; and

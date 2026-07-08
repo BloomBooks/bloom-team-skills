@@ -34,6 +34,13 @@ first" guard does not apply here, because mirroring Devin's findings to GitHub i
 purpose of the skill. (This does not authorize posting any `@devin` mention — see the warning in
 Procedure — nor any write beyond the ones listed here.)
 
+This authorizes the *agent's intent*; it does not grant *harness* permission. In **auto mode**
+the classifier may still **deny** the `gh` posts/thread-resolves this skill makes ("denied by the
+Claude Code auto mode classifier"). If so, don't try to route around it — report the findings
+back to the caller (or the developer) as pending, and point them at the one-time settings change
+in the bloom-team-skills repo README, **"Making the review skills actually autonomous"**
+(`autoMode.allow` / `permissions.allow`).
+
 ## When To Use
 
 - When a new PR is created or a new commit pushed, as part of the bot-wait phase before human review.
@@ -386,4 +393,3 @@ After the developer pushed fixes, re-navigating showed `Generating…`, then com
 - Informational items are observations, not action items. Skip them.
 - Use the `chrome-devtools` **CLI** (Bash commands) for all browser automation in this skill — not the MCP plugin (disabled; spawns zombie node processes) and not the Orca browser.
 - Always use `--isolatedContext "devin-noauth"` when opening Devin pages. Navigating while logged in consumes on-demand credits; the isolated context is unauthenticated but still shows all findings.
-- If Chrome DevTools CLI is unavailable, tell the user: "Please open `https://app.devin.ai/review/<owner>/<repo>/pull/<number>` in Chrome to check Devin's findings."
