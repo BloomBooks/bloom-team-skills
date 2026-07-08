@@ -51,9 +51,8 @@ Set these in your user environment (never commit them — see [Ground rules](#gr
 | Variable                   | What                                | How to get it                                                                                                                |
 | -------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `**YOUTRACK**`             | YouTrack permanent token (`perm-…`) | In YouTrack: avatar → **Profile** → **Account Security** → **New token…**, scope **YouTrack**. Used by every YouTrack skill. |
-| `**REVIEWABLE_API_TOKEN**` | Reviewable API token (`rvbl_…`)     | Your Reviewable **account settings**. Used by `reviewable-replies`.                                                          |
+| `**REVIEWABLE_API_TOKEN**` | Reviewable agent token (`rvbl_…`)   | In Reviewable: **Account settings** → **Provision new agent** → choose the **Author** agent type. Used by `reviewable-replies`. |
 | `**REVIEWABLE_URL**`       | `https://reviewable.io`             | Constant. Used by `reviewable-replies`.                                                                                      |
-
 
 ### Set up the skills
 
