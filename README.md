@@ -21,6 +21,7 @@ Each skill is a folder containing a `SKILL.md` in the
 | `youtrack-fix`             | Fix an issue given a `BL-xxxxx` id: plan, branch, implement, commit.                                                         |
 | `youtrack-create-issue`    | File a new bug/task/card on the right board in the right state.                                                              |
 | `bloom-youtrack-reporting` | Query and report across YouTrack issues.                                                                                     |
+| `papercut`                 | Log small dev/agent/tooling friction to a per-repo `PAPERCUTS.md` without derailing the task; trim mode triages the backlog. |
 
 
 The review pipeline the top skills implement:
@@ -94,6 +95,21 @@ done
 (Re-run the loop after pulling a new skill; existing links keep working since they point at
 folders. Skills for other agent tools that read a different directory can be linked the same
 way.)
+
+### Load the team-wide agent rules
+
+This repo also carries [`TEAM-AGENTS.md`](TEAM-AGENTS.md) — the few rules that should be
+active in **every** repo and session (currently: proactively logging papercuts). Skills only
+activate when a request matches them; always-on behavior has to live in context that's loaded
+each session. Wire it up once by adding a line to your personal global `~/.claude/CLAUDE.md`,
+pointing at your clone:
+
+```
+@C:/dev/bloom-team-skills/TEAM-AGENTS.md
+```
+
+This import reaches Claude Code only; agents that don't read your global CLAUDE.md (Copilot,
+Devin, …) get the same guidance from per-repo `AGENTS.md` rules where those exist.
 
 ## Making the review skills actually autonomous (auto-mode setup)
 
