@@ -22,6 +22,7 @@ Each skill is a folder containing a `SKILL.md` in the
 | `youtrack-create-issue`    | File a new bug/task/card on the right board in the right state.                                                              |
 | `bloom-youtrack-reporting` | Query and report across YouTrack issues.                                                                                     |
 | `papercut`                 | Log small dev/agent/tooling friction to a per-repo `PAPERCUTS.md` without derailing the task; trim mode triages the backlog. |
+| `add-test-ideas`           | Write manual test ideas / a QA test plan for a tester: leads with a plain-language explanation of how the feature works, then do-this-expect-that ideas, then the risky parts to watch. |
 
 
 The review pipeline the top skills implement:
