@@ -58,6 +58,13 @@ Given `owner/repo` and PR number (e.g. `BloomBooks/BloomDesktop` / `7949`):
 
 Navigating to the results page both triggers a review (if none exists yet) and shows results once complete. The `devinreview.com/<owner>/<repo>/pull/<number>` URL is an alias for the same page.
 
+**This works for _any_ public GitHub PR — Devin is not per-repo "installed."** The mnemonic: take
+the PR's `github.com/<owner>/<repo>/pull/<n>` URL and swap the host to `devinreview.com` — that is
+the review page. A repo does **not** need a Devin GitHub app, a CI workflow, or any prior Devin
+comment for this to work. So Devin should **never** be reported as "not configured / not installed
+/ not available" for a repo — if it has a GitHub PR, it has a Devin review page. The only thing
+that varies per repo is how the review gets *triggered* (next section).
+
 ## Triggering a review
 
 - **Automatic — every push.** BloomDesktop's `.github/workflows/pr-automation.yml` runs on
@@ -78,6 +85,12 @@ Navigating to the results page both triggers a review (if none exists yet) and s
   navigation from Procedure §1.
 
 ## Reading Devin state without the browser (gh signals)
+
+**These gh signals only exist where BloomDesktop's `pr-automation.yml` runs.** On a repo without
+that workflow there is no `pr-automation` check and (unless someone posted one) no
+`devin-ai-integration` comment — that means Devin was not *auto-triggered on push* and hasn't been
+mirrored, **not** that Devin is unavailable. There you trigger it yourself (navigate the review
+URL / run the browser Procedure) rather than reading it from `gh`.
 
 For callers that only need to know *whether* Devin has run (board syncs, promotion checks) —
 no login and no browser required:

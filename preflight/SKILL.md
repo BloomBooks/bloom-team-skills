@@ -157,12 +157,23 @@ early — go back and either wait it out or record the timeout.
 
 1. **Identify the async remote reviewers wired up for this PR.** These review on push and report
    back asynchronously — typically **Devin**, **Greptile**, **CodeRabbit**, and the **CI** checks.
-   Detect which are actually active for this repo (a prior review/comment from that bot on this or a
-   recent PR; a check context showing in `gh pr checks <n>`; a config file such as `.greptile*` /
-   `.coderabbit*`). You will wait (step 5) for **each one that is active** — not just Devin.
-2. **Trigger Devin.** Use the **`devin-review`** skill — the single source for Devin mechanics (its
-   CI-based re-trigger is more reliable than the browser; Devin also auto-triggers on push). Record
-   that it was triggered for this commit. (Greptile / CodeRabbit / CI trigger themselves on push.)
+   **Devin is NOT one to "detect" — it is available for _every_ GitHub PR** via its review page
+   (`https://devinreview.com/<owner>/<repo>/pull/<n>`, alias of `app.devin.ai/review/…` — literally
+   the PR's `github.com` URL with the host swapped). It needs **no GitHub app, no CI workflow, and
+   no prior comment** to be usable; the absence of a `devin-ai-integration` comment or a
+   `pr-automation`/`Devin Review` check proves **nothing** and must never be read as "Devin isn't
+   configured / not installed here." The only per-repo difference is the *trigger*: BloomDesktop
+   auto-triggers Devin on push via `pr-automation.yml`, whereas on a repo without that workflow you
+   simply trigger it yourself by loading the review URL (step 2). **So always run Devin (step 2).**
+   What you *do* detect per-repo is only the OTHER remote bots — Greptile / CodeRabbit — via a prior
+   review/comment from that bot, a check context in `gh pr checks <n>`, or a config file
+   (`.greptile*` / `.coderabbit*`). You will wait (step 5) for **each active reviewer plus Devin**.
+2. **Trigger Devin — always, on every repo.** Use the **`devin-review`** skill — the single source
+   for Devin mechanics. Where `pr-automation.yml` exists (BloomDesktop) its CI-based (re-)trigger is
+   most reliable and push already triggered a review; where it does **not** exist, the skill triggers
+   Devin by navigating to the review URL. Either way Devin runs — never skip it as "not set up for
+   this repo." Record that it was triggered for this commit. (Greptile / CodeRabbit / CI trigger
+   themselves on push.)
 3. **First pass — gather whatever feedback is already available and act on it** (don't idle waiting
    for the slow ones yet):
    - CI: `gh pr checks <n>`.
