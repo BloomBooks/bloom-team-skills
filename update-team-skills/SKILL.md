@@ -17,10 +17,16 @@ overwrites an existing link or touches skills that aren't part of this repo.
 
 ## What it does
 
-1. **Locate the clone.** This skill can only be invoked once its *own* folder is linked, so resolve
-   that link to find the repo root: read where `~/.claude/skills/update-team-skills` points and take
-   its parent directory. (Fallback: resolve any other bloom-team-skills link, e.g. `preflight`; if
-   none resolve, ask the user where their clone is.)
+1. **Locate the clone.** Find the bloom-team-skills repo root two ways, whichever applies:
+   - **Normal case (already linked):** resolve this skill's own symlink — read where
+     `~/.claude/skills/update-team-skills` points and take its parent directory.
+   - **First-time bootstrap (run straight from a clone, before anything is linked):** the repo root
+     is the clone you're being run from — the parent of the folder holding *this* `SKILL.md` (i.e.
+     the current working directory if Claude was started in the repo). This is the path that makes
+     the very first run work, since no symlink exists yet.
+
+   Either way, confirm the resolved path is a git repo that contains these skill folders before
+   acting. If neither resolves, ask the user where their clone is.
 2. **Pull.** `git pull` in that repo. Report the result (already up to date / fast-forwarded N
    commits / failed). If the pull fails (diverged history, conflicts, dirty tree), surface the git
    output and continue to step 3 anyway — linking is independent of the pull and still worth doing.
@@ -76,8 +82,10 @@ done
 
 ## Notes
 
-- **First-time bootstrap is still manual.** This skill can only run once it is itself linked, so a
-  brand-new machine follows the README's Installation steps (clone + the link loop) once; after
-  that, `/update-team-skills` handles every later pull and any newly added skill.
+- **Bootstrap without a slash command.** On a brand-new machine this skill isn't linked yet, so
+  `/update-team-skills` doesn't exist as a command. Run it anyway by opening Claude *in the repo
+  folder* and asking it to **follow `update-team-skills/SKILL.md`**; step 1's bootstrap branch finds
+  the clone from that file's own location and links everything — including this skill — so the slash
+  command works from then on.
 - Prefix nothing to GitHub / no network writes here — this only touches the local clone and the
   local skills directory.

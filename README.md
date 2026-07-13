@@ -59,47 +59,60 @@ Set these in your user environment (never commit them — see [Ground rules](#gr
 
 ### Set up the skills
 
-Clone the repo, then symlink each skill folder into your personal skills directory so agents
-discover them in every project:
+Agents discover skills from your personal `~/.claude/skills` directory, so each skill folder here
+needs a symlink there. You don't have to do that by hand — **let the `update-team-skills` skill do
+it.**
 
-**Windows (PowerShell; needs Developer Mode or an elevated shell for symlinks):**
+1. **Clone the repo** wherever you keep repos:
+
+   ```bash
+   git clone https://github.com/BloomBooks/bloom-team-skills
+   ```
+
+2. **Open Claude Code in that folder and ask it to set up the skills** — e.g.:
+
+   > Read `update-team-skills/SKILL.md` and follow it to set up the team skills.
+
+   It finds the clone from that file's own location, then symlinks every skill folder (including
+   itself) into `~/.claude/skills`. On **Windows** turn on **Developer Mode** first (Settings →
+   Privacy & security → For developers) or run in an elevated shell, or the symlink step can't
+   create links — the skill reports that clearly if it hits it.
+
+3. **Restart Claude Code** so the newly linked skills are discovered.
+
+After that, `/update-team-skills` is a real slash command: run it any time to pull the latest and
+link any newly added skill (idempotent; safe to re-run). The author of a new skill runs it too,
+since their own commit doesn't trigger a pull.
+
+<details>
+<summary>Prefer to link them by hand (no Claude)?</summary>
+
+Run the equivalent loop yourself after cloning — it only links folders that contain a `SKILL.md`,
+leaving docs and other root files alone.
+
+**Windows (PowerShell; needs Developer Mode or an elevated shell):**
 
 ```powershell
-# Set this to the folder where you keep your repos:
-$parent = "C:\dev"
-
-$repo = "$parent\bloom-team-skills"
-git clone https://github.com/BloomBooks/bloom-team-skills $repo
+$repo = (Resolve-Path .).Path   # run from inside the clone
 New-Item -ItemType Directory -Force -Path "$HOME\.claude\skills" | Out-Null
-# Only link folders that are actually skills (contain a SKILL.md), so docs and
-# other root files/folders are left alone.
 Get-ChildItem $repo -Directory | Where-Object { Test-Path "$($_.FullName)\SKILL.md" } | ForEach-Object {
   New-Item -ItemType SymbolicLink -Path "$HOME\.claude\skills\$($_.Name)" -Target $_.FullName
 }
 ```
 
-**macOS / Linux:**
+**macOS / Linux (run from inside the clone):**
 
 ```bash
-# Set this to the folder where you keep your repos:
-parent=~/src
-
-repo="$parent/bloom-team-skills"
-git clone https://github.com/BloomBooks/bloom-team-skills "$repo"
+repo="$PWD"
 mkdir -p ~/.claude/skills
-# Only link folders that are actually skills (contain a SKILL.md), so docs and
-# other root files/folders are left alone.
 for d in "$repo"/*/; do
   [ -f "$d/SKILL.md" ] && ln -s "$d" ~/.claude/skills/"$(basename "$d")"
 done
 ```
 
-That's the one-time bootstrap. **After that, keep up to date with the `update-team-skills`
-skill** instead of re-running this by hand: in any Claude Code session run **`/update-team-skills`**
-— it pulls the latest and links any newly added skill for you (idempotent; safe to run anytime).
-The author of a new skill runs it too, since their own commit doesn't trigger a pull. (Existing
-links keep working since they point at folders. Skills for other agent tools that read a different
-directory can be linked the same way.)
+(Existing links keep working since they point at folders. Skills for other agent tools that read a
+different directory can be linked the same way.)
+</details>
 
 ### Load the team-wide agent rules
 
