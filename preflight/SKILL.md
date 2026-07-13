@@ -343,7 +343,11 @@ The artifact must follow all of this:
     - Give every control — radios, the `Leave comment` checkbox, each `Other:` input, and each notes
       box — a `data-q` label so it all serializes into the copy-back text.
 - **One copy-back button** that serializes every selection, every "Other" text, and every note into
-  a clean plaintext block the user can paste straight back into the session. Copy via
+  a clean plaintext block the user can paste straight back into the session. **The `Leave comment`
+  checkbox is serialized only when ticked** (emit something like a `Leave comment: <the text/where>`
+  line, or a bare `Leave comment` marker under that item); when it is unticked, omit it entirely —
+  the copy-back text must not mention comments at all for that item, so an untouched box can't be
+  misread as a request to leave one. Copy via
   `navigator.clipboard.writeText` **with a fallback** (write to a visible readonly `<textarea>`,
   `select()`, `execCommand('copy')`) so it works even if the async clipboard is blocked — the visible
   textarea guarantees a manual Ctrl+C. Show a "copied" confirmation.
