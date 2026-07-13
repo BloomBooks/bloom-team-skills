@@ -136,6 +136,56 @@ in place. If you're not certain the change is truly invisible to users, don't cl
 the one or two things worth a sanity check ("just confirm the affected screen still opens and looks
 normal") instead of declaring nothing to test.
 
+## Earn every item — is there a plausible way *this change* breaks it?
+
+Choosing the right *dimensions* is only half the job. Within a dimension you're including, every
+individual item still has to **earn its place**, and most bad test notes fail here: they list
+things that are *true and worth knowing* but that **this particular change has no plausible way of
+breaking**. A tester's attention is finite. Every can't-really-break item you list dilutes the
+ones that can, and quietly trains the tester to skim.
+
+So before you write down any item, apply this filter — **name the mechanism**:
+
+> "By what concrete mechanism could *this change* make this fail?"
+
+If you can name a plausible mechanism (even an unlikely one), keep the item. If the outcome is
+**guaranteed by how Bloom already works, independent of this change**, cut it — you are not
+testing the change, you are re-testing Bloom.
+
+Two moves make this concrete:
+
+- **Trace it to the change, not to the feature in the abstract.** Ask what the change actually
+  *does* (adds a hidden folder, writes a new attribute, adds a new save/exclusion path, new
+  matching logic) and whether *that* touches the thing you're about to ask the tester to confirm.
+  If the path from the change to the failure doesn't exist, there's nothing to test.
+
+- **Watch for "it's just a normal X now" items.** When a change produces something that
+  afterward behaves as an ordinary, pre-existing kind of thing (an ordinary book image, an
+  ordinary text box), confirming that the *ordinary* thing still does ordinary things is almost
+  always a can't-break item — the ordinary behavior was never in the change's path.
+
+Worked examples, from a real run on the AI Image Editor:
+
+- ❌ *Cut.* "A book that already contains AI-edited pictures, opened in a lower-tier collection:
+  the pictures still display fine (they don't disappear)." — Once committed, an AI-edited picture
+  **is** an ordinary book image. Nothing in the change alters how ordinary images render, and tier
+  gating controls whether you can *make new* edits, not whether existing images display. There is
+  no mechanism by which they could "disappear." Not a test.
+- ❌ *Cut.* "A book edited with AI opened in an older Bloom shows the pictures as ordinary images
+  and is fine." — Same reasoning: the older Bloom is reading ordinary `<img>`s and ignoring an
+  unknown hidden folder. No path from the change to a failure.
+- ✅ *Keep.* "Upload / publish / Team-Collection / `.bloomSource` all exclude the hidden
+  `.ai-image-editor` folder but still carry the edited images." — The change added a **new,
+  narrow exclusion in the packaging code**; that code genuinely can get the boundary wrong. Real
+  mechanism, real test.
+- ✅ *Keep.* "Replace two identical pictures on one page with different results; each lands on the
+  right slot." — The change added **new matching logic** to pair results with slots. It can
+  plausibly mis-pair. Real test.
+
+This filter is not a licence to trim the scary items. Data-loss, new logic, and just-fixed bugs
+have obvious mechanisms and stay. The point is to spend the tester's checkboxes only where the
+change could actually go wrong.
+
 ## Deciding what's risky
 
 You usually know the change (you or another agent just made it, or it's on the card/PR). Flag as
@@ -204,6 +254,9 @@ comment when you can name what would be lost by overwriting.
 - Could a semi-technical Bloom tester **follow every step** without asking a developer what a
   word means?
 - Is every item **do-this → expect-that**, with specific examples?
+- Does **every item have a plausible failure mechanism tied to this change**? Cut any
+  "can't-really-break" confirmations (especially "it's just a normal X now" items) — they dilute
+  the tester's attention.
 - Is there a clear **"watch these especially"** for the risky/just-fixed/data-affecting parts?
 - Did you prompt them to try the relevant **conditions** (online/offline, different computers,
   first run vs. later) where they matter?
