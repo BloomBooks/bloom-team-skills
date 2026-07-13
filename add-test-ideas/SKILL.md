@@ -1,6 +1,8 @@
 ---
 name: add-test-ideas
 description: Write manual test ideas / a QA test plan for a feature or change, aimed at a Bloom-savvy but semi-technical tester. Use when asked to "add test ideas", "write manual testing ideas", "make a test plan for QA", or to put testing notes on a YouTrack card. Leads with a plain-language explanation of how the feature works, then testing ideas, then the risky parts to watch.
+argument-hint: "optional: a BL-xxxxx card id or PR/branch to base the test ideas on — defaults to the current branch's change"
+user-invocable: true
 ---
 
 # Writing manual test ideas
