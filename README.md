@@ -23,6 +23,7 @@ Each skill is a folder containing a `SKILL.md` in the
 | `bloom-youtrack-reporting` | Query and report across YouTrack issues.                                                                                     |
 | `papercut`                 | Log small dev/agent/tooling friction to a per-repo `PAPERCUTS.md` without derailing the task; trim mode triages the backlog. |
 | `add-test-ideas`           | Write manual test ideas / a QA test plan for a tester: leads with a plain-language explanation of how the feature works, then do-this-expect-that ideas, then the risky parts to watch. |
+| `update-team-skills`       | Pull the latest bloom-team-skills and symlink any newly added skill into `~/.claude/skills`. Run `/update-team-skills` after someone adds a skill; replaces the manual re-link chore. |
 
 
 The review pipeline the top skills implement:
@@ -93,9 +94,12 @@ for d in "$repo"/*/; do
 done
 ```
 
-(Re-run the loop after pulling a new skill; existing links keep working since they point at
-folders. Skills for other agent tools that read a different directory can be linked the same
-way.)
+That's the one-time bootstrap. **After that, keep up to date with the `update-team-skills`
+skill** instead of re-running this by hand: in any Claude Code session run **`/update-team-skills`**
+— it pulls the latest and links any newly added skill for you (idempotent; safe to run anytime).
+The author of a new skill runs it too, since their own commit doesn't trigger a pull. (Existing
+links keep working since they point at folders. Skills for other agent tools that read a different
+directory can be linked the same way.)
 
 ### Load the team-wide agent rules
 
