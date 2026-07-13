@@ -1,6 +1,6 @@
 ---
 name: preflight
-description: Run the pre-review preflight on whatever is on the current branch — the automated checklist before the "flight" of human review. Runs typecheck/lint/tests (cycling on changes), commits & pushes, opens a DRAFT PR if none exists (linking it once on the YouTrack card), then runs the bot gauntlet (triggers Devin, then WAITS — bounded by a per-run timeout — for the async reviewers Devin/Greptile/CI/etc. to actually finish, gathering their feedback; a reviewer that doesn't finish in time is reported as "timed out after N min", never left "pending"), auto-fixes and auto-replies to bots, ensures the branch merges cleanly with the base, and finishes by landing the work for the user's own final review with a ranked decision report for anything that needs a human. The local review defaults to a LIGHT single-sub-agent pass (high-confidence bugs only); asking for a "thorough review" or "expensive review" means the full (token-hungry) /code-review + fix loop, and "/preflight without review" skips local review entirely. Does everything reasonable autonomously; the only things left when the user returns are the ones truly waiting on them. Never marks the PR ready-for-review and never requests a teammate's review.
+description: Run the pre-review preflight on whatever is on the current branch — the automated checklist before the "flight" of human review. Runs typecheck/lint/tests (cycling on changes), commits & pushes, opens a DRAFT PR if none exists (linking it once on the YouTrack card), then runs the bot gauntlet (triggers Devin, then WAITS — bounded by a per-run timeout — for the async reviewers Devin/Greptile/CI/etc. to actually finish, gathering their feedback; a reviewer that doesn't finish in time is reported as "timed out after N min", never left "pending"), auto-fixes and auto-replies to bots, ensures the branch merges cleanly with the base, refreshes an idempotent QA "test ideas" comment on the YouTrack card, and finishes by landing the work for the user's own final review with a ranked decision report for anything that needs a human. The local review defaults to a LIGHT single-sub-agent pass (high-confidence bugs only); asking for a "thorough review" or "expensive review" means the full (token-hungry) /code-review + fix loop, and "/preflight without review" skips local review entirely. Does everything reasonable autonomously; the only things left when the user returns are the ones truly waiting on them. Never marks the PR ready-for-review and never requests a teammate's review.
 argument-hint: "optional: PR number or branch name — defaults to the current branch/worktree. Local review level: light sub-agent pass by default; 'thorough review' / 'expensive review' = full /code-review + fix loop; 'without review' = none."
 user-invocable: true
 ---
@@ -220,6 +220,21 @@ wait timeout and been recorded as "timed out after N min" (Phase 4 step 5)**, al
 resolved (fixed or replied), branch mergeable, and only human-decision items (if any) remain. A
 reviewer still mid-analysis is **not** a reason to converge early: either wait it out or record its
 timeout — never leave it as "pending".
+
+- **Refresh the QA test-ideas comment (idempotent).** If a ticket id was found in Phase 0 and a
+  YouTrack token is available, invoke the **`add-test-ideas`** skill against this branch's change
+  and post the result to the card. This runs on **every** preflight, so rely on that skill's
+  **update-in-place** default (it finds its own marked comment via `bloom-test-ideas` and rewrites
+  it) — do **not** let it stack a fresh comment each run just because preflight ran again. (The
+  skill may still *choose* to add a new "round 2" comment when history matters — e.g. testers
+  already worked the old notes and only part needs retesting; that deliberate case is fine, blind
+  duplication is not.) The write is authorized by this skill invocation like the other tracker writes.
+  Base the write-up on the final diff for the current HEAD (this is why it lives here, after the
+  code has settled). Post it **even when the change has nothing user-testable** (a pure refactor,
+  tooling, docs) — in that case the comment is `add-test-ideas`'s short "nothing for a tester to do,
+  because …" note; never skip the comment just because there's nothing to test. The **only** reason
+  to skip is a genuinely missing prerequisite — no ticket id or no YouTrack token — and then note it
+  in the report. This is independent of whether decision items remain — do it either way.
 - **If decision items remain** → (via the board skill) a "needs response / ball in the user's
   court" state, and deliver the **decision report**.
 - **If nothing remains** → (via the board skill) the user's **"ready for my own final review
@@ -239,8 +254,9 @@ Branch/PR link & draft status; typecheck/lint/test results; what changed this ru
 didn't finish in time reads as "timed out after N min", not "pending") — **including the local
 review as its own bot line** (which level ran — light sub-agent pass or thorough `/code-review` —
 findings raised / fixed / escalated / dismissed, or "clean", or "skipped at user request"); Devin
-status (incl. how long we waited if it timed out); mergeability; final board state; and the count of
-items now waiting on the user.
+status (incl. how long we waited if it timed out); mergeability; whether the QA test-ideas comment
+was posted/updated (or skipped, with why); final board state; and the count of items now waiting on
+the user.
 
 ### Report artifact (always) — publish as a Claude Artifact
 In addition to the chat summary, **always** render this report as a **Claude Artifact**: load the
