@@ -19,19 +19,6 @@ House rules:
 
 ---
 
-## 2026-07-14 — dotnet-watch Bloom launcher silently blocks agent builds
-
-- **Cut:** A `dotnet watch`-based Bloom launcher auto-rebuilds and respawns Bloom.exe on every
-  C# source edit; the running exe locks `output\Debug\AnyCPU\Bloom.exe`, so every agent
-  `dotnet build`/`dotnet test` fails at the final copy step (MSB3027). Killing Bloom.exe is
-  whack-a-mole — the watcher respawns it on the next agent edit. Blocked three agents in one
-  session before the watcher (not the exe) was identified as the root cause.
-- **Idea:** Agents doing C# work should check for a `dotnet watch` parent when they hit
-  MSB3027 (Get-CimInstance parent chain) and surface "stop your watch loop" instead of
-  retrying; and/or the run-bloom / watch tooling could park the watcher while agent builds
-  run, or build to a separate output dir for tests.
-- **Context:** AI-source-bubbles batch work, multiple sub-agents building concurrently.
-
 ## 2026-07-14 — plannotator-last shows a blank page when reviewing plans
 
 - **Cut:** `/plannotator-last` runs `plannotator annotate-last`, which annotates the *last
