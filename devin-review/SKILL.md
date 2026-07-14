@@ -169,6 +169,27 @@ Informational  {file}:{line-range}
 
 Checks, Reviewers, Assignees, Labels — these are metadata only, no action from this skill.
 
+## Write for a human reader (not a log dump)
+
+Everything this skill posts to GitHub is read by an engineer skimming the PR, so write it in
+plain English for a normal engineer — not a dense status line. (John's words for a bad one:
+"might as well be assembly code.")
+
+- **One finding per thread, shaped as a post + a reply.** The **post** says, in plain terms,
+  what Devin flagged and why it might matter. The **reply** says what we decided —
+  fixed / not an issue / false positive — and *why*. Don't cram several findings, their
+  reasoning, and commit SHAs into a single paragraph; give each its own resolvable thread. This
+  applies to **Investigate** flags we assessed as non-issues too: post the flag, reply with the
+  reasoning, resolve — rather than dismissing them all in prose in the consultation log.
+- **Translate code-speak into what it means for a user or reviewer.** Say "pressing Esc still
+  closes the dialog" not "onCancel is wired"; "the button has a screen-reader label" not
+  "aria-label is set"; "translations are matched by the string's key, not its English text" not
+  "keyed by trans-unit id". Name the human-visible behavior, not the symbol.
+- **Keep the consultation log (step 7) short.** Its job is only to record what was run and point
+  to the per-finding threads — it is *not* where findings get explained. A few plain sentences:
+  what ran, the handful of things it raised each with a one-line outcome and a link to its
+  thread, and that CI/other bots were clean.
+
 ## Procedure
 
 > ⚠️ **Do NOT post `@devin review` (or any `@devin` mention) to GitHub.** That is *not* how this skill triggers Devin, and this repo has no Devin GitHub app to respond to it — the mention goes nowhere and no review runs. Devin is triggered **only** by navigating to the `app.devin.ai` results page via chrome-devtools (step 1). If all you have done is post a `@devin review` comment, you have **not** run this skill. (This exact mistake left PR #613 with a `@devin review` comment but no findings, no consultation log, and no idea whether Devin was satisfied.)
