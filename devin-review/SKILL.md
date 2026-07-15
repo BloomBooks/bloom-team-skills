@@ -231,7 +231,32 @@ chrome-devtools evaluate_script "() => /analysis in progress/i.test(document.bod
 - either `true` → still analyzing. Come back in ~2–3 min (poll; typical run is 10–20 min). **Timeout 30 min** from trigger.
 - **both** `false` → analysis done. Proceed to §3 (which opens "View results" and reads only current, non-Outdated findings).
 
-**c. Guard against staleness on a re-trigger.** Right after navigating to re-review a new commit, the page often paints the **previous** commit's cached findings *before* it flips to `Generating…`. So on a re-trigger: reload once, confirm `Generating` is (or was) present for the new run, then wait for it to clear — don't trust the first paint. If unsure whether the shown analysis matches `$HEAD_SHA`, reload and re-check rather than reporting.
+Make the **first** check ~30 s after the trigger, not minutes later — re-reviews of small deltas
+often finish faster than a lazy first poll, and every extra interval is dead time the developer
+sits through.
+
+**c. Staleness on a re-trigger — one cache-busted reload settles it; then believe the page.**
+Right after navigating to re-review a new commit, the *first paint* can show the **previous**
+commit's cached findings before the page catches up. The cure is exactly **one**
+`--ignoreCache` reload, then a freshness check: the page header shows a **`Commits N`** count —
+compare it to the PR's actual commit count:
+
+```bash
+chrome-devtools evaluate_script "() => { const t=document.body.innerText; const m=t.match(/Commits\s*(\d+)/); return {commits: m?m[1]:'?', gen: t.includes('Generating'), prog: /analysis in progress/i.test(t)}; }"
+```
+
+- Commit count matches the PR **and** both markers are `false` → the analysis shown **is** the
+  terminal state for `$HEAD_SHA`. Proceed to §3 immediately.
+- Commit count is stale → reload again after ~30 s; the page hasn't seen the push yet.
+- Markers `true` → normal §2b polling.
+
+⚠️ Do **not** demand *more* evidence than that. Two real over-waits (bloom-harvester PR #234,
+2026-07-14, user had to interrupt twice) came from exactly this: requiring an observed
+`Generating` transition, or two consecutive idle polls, or waiting for `Outdated` / `• Resolved`
+markers to appear before believing "done". A small-delta re-review can complete inside the first
+poll interval (and may never visibly restart), so a wait gated on watching the restart happen —
+or on markers Devin may not render — never fires and just runs to its timeout on a
+long-finished review.
 
 ### 3. Enumerate Findings
 
