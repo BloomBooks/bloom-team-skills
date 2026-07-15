@@ -1,6 +1,6 @@
 ---
 name: devin-review
-description: Kick off a Devin AI code review for a GitHub PR, wait for it, then post unresolved Bugs and Investigate flags as GitHub inline review-thread comments, and resolve the threads for findings Devin now considers fixed. Devin does NOT post to GitHub automatically — this skill bridges that gap.
+description: Kick off a Devin AI code review for a GitHub PR, wait for it, then post unresolved Bugs and Investigate flags as GitHub inline review-thread comments, and resolve the threads for findings Devin now considers fixed or that we assessed as non-issues. Every finding's thread ends with a documented outcome — including recording a developer's later "leave as is" decision as a reply before resolving. Devin does NOT post to GitHub automatically — this skill bridges that gap.
 argument-hint: "PR URL or number, e.g. BloomBooks/BloomDesktop#7949"
 user-invocable: true
 ---
@@ -23,6 +23,18 @@ produces lives only on its website. It doesn't even *begin* a review until we as
 
 If nobody does that, the review might as well not have happened — none of it is visible on
 GitHub. That gathering-and-mirroring job is what this skill is.
+
+**No finding disappears silently.** Every current (non-Outdated, non-Informational) Bug and
+Investigate flag ends up as a PR review thread with a **documented outcome**, one of:
+- **fixed** — Devin marks it Resolved; we reply and resolve the thread (step 6);
+- **not an issue / false positive** — we assessed it during the run; reply with the reasoning,
+  then resolve (step 6);
+- **decided by the developer** — it went to the developer (e.g. via `preflight`'s decision
+  report); the thread stays **open** until the decision comes back, then it gets a reply
+  recording the decision and is resolved (see "Recording a developer decision" below).
+
+A thread that just gets resolved with no reply, or a finding that never reaches the PR at all,
+loses the record of *why* we didn't act — that record is the point.
 
 ## Authorization — invoking this skill IS your permission to post to GitHub
 Running this skill (directly, or via `preflight`'s bot gauntlet) is the user's **explicit
@@ -383,9 +395,20 @@ gh pr comment <number> --repo <owner>/<repo> --body "[Devin] **Bug**: <Title> (\
 
 Record which findings fell through to rung 3 (top-level) — those cannot be natively resolved later; step 6 edits them instead.
 
-### 6. Reconcile Resolved Findings
+### 6. Reconcile Outcomes
 
-For each bug Devin now marks **• Resolved** (collected in step 3), match it by title against the Devin threads gathered in step 5:
+Two kinds of findings get their thread replied-to and resolved in this step: bugs **Devin** now
+considers fixed, and findings **we** assessed as not-an-issue during this run.
+
+**a. Findings we assessed as not an issue / false positive.** For each posted finding the
+caller judged mistaken or not worth acting on *on its own authority* (a clear-cut call that
+doesn't need the developer — see the caller's autonomy rules): reply on its thread in plain
+English with the reasoning ("Not an issue: pressing Esc still closes the dialog because …"),
+then resolve the thread (same `gh` commands as below). The documented, resolved thread is the
+record. Findings that need the **developer's** decision are NOT resolved here — leave the
+thread open and let the decision come back later (see "Recording a developer decision").
+
+**b. Bugs Devin now marks • Resolved** (collected in step 3) — match each by title against the Devin threads gathered in step 5:
 
 - **We posted it before and its thread is still unresolved** → reply to document why, then resolve the thread. (This covers both line-anchored and file-level threads — both appear in the step-5 query.)
 
@@ -418,8 +441,32 @@ Return a summary:
 - N Resolved Bugs — N threads resolved, N fallback comments marked, N no-action (never posted / already resolved)
 - N Investigate flags found — N posted, N skipped
 - N Informational items found (not posted — low signal)
+- N findings assessed not-an-issue — replied & resolved (step 6a)
 - If this was a re-review and all prior findings are now `Outdated`/resolved with no current findings: report **"re-review clean — bots quiet."**
-- Whether any findings need developer attention before moving to human review
+- Whether any findings need developer attention before moving to human review — these are the
+  threads deliberately left **open**, awaiting a decision (see next section)
+
+## Recording a developer decision ("leave as is")
+
+Findings that crossed the caller's autonomy line go to the developer (e.g. via `preflight`'s
+decision report) with their thread left **open**. When the decision comes back — typically the
+developer pasting the report's copy-back block into a session — whoever processes it closes the
+loop **in that same session**, per finding:
+
+1. Find the finding's thread: the step-5 GraphQL query, matched by title (the decision-report
+   item links the exact comment, which is faster still).
+2. **Reply on the thread** in plain English recording the decision and the reasoning — e.g.
+   "Decided not to act on this: the dialog is only reachable from the admin screen, so the
+   extra guard isn't worth the complexity." Include the developer's own words/notes where
+   given. Prefix with the model identifier per the user's identity conventions.
+3. **Resolve the thread** (same mutation as step 6). If the finding only exists as a rung-3
+   top-level comment, edit it to prepend a `Decided: leave as is — <one-line reason>` marker
+   instead.
+
+This reply-and-resolve is **unconditional** — it happens for every decided finding, whatever
+the decision. (If the developer also ticked the report's `Leave comment` box, that additionally
+means recording the decision as a **code comment in the repo** near the relevant code — the
+caller handles that; it is separate from, not instead of, the thread reply.)
 
 ## Real Example (PR #7949)
 
