@@ -243,6 +243,25 @@ chrome-devtools evaluate_script "() => /analysis in progress/i.test(document.bod
 - either `true` → still analyzing. Come back in ~2–3 min (poll; typical run is 10–20 min). **Timeout 30 min** from trigger.
 - **both** `false` → analysis done. Proceed to §3 (which opens "View results" and reads only current, non-Outdated findings).
 
+⚠️ **Scripted polling: never string-compare the CLI's whole output.** `chrome-devtools
+evaluate_script` does NOT print the bare return value — it prints an update-nag banner, a
+`Script ran on page and returned:` line, and the value inside a fenced ` ```json ` block. So
+`[ "$(chrome-devtools evaluate_script …)" = "true" ]` can **never** match and a poll loop built
+on it spins forever — it will sit "waiting for Devin" long after the review finished (this
+exact bug stalled a bloom-player #430 run until the user intervened). Match the value line
+instead, and bound the loop:
+
+```bash
+# poll until done, max ~30 min (60 × 30 s)
+for i in $(seq 1 60); do
+  chrome-devtools evaluate_script "() => (!document.body.innerText.includes('Generating') && !/analysis in progress/i.test(document.body.innerText))" \
+    2>/dev/null | grep -qx "true" && break
+  sleep 30
+done
+```
+
+(`grep -qx "true"` matches the fenced value on its own line; the banner and prose never match.)
+
 Make the **first** check ~30 s after the trigger, not minutes later — re-reviews of small deltas
 often finish faster than a lazy first poll, and every extra interval is dead time the developer
 sits through.
