@@ -258,9 +258,22 @@ stale DOM spins to its timeout no matter how long Devin has been done (this stal
 bloom-core-supabase #6 run until the user intervened). Every iteration must reload first,
 *then* evaluate:
 
+⚠️ **Pin the tab: verify you're evaluating the right page, every iteration.** The
+`devin-noauth` isolated context is **shared by every session on the machine** — another
+Claude/browser session can open its own review tab at any moment, and `chrome-devtools`
+runs `evaluate_script` against whichever tab is *currently selected*, which silently drifts
+to the newest page. A poll loop that never re-selects its tab can end up reading a
+**different PR's** review (a bloom-player #433 run briefly reported another repo's flags as
+its own this way). So: capture your tab id from `new_page`, and every iteration **select it
+and confirm `location.href`** before trusting anything the page says:
+
 ```bash
-# poll until done, max ~30 min (60 × 30 s); reload EVERY iteration — see warning above
+TAB=<id from new_page>   # e.g. "11"
+EXPECT="/review/<owner>/<repo>/pull/<number>"
+# poll until done, max ~30 min (60 × 30 s); select + verify + reload EVERY iteration
 for i in $(seq 1 60); do
+  chrome-devtools select_page "$TAB" >/dev/null 2>&1
+  chrome-devtools evaluate_script "() => location.pathname" 2>/dev/null | grep -q "$EXPECT" || { sleep 25; continue; }
   chrome-devtools navigate_page --type reload --ignoreCache true >/dev/null 2>&1
   sleep 5
   chrome-devtools evaluate_script "() => (!document.body.innerText.includes('Generating') && !/analysis in progress/i.test(document.body.innerText))" \
@@ -270,6 +283,11 @@ done
 ```
 
 (`grep -qx "true"` matches the fenced value on its own line; the banner and prose never match.)
+
+The same rule applies in steps 3–4 (enumerating and extracting findings): re-`select_page`
+and re-verify `location.pathname` before each read, and sanity-check that the finding file
+paths belong to *this* repo — a `build.gradle` finding on a TypeScript-only PR means you are
+reading someone else's tab, not that Devin hallucinated.
 
 Make the **first** check ~30 s after the trigger, not minutes later — re-reviews of small deltas
 often finish faster than a lazy first poll, and every extra interval is dead time the developer
