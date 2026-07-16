@@ -18,3 +18,17 @@ during agent runs and either alerts John or auto-dismisses known-safe ones; or m
 run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** Recurring across agent sessions driving Bloom.exe/WebView2.
 
+## 2026-07-14 — xlf-strings skill overstates the risk of editing a translated `<source>`
+- **Cut:** The `xlf-strings` SKILL.md says to never change the source text of a translated
+  entry and to instead use the "mark obsolete + new id" pattern. But per
+  `DistFiles/localization/README.md` + the current `crowdin.yml` (`update_option:
+  update_without_changes`), editing a `<source>` does **not** affect the translation, while
+  changing the **id** is exactly what deletes a target translation. So for a pure text tweak
+  the skill's recommended fix (new id) is the *destructive* option, and the in-place edit is
+  safe. Devin flagged an in-place source edit as a translation-loss bug (BL-16548, PR #8062);
+  it was a false positive under our Crowdin config.
+- **Idea:** Update `xlf-strings` SKILL.md to reflect the `update_without_changes` reality:
+  distinguish id changes (destructive) from source-text edits (safe here), and stop
+  recommending obsolete+new-id for spacing/wording tweaks of an existing key.
+- **Context:** BL-16548 dialog title "Open/Create" -> "Open / Create Collections".
+
