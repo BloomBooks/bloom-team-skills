@@ -8,29 +8,56 @@ Each skill is a folder containing a `SKILL.md` in the
 [Claude Code / agent skill format](https://code.claude.com/docs/en/skills)
 (frontmatter with `name` and `description`, then the procedure).
 
-## Skills
+## /preflight
 
+The Bloom Team development process with `preflight`:
 
-| Skill                      | What it does                                                                                                                 |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `preflight`                | Everything automatable before human review: local review+fix loop, tests, draft PR (linked once on the YouTrack card), bot gauntlet, decision report. |
-| `pr-ready-for-human`       | Step 3 of the pipeline: after preflight and your own review, verify clean, link YouTrack, un-draft the PR, move boards.      |
-| `devin-review`             | Single source of truth for operating Devin (devinreview.com / app.devin.ai): trigger, read signals, post findings to GitHub. |
-| `reviewable-replies`       | Reply to Reviewable.io review discussions per-thread via the `reviewable` CLI.                                               |
-| `youtrack-api`             | Low-level: auth and REST conventions for our YouTrack (`issues.bloomlibrary.org`).                                           |
-| `youtrack-fix`             | Fix an issue given a `BL-xxxxx` id: plan, branch, implement, commit.                                                         |
-| `youtrack-create-issue`    | File a new bug/task/card on the right board in the right state.                                                              |
-| `bloom-youtrack-reporting` | Query and report across YouTrack issues.                                                                                     |
-| `papercut`                 | Log small dev/agent/tooling friction to a per-repo `PAPERCUTS.md` without derailing the task; trim mode triages the backlog. |
+1. You're done with coding
+2. It's solid as far as all tools/tests/bots can determine
+3. Do your own review on draft PR, loop to (1) until happy
+4. PR to "Ready for Review", get a peer review
+5. Loop to (1) until a human merges it.
+
+### The Preflight Process
+
+When you're done with a fix or feature, run `/preflight`. It will:
+
+1. **Typecheck, lint, and run the affected tests**, fixing what's safely fixable.
+2. Do a **local code review** and loop until the only issues left need your input (but it won't ask yet). By default that's a light single-pass review; ask for a "thorough review" to get the full `/code-review` + fix loop, or "without review" to skip it.
+3. **Integrate the base branch first** — commit the work, then merge the base in so the code is tested and pushed _as it will actually merge_ (this catches breakage from base changes even when there's no git conflict). Trivial conflicts it resolves itself; semantic ones go in your report.
+4. **Push and create a draft PR** if it isn't already there.
+5. Find the related issue in the issue tracker (we use YouTrack) and add a **comment with the PR URL** if it isn't already there.
+6. **Trigger Devin** and start watching for other **review-bot feedback** and **CI** on the PR.
+7. Run the front- and back-end **full test suite**, overlapped with the wait; failures are fixed if safe, else reported.
+8. **Poll until every reviewer is done or timed out** — findings that are safe and clear it just fixes (re-running the gate and re-triggering the bots on each new commit); the rest are saved for your report. Every finding it acts on — bot or human — gets a reply on the PR documenting what it did and has its thread resolved, so human reviewers can see it was dealt with. (Devin's findings are mirrored onto the PR as inline review threads first.) The ones it escalates to your report keep their threads open until you decide.
+9. On the issue (YouTrack), add or update **a small report for testers** — an overview of what changed plus a set of manual testing ideas: normal cases, boundary cases, how it might interact with other parts of the Bloom ecosystem.
+10. Hand back a preflight report:
+
+### The preflight report
+
+Preflight's final gift is a single report, auto-opened in your browser, that is easy to scan and interact with. Examples: [Simple](https://claude.ai/code/artifact/cf50955d-f453-4be3-8dba-463441d83f22?org=0fe551b1-bdb7-47b7-8485-186bf7fec15e), [Complex](https://claude.ai/code/artifact/a9e185bf-3367-4933-ac22-e3ddbe60806a?org=0fe551b1-bdb7-47b7-8485-186bf7fec15e) (Sorry, Anthropic limits to sil.org members). It has these parts:
+
+- **Header** — a one-line summary of the run and a row of status chips (draft PR count, mergeability, bots clean, how many items are waiting on you).
+- **Quality gate** — a table of typecheck, lint, and merge-cleanliness, with **tests broken out one row per language/runner** (TS/vitest, C#/dotnet, …) so nothing looks silently skipped; each row shows pass / fail / N/A with detail.
+- **What changed this run** — each commit (linked to its GitHub page, with `file:line` deep links) plus an "also done without needing you" list of the small stuff it handled on its own.
+- **Reviewer outcomes** — one row per reviewer, **local review first** (labeled with the level that ran and what it found), then each remote bot, Devin, and CI. Every row is in a **terminal state** — "complete" with its findings, or "timed out after N min" — never "pending."
+- **Decision items** — the things that need you, each written for a reader with zero context: what the situation is, why it happens, and why it may or may not matter. Each offers ranked choices as radio buttons (recommended one pre-selected, with a fix-complexity note), an always-present `Leave as is` option with a `Leave comment` checkbox, an `Other:` free-text box, and a notes field.
+- **Copy-back** — one button that serializes every choice, note, and `Other:` answer into a plaintext block you paste straight back into the session for preflight to act on.
+
+## Other skills in this repo
+
+| Skill                      | What it does                                                                                                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pr-ready-for-human`       | Step 3 of the pipeline: after preflight and your own review, verify clean, link YouTrack, un-draft the PR, move boards.                                                                 |
+| `devin-review`             | Single source of truth for operating Devin (devinreview.com / app.devin.ai): trigger, read signals, post findings to GitHub.                                                            |
+| `reviewable-replies`       | Reply to Reviewable.io review discussions per-thread via the `reviewable` CLI.                                                                                                          |
+| `youtrack-api`             | Low-level: auth and REST conventions for our YouTrack (`issues.bloomlibrary.org`).                                                                                                      |
+| `youtrack-fix`             | Fix an issue given a `BL-xxxxx` id: plan, branch, implement, commit.                                                                                                                    |
+| `youtrack-create-issue`    | File a new bug/task/card on the right board in the right state.                                                                                                                         |
+| `bloom-youtrack-reporting` | Query and report across YouTrack issues.                                                                                                                                                |
+| `papercut`                 | Log small dev/agent/tooling friction to a per-repo `PAPERCUTS.md` without derailing the task; trim mode triages the backlog.                                                            |
 | `add-test-ideas`           | Write manual test ideas / a QA test plan for a tester: leads with a plain-language explanation of how the feature works, then do-this-expect-that ideas, then the risky parts to watch. |
-| `update-team-skills`       | Pull the latest bloom-team-skills and symlink any newly added skill into `~/.claude/skills`. Run `/update-team-skills` after someone adds a skill; replaces the manual re-link chore. |
-
-
-The review pipeline the top skills implement:
-
-1. `**preflight**` — the agent makes the branch the best version of itself and lands it for you.
-2. **You review the work yourself.**
-3. `**pr-ready-for-human**` — promotes it to a teammate's review.
+| `update-team-skills`       | Pull the latest bloom-team-skills and symlink any newly added skill into `~/.claude/skills`. Run `/update-team-skills` after someone adds a skill; replaces the manual re-link chore.   |
 
 ## Installation
 
@@ -39,23 +66,21 @@ The review pipeline the top skills implement:
 Install these once so the skills have everything they reach for. Not every skill needs every
 tool; the "for" column says which ones.
 
-
-| Tool                                                        | For                                               | Notes                                                                                                                  |
-| ----------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| [**GitHub CLI](https://cli.github.com/) (`gh`)**            | `preflight`, `pr-ready-for-human`, `devin-review` | Authenticate once with `gh auth login`.                                                                                |
-| `**reviewable` CLI**                                        | `reviewable-replies`                              | Install globally: `npm install -g reviewable`. See the [Reviewable agent/CLI docs](https://docs.reviewable.io/agents). |
-| **`chrome-devtools` CLI** | `devin-review` browser automation | Only needed for `devin-review`, which drives the [Chrome DevTools for agents](https://developer.chrome.com/docs/devtools/agents) **CLI** (not the MCP-server form). Install it globally: `npm i chrome-devtools-mcp@latest -g` (needs Node.js — this puts a `chrome-devtools` binary on your PATH). Verify with `chrome-devtools status`. Works in any environment; no `/plugin` required. |
+| Tool                                                 | For                                               | Notes                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [\*\*GitHub CLI](https://cli.github.com/) (`gh`)\*\* | `preflight`, `pr-ready-for-human`, `devin-review` | Authenticate once with `gh auth login`.                                                                                                                                                                                                                                                                                                                                                    |
+| `**reviewable` CLI\*\*                               | `reviewable-replies`                              | Install globally: `npm install -g reviewable`. See the [Reviewable agent/CLI docs](https://docs.reviewable.io/agents).                                                                                                                                                                                                                                                                     |
+| **`chrome-devtools` CLI**                            | `devin-review` browser automation                 | Only needed for `devin-review`, which drives the [Chrome DevTools for agents](https://developer.chrome.com/docs/devtools/agents) **CLI** (not the MCP-server form). Install it globally: `npm i chrome-devtools-mcp@latest -g` (needs Node.js — this puts a `chrome-devtools` binary on your PATH). Verify with `chrome-devtools status`. Works in any environment; no `/plugin` required. |
 
 ### Prerequisites — environment variables
 
 Set these in your user environment (never commit them — see [Ground rules](#ground-rules)).
 
-
-| Variable                   | What                                | How to get it                                                                                                                |
-| -------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `**YOUTRACK**`             | YouTrack permanent token (`perm-…`) | In YouTrack: avatar → **Profile** → **Account Security** → **New token…**, scope **YouTrack**. Used by every YouTrack skill. |
+| Variable                   | What                                | How to get it                                                                                                                   |
+| -------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `**YOUTRACK**`             | YouTrack permanent token (`perm-…`) | In YouTrack: avatar → **Profile** → **Account Security** → **New token…**, scope **YouTrack**. Used by every YouTrack skill.    |
 | `**REVIEWABLE_API_TOKEN**` | Reviewable agent token (`rvbl_…`)   | In Reviewable: **Account settings** → **Provision new agent** → choose the **Author** agent type. Used by `reviewable-replies`. |
-| `**REVIEWABLE_URL**`       | `https://reviewable.io`             | Constant. Used by `reviewable-replies`.                                                                                      |
+| `**REVIEWABLE_URL**`       | `https://reviewable.io`             | Constant. Used by `reviewable-replies`.                                                                                         |
 
 ### Set up the skills
 
@@ -112,6 +137,7 @@ done
 
 (Existing links keep working since they point at folders. Skills for other agent tools that read a
 different directory can be linked the same way.)
+
 </details>
 
 ### Load the team-wide agent rules
@@ -132,12 +158,12 @@ Devin, …) get the same guidance from per-repo `AGENTS.md` rules where those ex
 ## Making the review skills actually autonomous (auto-mode setup)
 
 `preflight` and `devin-review` say "invoking this skill IS your permission" to write to GitHub.
-That is **intent** authorization — it tells the *agent* not to stop and ask "should I publish
+That is **intent** authorization — it tells the _agent_ not to stop and ask "should I publish
 this?". It is **not** the same as **harness** permission, and a skill cannot grant itself the
 latter. If you run in **auto mode** (`permissions.defaultMode: "auto"`), the auto-mode
-*classifier* is a separate safety gate that will still **deny** the outward-facing `gh` writes
+_classifier_ is a separate safety gate that will still **deny** the outward-facing `gh` writes
 these skills depend on — posting PR comments/reviews, resolving review threads, the "Consulted
-Devin …" log comment — with a message like *"denied by the Claude Code auto mode classifier."*
+Devin …" log comment — with a message like _"denied by the Claude Code auto mode classifier."_
 When that happens the skill can't finish the job autonomously: it surfaces the finding in its
 report and waits for you instead.
 
@@ -176,19 +202,18 @@ rule skip the classifier entirely:
 Notes:
 
 - A settings change may need a **reload** to take effect — open `/hooks` once (that reloads
-config) or restart the agent if the next write is still blocked.
-- If you *don't* run in auto mode, you don't need this: you'll simply get a normal permission
-prompt to approve each write. This setup only matters for unattended / auto-mode runs.
+  config) or restart the agent if the next write is still blocked.
+- If you _don't_ run in auto mode, you don't need this: you'll simply get a normal permission
+  prompt to approve each write. This setup only matters for unattended / auto-mode runs.
 - `git commit`/`git push` are generally allowed already; the gap in practice is the GitHub
-**API/PR-comment** writes above.
+  **API/PR-comment** writes above.
 
 ## Ground rules
 
 - **Never commit a token or secret here** — this repo is public. Skills reference tokens only
-by environment variable name (`$YOUTRACK`, `REVIEWABLE_API_TOKEN`, …).
+  by environment variable name (`$YOUTRACK`, `REVIEWABLE_API_TOKEN`, …).
 - Repo-specific skills (build quirks, XLF strings, etc.) stay in that repo's
-`.github/skills/`; this repo is for cross-repo team workflow.
-- Skills that touch a developer's *personal* setup (e.g. a private board) stay in that
-developer's own `~/.claude/skills` — these skills only reference such a skill by name
-(`personal-board`) and degrade gracefully when it's absent.
-
+  `.github/skills/`; this repo is for cross-repo team workflow.
+- Skills that touch a developer's _personal_ setup (e.g. a private board) stay in that
+  developer's own `~/.claude/skills` — these skills only reference such a skill by name
+  (`personal-board`) and degrade gracefully when it's absent.

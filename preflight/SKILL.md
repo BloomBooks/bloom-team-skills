@@ -29,6 +29,9 @@ apply to these — the skill invocation already granted them:
 - commit and push the branch;
 - create a **draft** PR, or convert an existing PR back to draft;
 - post replies to **bot** comments/reviews (including telling a bot it's mistaken);
+- reply to a **human** comment **to acknowledge a fix you made** at their suggestion — a brief,
+  polite thanks plus what you changed — and resolve that thread (the *agree-and-act* case;
+  arguing with or dismissing a human is still excluded, below);
 - trigger Devin and, via `devin-review`, mirror its findings as inline review threads, resolve
   the threads for findings Devin now considers fixed, and add the "Consulted Devin … up to
   `<SHA>`" log comment;
@@ -56,7 +59,11 @@ everything else) when it is any of:
 - a **semantic** merge conflict (resolve only trivial ones — lockfile, imports, formatting);
 - **disagreeing with a human comment** (always report; never auto-dismiss a human).
 
-Disagreeing with a **bot** does *not* need the user — post a reply and move on.
+Disagreeing with a **bot** does *not* need the user — post a reply and move on. **Agreeing** with
+a human is fine to act on too: if their point is a clearly-correct, in-scope fix, make the fix,
+post a brief thanks noting what you changed, and resolve the thread. The report is only for
+*disagreement* with a human (or anything else that crosses the lines above) — not for the simple
+courtesy of thanking someone whose fix you just applied.
 
 ## The reviewers
 
@@ -141,11 +148,34 @@ request ('without review')".
 
 Cap the loop at **4 cycles** to avoid churn; note in the report if capped.
 
-## Phase 2 — Publish (commit, push, draft PR)
+## Phase 2 — Integrate the base (before publishing)
 
-- Stage & commit everything on the branch (including pre-existing uncommitted work — that's
-  "what's on the branch"). Message: `<concise summary> (<TICKET>)` plus the repo/user's required
-  commit trailer, identifying which model you are. Let pre-commit hooks run.
+Fold `origin/<base>` in **before the push**, so the PR's first pushed state is already the
+integrated, mergeable one — never a snapshot that gets superseded a moment later — and so the
+gate has run against the code as it will actually merge. Base may break the branch with **no git
+conflict at all** (a renamed function you call, a changed signature, a deleted fixture); merging
+before you push is what surfaces that here rather than on the PR. (Integration can't run *before*
+the gate: merging needs a clean tree, so the work has to be committed first, and pre-commit hooks
+reject un-gated code — hence gate in Phase 1, integrate here.)
+
+- **Commit everything on the branch** (including pre-existing uncommitted work — that's "what's
+  on the branch"), so the tree is clean enough to merge and the pre-commit hooks run against
+  already-gated code. Message: `<concise summary> (<TICKET>)` plus the repo/user's required
+  commit trailer, identifying which model you are. Let the hooks run.
+- `git fetch origin`, then merge `origin/<base>` into the branch:
+  - **Clean / already up to date** → done; the branch is integrated.
+  - **Trivial** conflicts (lockfile, imports, formatting) → resolve them, complete the merge,
+    then **re-run the fast gate** on the integrated result (even a conflict-free merge can fold
+    base's hunks into files you also touched) and commit any fixes.
+  - **Semantic** conflicts → **abort the merge** (`git merge --abort`) to leave the branch
+    un-integrated, record a decision item, and set (via the board skill) a "needs response"
+    state. Continue the run on the un-integrated branch — publishing the draft PR is still
+    worthwhile for review — and leave the base integration to the user.
+
+## Phase 3 — Publish (push, draft PR, link)
+
+Everything is already committed in Phase 2; this phase only pushes and opens the PR.
+
 - Push, setting upstream if needed.
 - Ensure a **draft** PR exists: `gh pr list --head <branch> --json number,url,state,isDraft`.
   - None → create one: write the body (`<summary>` + `Ref: <tracker-url-if-known>`) to a temp
@@ -164,14 +194,6 @@ Cap the loop at **4 cycles** to avoid churn; note in the report if capped.
   in the report. (`pr-ready-for-human` performs the same dedup-checked step later, so a link
   posted here means that step finds it already present and does nothing.)
 
-## Phase 3 — Mergeability with the base
-
-- `git fetch origin`. Determine whether the branch merges cleanly into `origin/<base>`.
-- No conflicts → continue.
-- **Trivial** conflicts (lockfile, imports, formatting) → merge base in, resolve, re-run the
-  fast gate, push.
-- **Semantic** conflicts → decision report; (via the board skill) a "needs response" state.
-
 ## Phase 4 — Bot gauntlet
 
 The gauntlet runs every reviewer (see "The reviewers") to a terminal state. The local review
@@ -188,16 +210,18 @@ already ran in Phase 1; its captured outcome joins the results here.
    - Bot comments/reviews via `gh api repos/<owner>/<repo>/pulls/<n>/comments`,
      `.../issues/<n>/comments`, `.../pulls/<n>/reviews`. Consider items newer than our last
      commit / not yet resolved.
-   Evaluate each item:
-   - Clear, correct, within the autonomy line → **fix it**.
-   - Bot is mistaken → **post a reply on GitHub** explaining why (prefix the body with an
-     identifier of which model you are) **and resolve the thread** — a documented, resolved
-     thread is the record that we considered it. No need to ask the user. Only clear-cut
-     calls get closed this way; judgment calls go to the decision report with their thread
-     left **open** (it gets closed when the decision comes back — see "Processing the user's
-     decisions").
-   - Crosses the autonomy line, **or is a disagreement with a human** → **decision report**
-     (never auto-dismiss a human).
+   Evaluate each item — **from a bot or a human**; the split is agree-and-act vs. disagree, not
+   who wrote it:
+   - Clear, correct, within the autonomy line → **fix it, then post a reply documenting the
+     outcome and resolve the thread** (prefix the body with an identifier of which model you
+     are): "Fixed in `<sha>`: …", and for a **human** a brief thanks for the catch. A
+     documented, resolved thread is the record a later human reviewer sees.
+   - **Bot** is mistaken → **post a reply** explaining why **and resolve the thread** — refuting
+     a bot needs no user sign-off.
+   - Crosses the autonomy line, **or you disagree with a human** → **decision report**, with the
+     thread left **open** (never auto-dismiss a human; it gets closed when the decision comes
+     back — see "Processing the user's decisions"). Only clear-cut, acted-on items get closed
+     above.
 3. If any fixes were made → re-run the fast gate, commit, push. A new commit **restarts** every
    async reviewer, so re-trigger Devin and **reset the wait clock**. Cap the overall
    fix-push-rewait cycle at **4**; note in the report if capped.
@@ -308,8 +332,9 @@ sometimes informally in chat — that answer carries the same authorization as t
 - Never run a watch-mode test command.
 - Any text posted to GitHub under the user's account is prefixed with an identifier of which
   model you are (per the user's identity conventions) — do not hardcode a model name.
-- Disagree with a **human** → report, never auto-reply/auto-dismiss. Disagree with a **bot** →
-  auto-reply is fine.
+- A **human** comment that's clearly right and in scope → fix it, reply with a brief thanks and
+  what you changed, and resolve. **Disagreeing** with a human → report, never auto-reply/
+  auto-dismiss. A **bot** → auto-reply is always fine (documenting a fix, or refuting a mistake).
 - Include the repo/user's required commit trailer on commits.
 - Defer local board moves to the user's private board skill; Devin mechanics to the
   `devin-review` skill; and the tracker link, shared project board, and "ready for human"
