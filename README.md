@@ -30,7 +30,7 @@ When you're done with a fix or feature, run `/preflight`. It will:
 6. **Trigger Devin** and start watching for other **review-bot feedback** and **CI** on the PR.
 7. Run the front- and back-end **full test suite**, overlapped with the wait; failures are fixed if safe, else reported.
 8. **Poll until every reviewer is done or timed out** — findings that are safe and clear it just fixes (re-running the gate and re-triggering the bots on each new commit); the rest are saved for your report. Every finding it acts on — bot or human — gets a reply on the PR documenting what it did and has its thread resolved, so human reviewers can see it was dealt with. (Devin's findings are mirrored onto the PR as inline review threads first.) The ones it escalates to your report keep their threads open until you decide.
-9. On the issue (YouTrack), add or update **a small report for testers** — an overview of what changed plus a set of manual testing ideas: normal cases, boundary cases, how it might interact with other parts of the Bloom ecosystem.
+9. On the issue (YouTrack), add or update **a small report for testers** — an overview of what changed plus a set of manual testing ideas: normal cases, boundary cases, how it might interact with other parts of the Bloom ecosystem ([example](https://issues.bloomlibrary.org/youtrack/issue/BL-16548/UI-Tweaks-to-collections-dialog#focus=Comments-102-73983.0-0)).
 10. Hand back a preflight report:
 
 ### The preflight report
