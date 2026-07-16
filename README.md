@@ -1,12 +1,6 @@
 # bloom-team-skills
 
-Agent skills for the Bloom team's development workflow — the procedures that aren't specific
-to any one repository: driving PR reviews (Devin, Reviewable), talking to our YouTrack
-tracker, and the preflight → self-review → peer-review pipeline.
-
-Each skill is a folder containing a `SKILL.md` in the
-[Claude Code / agent skill format](https://code.claude.com/docs/en/skills)
-(frontmatter with `name` and `description`, then the procedure).
+Agent skills for the Bloom team's development workflow, used across various repositories.
 
 ## /preflight
 
@@ -19,6 +13,8 @@ The Bloom Team development process with `preflight`:
 5. Loop to (1) until a human merges it.
 
 ### The Preflight Process
+
+<img width="600" alt="image" src="https://github.com/user-attachments/assets/55ffd9ad-dad6-4ced-8c03-b250a589fc3a" />
 
 When you're done with a fix or feature, run `/preflight`. It will:
 
