@@ -251,12 +251,21 @@ on it spins forever — it will sit "waiting for Devin" long after the review fi
 exact bug stalled a bloom-player #430 run until the user intervened). Match the value line
 instead, and bound the loop:
 
+⚠️ **Reload the page on every poll iteration.** The review page is a SPA that does **not**
+reliably live-update: a tab left sitting on `Generating` can keep showing `Generating` in its
+DOM long after the analysis finished. A loop that only re-runs `evaluate_script` against that
+stale DOM spins to its timeout no matter how long Devin has been done (this stalled a
+bloom-core-supabase #6 run until the user intervened). Every iteration must reload first,
+*then* evaluate:
+
 ```bash
-# poll until done, max ~30 min (60 × 30 s)
+# poll until done, max ~30 min (60 × 30 s); reload EVERY iteration — see warning above
 for i in $(seq 1 60); do
+  chrome-devtools navigate_page --type reload --ignoreCache true >/dev/null 2>&1
+  sleep 5
   chrome-devtools evaluate_script "() => (!document.body.innerText.includes('Generating') && !/analysis in progress/i.test(document.body.innerText))" \
     2>/dev/null | grep -qx "true" && break
-  sleep 30
+  sleep 25
 done
 ```
 
