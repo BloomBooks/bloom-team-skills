@@ -1,38 +1,20 @@
-# Papercuts
-
-Small dev/agent/tooling friction points and improvement ideas — captured in the moment,
-fixed later. This file holds cuts about the **environment, machine setup, team workflow, or
-agents in general**; cuts about a specific repo go in that repo's own `PAPERCUTS.md`. The full
-procedure is the `papercut` skill in this repo.
-
-House rules:
-
-- Add new entries at the **top**, directly under this header block.
-- Entry format: `## YYYY-MM-DD — Title`, then `- **Cut:**` / `- **Idea:**` / optional
-  `- **Context:**` lines. 2–5 lines total.
-- Hit the same cut again? Add a dated `seen again: ...` line to the existing entry instead of
-  duplicating it.
-- On a merge conflict here, keep both sides' entries.
-- Product bugs/features go to YouTrack instead.
-- To work through the backlog, run the `papercut` skill in trim mode ("trim the papercuts").
-  Fixed, promoted, or stale entries get **deleted** — the log only contains open cuts.
+Note: When resolving a git merge conflict in this file, keep both sides' entries unless they can be merged. See the "papercuts" skill for more info.
 
 ---
 
 ## 2026-07-14 — plannotator-last shows a blank page when reviewing plans
 
 - **Cut:** `/plannotator-last` runs `plannotator annotate-last`, which annotates the *last
-  assistant chat message*. After plan-mode work the last message is often a one-liner, so the
-  review page looks empty/broken; one invocation also died with exit code 4 after an
-  interrupted turn, and retries left multiple zombie plannotator instances on different ports.
-- **Idea:** Teach the skill (or the CLI) a plan-file mode: `plannotator annotate-last --stdin
-  --gate < <plan-file>` works today; the skill could locate the current session's plan file
-  automatically, kill stale instances, and print the localhost URL.
+assistant chat message*. After plan-mode work the last message is often a one-liner, so the
+review page looks empty/broken; one invocation also died with exit code 4 after an
+interrupted turn, and retries left multiple zombie plannotator instances on different ports.
+- **Idea:** Teach the skill (or the CLI) a plan-file mode: `plannotator annotate-last --stdin --gate < <plan-file>` works today; the skill could locate the current session's plan file
+automatically, kill stale instances, and print the localhost URL.
 - **Context:** Hit while reviewing the AI-source-bubbles batch plan in BloomDesktop.
-
 - **Cut:** An agent driving Bloom (or another GUI app) gets stuck because a native dialog box
-  opened that it doesn't see; John has to notice and dismiss it by hand.
+opened that it doesn't see; John has to notice and dismiss it by hand.
 - **Idea:** Detection/notification: a watcher that spots unexpected top-level windows/dialogs
-  during agent runs and either alerts John or auto-dismisses known-safe ones; or make the
-  run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
+during agent runs and either alerts John or auto-dismisses known-safe ones; or make the
+run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** Recurring across agent sessions driving Bloom.exe/WebView2.
+

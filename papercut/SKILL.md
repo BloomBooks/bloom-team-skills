@@ -26,8 +26,17 @@ One `PAPERCUTS.md` per repo, at the repo root. Route by what the cut is *about*:
 | the repo you're working in (its docs, scripts, build, tests)     | `PAPERCUTS.md` at that repo's root    |
 | the environment, machine, team workflow, or agents in general    | `PAPERCUTS.md` in bloom-team-skills   |
 
-If the target `PAPERCUTS.md` doesn't exist yet, create it by copying the header block from
-bloom-team-skills' `PAPERCUTS.md` (everything above the first `## ` entry).
+If the target `PAPERCUTS.md` doesn't exist yet, create it with this two-line header (adjust
+the scope sentence to the repo), then start adding entries below the `---`:
+
+```markdown
+Papercuts for <this repo> — small dev/agent/tooling friction points, captured now and fixed
+later. See the "papercut" skill for the procedure.
+
+Note: when resolving a git merge conflict here, keep both sides' entries unless they merge cleanly.
+
+---
+```
 
 ## Add mode
 
