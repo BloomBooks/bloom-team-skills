@@ -35,10 +35,11 @@ When you're done with a fix or feature, run `/preflight`. It will:
 
 ### The preflight report
 
-Preflight's final gift is a single report, auto-opened in your browser, that is easy to scan and interact with. Live examples: [Simple](https://claude.ai/code/artifact/cf50955d-f453-4be3-8dba-463441d83f22?org=0fe551b1-bdb7-47b7-8485-186bf7fec15e), [Complex](https://claude.ai/code/artifact/a9e185bf-3367-4933-ac22-e3ddbe60806a?org=0fe551b1-bdb7-47b7-8485-186bf7fec15e) (Sorry, Anthropic limits those to sil.org members — the screenshot below shows the gist). It has these parts:
+Preflight's final gift is a single report, auto-opened in your browser, that is easy to scan and interact with. Live examples: [Simple](https://claude.ai/code/artifact/cf50955d-f453-4be3-8dba-463441d83f22?org=0fe551b1-bdb7-47b7-8485-186bf7fec15e), [Complex](https://claude.ai/code/artifact/a9e185bf-3367-4933-ac22-e3ddbe60806a?org=0fe551b1-bdb7-47b7-8485-186bf7fec15e) (Sorry, Anthropic limits our artifacts to SIL Global subscribers — the screenshot below shows the gist).
 
 ![A preflight report: header with status chips, a quality-gate table and "what changed" list on the left, and interactive decision items with a copy-back button on the right.](preflight/references/preflight-report-sample.png)
 
+ It has these parts:
 - **Header** — a one-line summary of the run and a row of status chips (draft PR count, mergeability, bots clean, how many items are waiting on you).
 - **Quality gate** — a table of typecheck, lint, and merge-cleanliness, with **tests broken out one row per language/runner** (TS/vitest, C#/dotnet, …) so nothing looks silently skipped; each row shows pass / fail / N/A with detail.
 - **What changed this run** — each commit (linked to its GitHub page, with `file:line` deep links) plus an "also done without needing you" list of the small stuff it handled on its own.
