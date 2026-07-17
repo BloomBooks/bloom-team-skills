@@ -2,6 +2,19 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-07-17 — Machine-wide SUPABASE_* env vars silently redirect tools to a cloud project
+
+- **Cut:** John's machine has global `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` env vars
+  pointing at a real cloud Supabase project (live service key). Any tool reading the
+  conventional `SUPABASE_*` names targets that project instead of the local stack — the new
+  sync-tool in bloom-core-supabase nearly wrote sample data into it before a Parse-side error
+  stopped the run.
+- **Idea:** Tools should use app-specific env names (sync-tool now uses `SYNC_*`) and refuse
+  non-localhost writes without an explicit opt-in flag. Also review whether those global env
+  vars should be removed from the machine (deploy creds belong in per-repo `.env` files).
+- **Context:** Hit while building `packages/sync-tool` in bloom-core-supabase (Local
+  Supabase + Blorg milestone).
+
 ## 2026-07-14 — plannotator-last shows a blank page when reviewing plans
 
 - **Cut:** `/plannotator-last` runs `plannotator annotate-last`, which annotates the *last
