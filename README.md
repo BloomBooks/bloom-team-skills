@@ -6,10 +6,10 @@ Agent skills for the Bloom team's development workflow, used across various repo
 
 The Bloom Team development process with `preflight`:
 
-1. You're done with coding
-2. It's solid as far as all tools/tests/bots can determine
-3. Do your own review on draft PR, loop to (1) until happy
-4. PR to "Ready for Review", get a peer review
+1. You're done with coding, run /preflight, leave and go work on something else.
+2. Come back in a half hour, now there is a draft PR that is as solid as loops through all tools/tests/bots can make it.
+3. Do your own review on draft PR, loop to (1) until happy.
+4. Mark the PR to "Ready for Review", get a peer review.
 5. Loop to (1) until a human merges it.
 
 ### The Preflight Process
