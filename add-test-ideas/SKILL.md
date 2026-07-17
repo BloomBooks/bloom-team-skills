@@ -228,6 +228,28 @@ particular, calls this repeatedly as a PR evolves). A stable marker makes it fin
   - **None →** create a new comment (marker line included).
 - Always write the **complete** refreshed body, not a diff — the update replaces the whole text.
 
+**Re-derive from the current code — never just touch up the old text.** When you refresh an
+existing comment, treat its content as **possibly describing superseded behavior**, not as a
+trustworthy base to lightly edit. A branch evolves, and a later commit can *change or outright
+reverse* what an earlier one did (real case, BL-16569: an early commit dropped per-computer grid
+layout persistence and the notes said so; a later commit **brought it back** in a new form and
+added a Reset button — but the comment still described the dropped-persistence design and had
+"fallen behind"). The failure mode is regenerating the notes by reading the *old comment* instead
+of the *current code*, which silently carries the reversed claim forward and sends the tester to
+verify behavior that no longer exists. So when updating in place:
+
+- **Re-read the current diff/code for HEAD and re-ground every claim in it.** Diff against the
+  base branch (`git diff <base>...HEAD`), not just the last commit, so a mid-branch reversal is
+  visible. If the caller (e.g. preflight) says "base the write-up on the final diff," that is
+  exactly why.
+- **Verify each sentence you keep from the old body still matches the code** — especially any
+  statement of the form "X now happens" / "Y is no longer remembered" / "the default is now Z."
+  Those are the ones a reversal invalidates. If a claim no longer holds, rewrite it to the current
+  behavior and flag the flip in "watch these especially" (a reversed design is a genuinely risky
+  spot: the old behavior can resurface as a regression).
+- The safest habit is to write the refreshed body **from the code**, then check the old comment
+  only to preserve voice and any still-accurate framing — not the other way around.
+
 ### When a *new* comment is the right call instead
 
 Updating in place is the default, but it isn't a hard rule — before you overwrite, pause and ask
@@ -260,3 +282,6 @@ comment when you can name what would be lost by overwriting.
 - Is there a clear **"watch these especially"** for the risky/just-fixed/data-affecting parts?
 - Did you prompt them to try the relevant **conditions** (online/offline, different computers,
   first run vs. later) where they matter?
+- If you're **updating an existing comment**, did you re-derive it from the **current** diff/code
+  rather than lightly editing the old text — and confirm no claim carried over from the previous
+  version has since been changed or reversed by a later commit on the branch?
