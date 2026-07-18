@@ -56,7 +56,7 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 | `bloom-youtrack-reporting` | Query and report across YouTrack issues.                                                                                                                                                |
 | `papercut`                 | Log small dev/agent/tooling friction to a per-repo `PAPERCUTS.md` without derailing the task; trim mode triages the backlog.                                                            |
 | `add-test-ideas`           | Write manual test ideas / a QA test plan for a tester: leads with a plain-language explanation of how the feature works, then do-this-expect-that ideas, then the risky parts to watch. |
-| `decision-form`            | Present a batch of decisions as an interactive artifact — radios with a recommended pick, notes, `Other:`, and a copy-back block — instead of snap-judgment terminal questions.         |
+| `decider`                  | "Make a decider": present a batch of decisions as an interactive artifact — radios with a recommended pick, notes, `Other:`, and a copy-back block — instead of snap-judgment terminal questions. |
 | `update-team-skills`       | Pull the latest bloom-team-skills and symlink any newly added skill into `~/.claude/skills`. Run `/update-team-skills` after someone adds a skill; replaces the manual re-link chore.   |
 
 ## Installation

@@ -1,6 +1,6 @@
 ---
-name: decision-form
-description: Present a batch of decisions to the user as an interactive HTML artifact — radio options with a recommended pick, notes boxes, "Other:" free text, and a copy-back block that pastes the answers straight back into the session. Use whenever ≥2 non-trivial decisions need the user's judgment (instead of posing them as terminal questions or a chat list), when the user says "decision form", "decision artifact", "make me a form", or "ask me properly", and as the shared spec other skills (e.g. preflight-style reports) reference for their decision sections.
+name: decider
+description: Present a batch of decisions to the user as an interactive HTML artifact — radio options with a recommended pick, notes boxes, "Other:" free text, and a copy-back block that pastes the answers straight back into the session. Use whenever ≥2 non-trivial decisions need the user's judgment (instead of posing them as terminal questions or a chat list), when the user says "make a decider", "/decider", "decision form", "decision artifact", or "ask me properly", and as the shared spec other skills (e.g. preflight-style reports) reference for their decision sections.
 ---
 
 # Decision form
