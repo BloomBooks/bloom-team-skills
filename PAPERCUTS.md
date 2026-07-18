@@ -2,6 +2,19 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-07-18 — Background subagents go idle without delivering their final report
+
+- **Cut:** Claude Code background agents (Agent tool) frequently finish and emit only an
+  `idle_notification` — the final report never arrives until the coordinator sends a
+  SendMessage ping asking for it, which then works immediately. Hit 5 times in one
+  session (roughly half of all spawned agents); each costs a round-trip and user-visible
+  delay.
+- **Idea:** Investigate whether this is a harness bug or a prompt-shape issue (agents may
+  be ending on a tool call instead of final text). If prompt-shape: add a standard
+  "your final message must be the report, output it as plain text last" line to our
+  agent-spawning conventions; if harness: report upstream.
+- **Context:** bloom-core-supabase readiness session 2026-07-18, agents on sonnet+opus.
+
 ## 2026-07-18 — Orca worktree rm hangs on zombie PTYs; workaround is sending "exit"
 
 - **Cut:** `orca worktree rm --force` fails with "Timed out waiting for physical PTY
