@@ -2,6 +2,18 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-07-18 — One shared local Supabase stack, many parallel agents
+
+- **Cut:** Parallel agents (and sessions) all share the single local Supabase stack for
+  bloom-core-supabase. One agent's `supabase db reset` + reimport wiped another agent's
+  in-place data scrub mid-task (books went 699→0→699 under it); the second agent only
+  succeeded because it made its scrub idempotent and re-ran in a tight window.
+- **Idea:** Treat the local stack as a shared resource: a convention (announce resets in the
+  workspace, or a lock file), or per-task throwaway stacks/DBs for destructive ops
+  (`supabase db reset` should be the exception, not a casual verify step).
+- **Context:** bloom-core-supabase readiness work 2026-07-18; CI-fixture agent vs a
+  concurrent reset during B-track parallelism.
+
 ## 2026-07-18 — Background subagents go idle without delivering their final report
 
 - **Cut:** Claude Code background agents (Agent tool) frequently finish and emit only an
