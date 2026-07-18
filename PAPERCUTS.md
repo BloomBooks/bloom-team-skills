@@ -15,21 +15,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Context:** Hit while building `packages/sync-tool` in bloom-core-supabase (Local
   Supabase + Blorg milestone).
 
-## 2026-07-17 — devin-review skill's page-scraping misses findings on the new unauthenticated layout
-
-- **Cut:** The unauthenticated app.devin.ai review page no longer renders findings sections at
-all (no Info tab, no Bugs/Flags, no "View results" gate), so the skill's DOM/text-based
-procedure reads "0 findings" even when findings exist — on bloom-player PR #438 it missed all
-4 informational flags and the consultation log had to be corrected.
-- **Idea:** Update the skill's steps 2–3 to read the page's own same-origin API instead of
-scraping: `GET /api/pr-review/jobs?pr_path=github.com%2F<owner>%2F<repo>%2Fpull%2F<n>` to find
-the job for the HEAD sha (poll `status` running→terminal), then
-`/api/pr-review/job-result/<job_id>/<version_id>?pr_path=...` — `lifeguard_result.bugs` = bugs,
-`lifeguard_result.analyses` = flags (`needs_investigation` true = Investigate, false =
-Informational), `lifeguard_result.head_sha` verifies freshness. Fetch via `evaluate_script` in
-the isolated-context tab.
-- **Context:** bloom-player PR #438 preflight, 2026-07-17; hit by Claude (Fable 5) session.
-
 ## 2026-07-14 — plannotator-last shows a blank page when reviewing plans
 
 - **Cut:** `/plannotator-last` runs `plannotator annotate-last`, which annotates the *last

@@ -24,7 +24,7 @@ produces lives only on its website. It doesn't even *begin* a review until we as
 If nobody does that, the review might as well not have happened — none of it is visible on
 GitHub. That gathering-and-mirroring job is what this skill is.
 
-**No finding disappears silently.** Every current (non-Outdated, non-Informational) Bug and
+**No finding disappears silently.** Every current (current-commit, non-Informational) Bug and
 Investigate flag ends up as a PR review thread with a **documented outcome**, one of:
 - **fixed** — Devin marks it Resolved; we reply and resolve the thread (step 6);
 - **not an issue / false positive** — we assessed it during the run; reply with the reasoning,
@@ -126,60 +126,37 @@ gh pr view <n> --json state,mergedAt,commits,reviews,comments,statusCheckRollup
   (Procedure §7). A caller may keep its own marker too (e.g. the `personal-board` skill stamps
   a `devin: <sha> <state>` note on the worktree).
 
-## Page Structure
+## Reading the review: the job-result API (the ONLY reliable read)
 
-The right sidebar of the review page has two tabs: **Info** and **Chat**.
+⚠️ **Do not scrape the page DOM or text for findings.** The unauthenticated review page no
+longer renders findings sections at all — no Info tab, no "View results" gate, no Bugs/Flags
+blocks — so DOM/text greps read **"0 findings" even when findings exist** (this missed all 4
+informational flags on bloom-player #438, 2026-07-17, and the consultation log had to be
+corrected). Navigating the page is still how a review gets *triggered* (Procedure §1), but all
+review *state* is read from the page's own same-origin JSON API, fetched via `evaluate_script`
+from the isolated-context tab:
 
-### The "View results" gate
+- **Jobs list** — which reviews exist and whether they're done:
+  `GET /api/pr-review/jobs?pr_path=github.com%2F<owner>%2F<repo>%2Fpull%2F<n>`
+  → `jobs[]`, each with `job_id`, `status` (`running` → `completed`), `commit_sha`, and
+  `versions[]` (use the **last** entry's `id`). The job whose `commit_sha` equals the PR HEAD
+  is the one you care about; jobs for older commits are the superseded ("Outdated") reviews —
+  never post from them.
+- **Job result** — the findings themselves:
+  `GET /api/pr-review/job-result/<job_id>/<version_id>?pr_path=<same>`
+  → `lifeguard_status` (`complete` when the findings pass is done) and `lifeguard_result`:
+  - `head_sha` — must equal the PR HEAD you expect (freshness check);
+  - `bugs[]` — the **Bugs**. Full description is in the entry (inspect the fields; there is
+    no separate click-to-expand step). Check each entry for a resolved/fixed marker field and
+    treat marked ones as the old "• Resolved" state (reconcile in step 6, don't post).
+  - `analyses[]` — the **Flags**: `{id, title, analysis, file_path, start_line, end_line,
+    side, needs_investigation}`. `needs_investigation: true` = **Investigate** (post);
+    `false` = **Informational** (skip, but count them in the consultation log — never report
+    them as absent).
 
-When analysis finishes, the Info tab may show only an **"Analysis complete"** card with a **"View results"** button — the Bugs/Flags sections are **not rendered until you click it**. Do not conclude "no findings" from an initial snapshot; click "View results" first (see Procedure §3). (Older/other layouts show the sections inline; clicking is then a no-op.)
-
-### Outdated findings (after a new commit)
-
-When a new commit is pushed, Devin re-analyzes. While it regenerates — and sometimes after — the **previous commit's** findings remain on the page grouped under **`Outdated N Bug`** / **`Outdated N Flag`** regions. These are superseded; **never post or re-post them**. Only findings that are **not** inside an `Outdated …` region are current. The header counts (e.g. `1 Bug`) can be the count *inside* an Outdated region, so trust the finding **buttons and their region**, not the header text.
-
-The **Info** tab contains:
-
-### Bugs section
-
-Header shows **"N Bug"** where N = count of *unresolved* bugs. Click to expand if collapsed.
-
-Each bug entry:
-
-```
-{Title}
-Bug  {file}:{line}             ← unresolved
-{Title}
-Bug  {file}:{line} • Resolved  ← already fixed; skip
-```
-
-→ **Post unresolved Bugs to GitHub** as inline review-thread comments. **Resolved** bugs need cross-run reconciliation: if we posted the bug in a prior run, resolve its GitHub thread now; if we never posted it, no action (it was already fixed when Devin first saw it). See step 6.
-
-### Flags section
-
-Header shows **"N Flags"**. Click to expand — it is collapsed by default.
-
-Contains two sub-categories:
-
-**Investigate** items (post these):
-
-```
-{Title}
-Investigate  {file}:{line-range}
-```
-
-**Informational** items (skip these — these are the low-signal "comments"):
-
-```
-{Title}
-Informational  {file}:{line-range}
-```
-
-→ **Post Investigate flags to GitHub. Skip Informational flags.**
-
-### Other sidebar fields
-
-Checks, Reviewers, Assignees, Labels — these are metadata only, no action from this skill.
+If the API shape ever changes, do not assume the logged-out page shows findings — it may
+render none at all; fix the endpoint usage instead (the git history of this file has the old
+DOM-scraping procedure, which worked on the pre-2026-07 page layout).
 
 ## Write for a human reader (not a log dump)
 
@@ -217,9 +194,7 @@ sleep 6
 
 Close this tab when done to avoid accumulating isolated-context tabs.
 
-### 2. Check if Review is Complete (and analyzing the *current* commit)
-
-Do **not** grep the page for `Bug`/`Flags` to decide completeness — those words appear in the PR description and in stale `Outdated` regions, so a cached prior-commit review reads as "done." Instead:
+### 2. Wait for the review job for the current commit (via the jobs API)
 
 **a. Know the commit you expect.** Capture the PR head SHA up front (also reused in steps 5–7):
 
@@ -227,149 +202,82 @@ Do **not** grep the page for `Bug`/`Flags` to decide completeness — those word
 HEAD_SHA=$(gh pr view <number> --repo <owner>/<repo> --json headRefOid --jq .headRefOid)
 ```
 
-**b. Completion = generation finished, not text match.** There are **two** independent progress markers and you must wait for **both** to clear:
-
-- `Generating` (or `Generating…`) — the left **"Devin's AI analysis" summary** panel.
-- `PR analysis in progress` — the right **Info sidebar**, which runs the actual **findings** pass (Bugs/Flags) and finishes *later* than the summary.
-
-⚠️ The summary panel finishes well before the findings pass. If you check only `Generating`, you will see it clear while the Info sidebar still says `PR analysis in progress`, open the results, and wrongly conclude **zero findings** — the bug/flag list is still being generated. (This exact trap hid the one real bug on PR #613 on the first poll.) Reload, then confirm **both** are gone:
-
-```bash
-chrome-devtools navigate_page --type reload --ignoreCache true >/dev/null; sleep 6
-chrome-devtools evaluate_script "() => document.body.innerText.includes('Generating')"          # expect false
-chrome-devtools evaluate_script "() => /analysis in progress/i.test(document.body.innerText)"    # expect false
-```
-
-- either `true` → still analyzing. Come back in ~2–3 min (poll; typical run is 10–20 min). **Timeout 30 min** from trigger.
-- **both** `false` → analysis done. Proceed to §3 (which opens "View results" and reads only current, non-Outdated findings).
-
-⚠️ **Scripted polling: never string-compare the CLI's whole output.** `chrome-devtools
-evaluate_script` does NOT print the bare return value — it prints an update-nag banner, a
-`Script ran on page and returned:` line, and the value inside a fenced ` ```json ` block. So
-`[ "$(chrome-devtools evaluate_script …)" = "true" ]` can **never** match and a poll loop built
-on it spins forever — it will sit "waiting for Devin" long after the review finished (this
-exact bug stalled a bloom-player #430 run until the user intervened). Match the value line
-instead, and bound the loop:
-
-⚠️ **Reload the page on every poll iteration.** The review page is a SPA that does **not**
-reliably live-update: a tab left sitting on `Generating` can keep showing `Generating` in its
-DOM long after the analysis finished. A loop that only re-runs `evaluate_script` against that
-stale DOM spins to its timeout no matter how long Devin has been done (this stalled a
-bloom-core-supabase #6 run until the user intervened). Every iteration must reload first,
-*then* evaluate:
-
-⚠️ **Pin the tab: verify you're evaluating the right page, every iteration.** The
-`devin-noauth` isolated context is **shared by every session on the machine** — another
-Claude/browser session can open its own review tab at any moment, and `chrome-devtools`
-runs `evaluate_script` against whichever tab is *currently selected*, which silently drifts
-to the newest page. A poll loop that never re-selects its tab can end up reading a
-**different PR's** review (a bloom-player #433 run briefly reported another repo's flags as
-its own this way). So: capture your tab id from `new_page`, and every iteration **select it
-and confirm `location.href`** before trusting anything the page says:
+**b. Completion = the jobs API says so — never the page text.** Poll the jobs endpoint from
+the isolated-context tab until the job whose `commit_sha == $HEAD_SHA` reaches a terminal
+`status`:
 
 ```bash
 TAB=<id from new_page>   # e.g. "11"
 EXPECT="/review/<owner>/<repo>/pull/<number>"
-# poll until done, max ~30 min (60 × 30 s); select + verify + reload EVERY iteration
+PRPATH="github.com%2F<owner>%2F<repo>%2Fpull%2F<number>"
+# poll until the HEAD-sha job is terminal, max ~30 min; select + verify tab EVERY iteration
 for i in $(seq 1 60); do
   chrome-devtools select_page "$TAB" >/dev/null 2>&1
   chrome-devtools evaluate_script "() => location.pathname" 2>/dev/null | grep -q "$EXPECT" || { sleep 25; continue; }
-  chrome-devtools navigate_page --type reload --ignoreCache true >/dev/null 2>&1
-  sleep 5
-  chrome-devtools evaluate_script "() => (!document.body.innerText.includes('Generating') && !/analysis in progress/i.test(document.body.innerText))" \
-    2>/dev/null | grep -qx "true" && break
+  RES=$(chrome-devtools evaluate_script "async () => { const r = await fetch('/api/pr-review/jobs?pr_path=$PRPATH'); const j = await r.json(); const job = j.jobs.find(x => x.commit_sha === '$HEAD_SHA'); return job ? job.job_id + '|' + job.status + '|' + (job.versions[job.versions.length-1]||{}).id : 'nojob'; }" 2>/dev/null | grep -oE 'pr-review-job-[a-z0-9]+\|[a-z_]+\|version-[a-z0-9-]+' | head -1)
+  STATUS=$(echo "$RES" | cut -d'|' -f2)
+  [ -n "$STATUS" ] && [ "$STATUS" != "running" ] && { echo "TERMINAL: $RES"; break; }
   sleep 25
 done
 ```
 
-(`grep -qx "true"` matches the fenced value on its own line; the banner and prose never match.)
+- `nojob` on the first minute or two → the navigation may not have registered the trigger yet;
+  reload the page once and keep polling. `nojob` persisting past ~3 min → re-trigger (§
+  "Triggering a review").
+- `status: completed` → proceed to §3, using the captured `job_id` and (latest) `version_id`.
+- Still `running` at the **30 min** cap → record the timeout (the caller reports it verbatim).
 
-The same rule applies in steps 3–4 (enumerating and extracting findings): re-`select_page`
-and re-verify `location.pathname` before each read, and sanity-check that the finding file
-paths belong to *this* repo — a `build.gradle` finding on a TypeScript-only PR means you are
-reading someone else's tab, not that Devin hallucinated.
+Notes that keep this loop honest, all learned the hard way:
 
-Make the **first** check ~30 s after the trigger, not minutes later — re-reviews of small deltas
-often finish faster than a lazy first poll, and every extra interval is dead time the developer
-sits through.
+- ⚠️ **Never string-compare the CLI's whole output.** `chrome-devtools evaluate_script` prints
+  an update-nag banner and a fenced ` ```json ` block around the value, so
+  `[ "$(chrome-devtools …)" = "true" ]` can never match and the loop spins forever (stalled a
+  bloom-player #430 run). Extract the value with a pattern match, as above.
+- ⚠️ **Pin the tab: select + verify `location.pathname` every iteration.** The `devin-noauth`
+  isolated context is shared by every session on the machine; `evaluate_script` runs against
+  whichever tab is currently selected, which silently drifts to the newest page — a
+  bloom-player #433 run briefly read a different PR's review this way. The fetch is
+  same-origin, so it must run from a tab that is actually on `app.devin.ai`.
+- Make the **first** check ~30 s after the trigger — small-delta re-reviews can finish inside
+  one poll interval; don't gate on ever *observing* a `running` state (an over-wait bug hit
+  bloom-harvester #234 twice). The job for `$HEAD_SHA` being `completed` is sufficient
+  evidence, full stop.
+- Jobs for **older commits** in the list are the superseded reviews (what the old UI showed as
+  `Outdated`); ignore them entirely.
 
-**c. Staleness on a re-trigger — one cache-busted reload settles it; then believe the page.**
-Right after navigating to re-review a new commit, the *first paint* can show the **previous**
-commit's cached findings before the page catches up. The cure is exactly **one**
-`--ignoreCache` reload, then a freshness check: the page header shows a **`Commits N`** count —
-compare it to the PR's actual commit count:
+### 3. Enumerate Findings (from the job-result JSON)
 
-```bash
-chrome-devtools evaluate_script "() => { const t=document.body.innerText; const m=t.match(/Commits\s*(\d+)/); return {commits: m?m[1]:'?', gen: t.includes('Generating'), prog: /analysis in progress/i.test(t)}; }"
-```
-
-- Commit count matches the PR **and** both markers are `false` → the analysis shown **is** the
-  terminal state for `$HEAD_SHA`. Proceed to §3 immediately.
-- Commit count is stale → reload again after ~30 s; the page hasn't seen the push yet.
-- Markers `true` → normal §2b polling.
-
-⚠️ Do **not** demand *more* evidence than that. Two real over-waits (bloom-harvester PR #234,
-2026-07-14, user had to interrupt twice) came from exactly this: requiring an observed
-`Generating` transition, or two consecutive idle polls, or waiting for `Outdated` / `• Resolved`
-markers to appear before believing "done". A small-delta re-review can complete inside the first
-poll interval (and may never visibly restart), so a wait gated on watching the restart happen —
-or on markers Devin may not render — never fires and just runs to its timeout on a
-long-finished review.
-
-### 3. Enumerate Findings
-
-First open the Info tab and click **"View results"** (the gate — see Page Structure), then expand the Flags section:
+Fetch the result for the `job_id`/`version_id` captured in §2 (same tab-pinning rule):
 
 ```bash
-# Open Info tab + click "View results" if present
-chrome-devtools evaluate_script "() => { const info=[...document.querySelectorAll('button,[role=tab]')].find(e=>e.textContent.trim()==='Info'); info?.click(); const vr=[...document.querySelectorAll('button,a')].find(e=>/view results/i.test(e.textContent)); vr?.click(); return vr?'opened results':'no gate (inline)'; }"
-sleep 2
-# Expand the Flags section if collapsed
-chrome-devtools evaluate_script "() => { const btn = [...document.querySelectorAll('button')].find(el => /Flag/.test(el.textContent) && el.getAttribute('aria-expanded')!=='true'); btn?.click(); return btn?.textContent?.trim(); }"
-sleep 2
+chrome-devtools evaluate_script "async () => { const r = await fetch('/api/pr-review/job-result/<job_id>/<version_id>?pr_path=$PRPATH'); const j = await r.json(); window.__devinResult = j; const lg = j.lifeguard_result || {}; return JSON.stringify({ status: j.lifeguard_status, headSha: lg.head_sha, bugs: (lg.bugs||[]).length, flags: (lg.analyses||[]).length }); }"
 ```
 
-Then snapshot to get accessible UIDs for all finding buttons:
+Sanity checks before trusting it: `status` must be `complete`, `headSha` must equal
+`$HEAD_SHA`, and the finding `file_path`s must belong to *this* repo (a `build.gradle` finding
+on a TypeScript-only PR means you fetched from the wrong tab, not that Devin hallucinated).
+Stashing the JSON on `window.__devinResult` lets later `evaluate_script` calls slice out
+individual findings without re-fetching.
 
-```bash
-chrome-devtools take_snapshot 2>/dev/null | grep -E "Bug|Investigate|Informational|Resolved|Outdated"
-```
+Collect from `lifeguard_result`:
 
-Each finding appears as a button whose accessible name contains the title, type label (`Bug`, `Investigate`, `Informational`), and file:line. Resolved bugs additionally contain `• Resolved`. Findings under an `Outdated N Bug`/`Outdated N Flag` **region** belong to a superseded commit.
+- **Bugs** (`bugs[]`): post each (step 5) **unless** the entry carries a resolved/fixed marker
+  field — those are the old UI's "• Resolved" bugs, meaning Devin confirmed the PR already
+  fixes them: record their titles for reconciliation (step 6), do NOT post.
+- **Investigate flags** (`analyses[]` with `needs_investigation: true`): post (step 5).
+- **Informational flags** (`analyses[]` with `needs_investigation: false`): do NOT post as
+  review threads (low signal) — but **assess them** (occasionally one deserves a cheap fix or
+  a clarifying comment) and **count them in the consultation log** (step 7). Never report
+  them as absent just because they aren't mirrored.
 
-Collect:
+If `bugs` and the Investigate subset are both empty, the review is **clean** — post nothing
+(still do step 6 for any resolved bugs, and step 7 logging).
 
-- **Unresolved Bugs**: button text contains `Bug`, NOT `• Resolved`, NOT under an `Outdated …` region — to post (step 5)
-- **Investigate flags**: button text contains `Investigate`, NOT under an `Outdated …` region — to post (step 5)
-- **Resolved Bugs**: buttons containing `• Resolved` — record their titles; used to reconcile/resolve GitHub threads (step 6). Do NOT post these.
-- **Skip entirely**: `Informational` items (low signal, no post, no reconcile), and **anything under an `Outdated …` region**
+### 4. Full Descriptions
 
-If *every* current Bug/Flag sits under an `Outdated …` region and there are no non-outdated findings, the re-review is **clean** — post nothing (still do step 6 for any `• Resolved` bugs, and step 7 logging).
-
-### 4. Extract Full Descriptions
-
-Each finding has a **full description** visible only after clicking the finding button. Always extract it — the one-line summary alone is not enough for a useful GitHub comment.
-
-For each finding to post (unresolved Bug or Investigate):
-
-```bash
-# Click the finding button by its UID from the snapshot
-chrome-devtools click "{uid}"
-sleep 2
-
-# Extract: title + body up to the action buttons
-# "Ask Devin" is a reliable end-of-description marker for both Bug and Flag panels.
-# The dismiss buttons just before it are "Copy bug"/"Copy flag"/"Prompt for agents".
-chrome-devtools evaluate_script "() => { var t = document.body.innerText; var askD = t.indexOf('Ask Devin'); var copyIdx = t.lastIndexOf('Copy ', askD); var promptIdx = t.lastIndexOf('Prompt for agents', askD); var end = Math.min(copyIdx > 0 ? copyIdx : askD, promptIdx > 0 ? promptIdx : askD); var start = t.lastIndexOf('TITLE_PREFIX', end); return start >= 0 ? t.slice(start, end).trim() : 'not found'; }"
-
-# Dismiss the panel before clicking the next finding
-chrome-devtools press_key "Escape"
-sleep 1
-```
-
-Where `TITLE_PREFIX` is a distinctive prefix of the finding title (enough to be unambiguous in the page text — avoid words like "the", "a", file names that appear in code diffs).
-
-The extracted text will be: `{Title}\n\n{Full description paragraphs}`
+No extra extraction step: the JSON already carries the full text — `analysis` on each flag,
+and the description field(s) on each bug entry. Use title + full text when posting; the title
+alone is not enough for a useful GitHub comment.
 
 ### 5. Post Findings to GitHub as Inline Review Threads
 
@@ -473,7 +381,7 @@ thread open and let the decision come back later (see "Recording a developer dec
 - **We never posted it** → no action; it was fixed before we ever flagged it.
 - **Its thread is already `isResolved: true`** → no action.
 
-Note: Investigate flags have no "Resolved" state in Devin — when Devin stops flagging one, it simply disappears from the list (or moves to an `Outdated` region on a re-review). Do **not** auto-resolve threads for vanished/outdated flags (no reliable signal); leave those for the human reviewer.
+Note: Investigate flags have no "Resolved" state in Devin — when Devin stops flagging one, it simply disappears from the re-review's `analyses[]` (only the prior commit's job still lists it). Do **not** auto-resolve threads for vanished flags (no reliable signal); leave those for the human reviewer.
 
 ### 7. Log that Devin was run — even if it found no issues
 
@@ -488,7 +396,7 @@ Return a summary:
 - N Investigate flags found — N posted, N skipped
 - N Informational items found (not posted — low signal)
 - N findings assessed not-an-issue — replied & resolved (step 6a)
-- If this was a re-review and all prior findings are now `Outdated`/resolved with no current findings: report **"re-review clean — bots quiet."**
+- If this was a re-review and the current commit's job has no bugs and no Investigate flags: report **"re-review clean — bots quiet."** (Include the informational count.)
 - Whether any findings need developer attention before moving to human review — these are the
   threads deliberately left **open**, awaiting a decision (see next section)
 
@@ -532,14 +440,14 @@ Each posted finding went in as an **inline** review thread on its `file:line`; a
 
 ## Real Example (re-review after a fix commit)
 
-After the developer pushed fixes, re-navigating showed `Generating…`, then completed with the prior findings grouped under **`Outdated 1 Bug`** and **`Outdated 1 Flag`** and **no current findings**. Correct outcome: post nothing, resolve any threads whose bugs are now `• Resolved` (step 6), log the consultation (step 7), and report **"re-review clean — bots quiet."** (A naive `grep "Bug|Flags"` here would have wrongly re-posted the outdated bug.)
+After the developer pushed fixes, re-navigating started a new job; the jobs API showed it `running`, then `completed` for the new head sha, and its job-result had empty `bugs` and no `needs_investigation` analyses — while the *previous* commit's job still listed the old findings. Correct outcome: post nothing, resolve any threads whose bugs the new result marks fixed (step 6), log the consultation (step 7), and report **"re-review clean — bots quiet."** (Reading the old commit's job here would have wrongly re-posted the superseded bug.)
 
 ## Notes
 
 - Devin does **not** post its findings to GitHub automatically — that is why this skill exists.
 - Findings are posted as **inline review-thread comments** (anchored to the diff line, or file-level when the line isn't in the diff), not top-level PR comments, specifically so they can be resolved later. Top-level is only the last-resort rung.
-- On a **re-review** (new commit), prior findings show under `Outdated …` regions — never re-post them. Judge completeness by **both** the `Generating…` (summary) **and** `PR analysis in progress` (Info sidebar / findings pass) markers clearing for the current head SHA, not by matching "Bug"/"Flags" text — the summary finishes before the findings pass (see step 2b).
-- Findings may hide behind a **"View results"** button; click it before concluding there are none.
+- On a **re-review** (new commit), a **new job** is created; the prior commit's job (and its findings) remains in the jobs list — never post from a job whose `commit_sha` isn't the PR HEAD. Judge completeness by that job's `status` and the job-result's `lifeguard_status`/`head_sha` (see step 2), never by page text.
+- Never conclude "no findings" from the rendered page — the unauthenticated layout renders none even when they exist; only the job-result JSON is trustworthy (see "Reading the review").
 - A Resolved bug means Devin confirmed the PR already fixes what it found. If we **never posted** it, no GitHub action is needed. If we **did post** it in a prior run, resolve that thread now (step 6) so the comment we created doesn't linger looking unaddressed.
 - Titles are the matching key between a Devin finding and the GitHub thread we posted for it, both for dedup (step 5) and resolution (step 6). Keep the `[Devin] **Bug**: <Title>` / `[Devin] **Investigate**: <Title>` format stable.
 - Informational items are observations, not action items. Skip them.
