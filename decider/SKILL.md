@@ -68,15 +68,34 @@ tool.
 ## Copy-back block
 
 **One copy-back button** that serializes every selection, every `Other:` text, and every
-non-empty note into a clean plaintext block the user pastes straight back into the session:
+non-empty note into a clean plaintext block the user pastes straight back into the session.
 
-- One short stanza per question: the question's short name, the chosen option's label,
-  `Other: <text>` when chosen, `Notes: <text>` when non-empty.
-- **`Leave comment` is serialized only when ticked** (a `Leave comment` line under that
-  item); when unticked the copy-back text must not mention comments at all for that item.
+**The block must stand alone in a brand-new session.** The user may paste it to a fresh agent
+with zero conversation history, days later — a few label words that only made sense inside
+the report ("Own small branch", "Enable on both") would be useless there. Therefore:
+
+- **Serialize full instructions, not labels.** Give every radio option a
+  `data-instruction` attribute holding a complete, self-contained imperative sentence —
+  naming the repo, branch, file paths, and the concrete action — and emit *that* instead of
+  the visible label. Example: not "Move to its own small branch", but "In
+  D:\repo (branch X), move the uncommitted 4-line SAMPLE_TARGET fix in
+  packages/sync-tool/src/import-sample.mjs to its own small branch off develop and open a
+  PR." `Leave as is` serializes as "Leave as is — take no action on: <one-line restatement
+  of the situation>."
+- **Header block** at the top: what this is ("Decisions from a decider form"), the
+  project/repos and branches concerned, the date, and **the artifact's URL** so a
+  zero-context agent can read the full report if anything is still unclear.
+- Per question: the full question title, then the chosen instruction, `Other: <text>` when
+  chosen, `Notes: <text>` when non-empty.
+- **`Leave comment` is serialized only when ticked** (a line spelling out what to do: record
+  the decision as a code comment near the named code); when unticked the copy-back text must
+  not mention comments at all for that item.
 - Copy via `navigator.clipboard.writeText` **with a fallback**: also write the block into a
   visible readonly `<textarea>` and `select()` it, so a blocked async clipboard still leaves
   the user one Ctrl+C away. Show a "copied" confirmation on success.
+- Because the URL must appear in the block, publish the artifact first, then patch the URL
+  into the file and republish to the same path (same URL both times), or inject it via
+  `location.href` at runtime.
 
 ## Publishing & chat etiquette
 
