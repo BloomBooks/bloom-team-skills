@@ -2,6 +2,18 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-07-18 — Orca worktree rm hangs on zombie PTYs; workaround is sending "exit"
+
+- **Cut:** `orca worktree rm --force` fails with "Timed out waiting for physical PTY
+  teardown" / "Failed to physically stop every PTY" even after `orca terminal stop` and
+  `orca terminal close` both report success (`ptyKilled: true`); the terminals stay listed as
+  `connected: true` and the worktree dir stays locked (cwd of the live shell).
+- **Idea:** Report upstream to Orca. Until fixed: `orca terminal send --text "exit" --enter`
+  to each stuck shell (send `/exit` first if a TUI agent like claude is running in it), then
+  `worktree rm` succeeds and locked dirs become deletable.
+- **Context:** Hit removing failed SupabaseMigration worktrees of the blorg repo (Windows,
+  Git Bash PTYs).
+
 ## 2026-07-17 — Machine-wide SUPABASE_* env vars silently redirect tools to a cloud project
 
 - **Cut:** John's machine has global `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` env vars
