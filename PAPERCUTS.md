@@ -26,6 +26,10 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   "your final message must be the report, output it as plain text last" line to our
   agent-spawning conventions; if harness: report upstream.
 - **Context:** bloom-core-supabase readiness session 2026-07-18, agents on sonnet+opus.
+- seen again: 2026-07-18 (decisions round) — opus agent idled twice without its report even
+  after a SendMessage ping; coordinator gave up and read the working-tree diff instead,
+  which worked fine as a fallback. The "final message must be the report" prompt line was
+  present and did not help.
 
 ## 2026-07-18 — Orca worktree rm hangs on zombie PTYs; workaround is sending "exit"
 
