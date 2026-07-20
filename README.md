@@ -60,6 +60,17 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 | `update-team-skills`       | Pull the latest bloom-team-skills and symlink any newly added skill into `~/.claude/skills`. Run `/update-team-skills` after someone adds a skill; replaces the manual re-link chore.   |
 | `process-sentry-issues`    | "ProcessSentryIssues N": pick off the top N unprocessed Sentry issues for the repo you run it from, triage each, file an attributed YouTrack card, fix fixable ones on a branch + preflight, and land every card in Ready For Work. Repo-agnostic (BloomDesktop, BloomPlayer, …). |
 
+## Publishing artifacts publicly
+
+Several skills produce HTML/asset artifacts (decider forms, preflight reports, PR screenshots).
+The Anthropic Artifact tool hosts those privately — readable only by the developer who created
+them (SIL Global subscribers). When a link must be readable by anyone (a YouTrack card, a PR, a
+teammate, or a zero-context agent resuming later), publish it to the public
+`BloomBooks/dev-process-artifacts` GitHub Pages repo instead. The convention — repo layout,
+naming, the commit/push step, the deterministic URL, and the public-vs-private tradeoff — lives
+in [`dev-process-artifacts.md`](dev-process-artifacts.md); `decider`, `preflight`, and
+`process-sentry-issues` reference it.
+
 ## Installation
 
 ### Prerequisites — tools

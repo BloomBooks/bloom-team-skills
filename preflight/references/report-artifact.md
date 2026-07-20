@@ -2,12 +2,18 @@
 
 Read this when building the Phase 5 report artifact. It defines the page's design, content
 blocks, decision-item controls, and copy-back behavior. Load the `artifact-design` skill first,
-write the page content to a file, and publish with the Artifact tool.
+then write the page content to a file and publish it.
 
 ## Publishing
 
-- Artifacts are **private by default and there is no public toggle** — tell the user they can
-  share it from the artifact's own share menu. It augments, never replaces, the chat summary.
+- **Choose the publish target by audience** (see `../../dev-process-artifacts.md`): if the link
+  needs to be read by anyone outside this session — posted to a YouTrack card, a PR, or handed
+  to another agent (e.g. every `process-sentry-issues` escalation) — publish the HTML file to
+  the public **`dev-process-artifacts`** GitHub Pages repo and use that URL. The Anthropic
+  Artifact tool produces **subscriber-only** links (private, no public toggle; shareable only
+  to fellow subscribers), so use it only when a subscriber-only link is acceptable — then tell
+  the user they can share it from the artifact's own share menu. Either way it augments, never
+  replaces, the chat summary.
 - **After publishing, open the report in the user's default browser** (Windows:
   `Start-Process '<url>'` from PowerShell or `start "" "<url>"`; macOS: `open <url>`; Linux:
   `xdg-open <url>`) — in addition to printing the URL in the chat summary.

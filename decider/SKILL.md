@@ -50,8 +50,14 @@ from the conversation or the code. For each item:
 
 ## Building the artifact
 
-Load the `artifact-design` skill first, write the page to a file, publish with the Artifact
-tool.
+Load the `artifact-design` skill first, then write the page to a file. **Where you publish it
+depends on who needs to read it** (see `../dev-process-artifacts.md`):
+- If the link will leave this session — posted to a YouTrack card, a PR, or handed to a
+  teammate/another agent — publish the HTML file to the public **`dev-process-artifacts`**
+  GitHub Pages repo so anyone can open it. The Anthropic Artifact tool produces
+  **subscriber-only** links, useless to a teammate without a Claude subscription.
+- If only the in-session developer needs it and a subscriber-only link is fine, the Artifact
+  tool is simpler — publish with it.
 
 - **Clean, light style — no dark mode.** Warm off-white ground, white bordered cards (no
   heavy shadows), one restrained accent, system serif headings + system sans body (never link
@@ -93,9 +99,10 @@ the report ("Own small branch", "Enable on both") would be useless there. Theref
 - Copy via `navigator.clipboard.writeText` **with a fallback**: also write the block into a
   visible readonly `<textarea>` and `select()` it, so a blocked async clipboard still leaves
   the user one Ctrl+C away. Show a "copied" confirmation on success.
-- Because the URL must appear in the block, publish the artifact first, then patch the URL
-  into the file and republish to the same path (same URL both times), or inject it via
-  `location.href` at runtime.
+- The URL must appear in the block. On the public `dev-process-artifacts` repo the Pages URL
+  is **deterministic** (you choose the path), so bake it in before pushing — no round-trip
+  needed. With the Anthropic Artifact tool, publish first, then patch the URL into the file and
+  republish to the same path (same URL both times), or inject it via `location.href` at runtime.
 
 ## Publishing & chat etiquette
 
@@ -103,8 +110,9 @@ the report ("Own small branch", "Enable on both") would be useless there. Theref
   `Start-Process '<url>'`; macOS: `open <url>`; Linux: `xdg-open <url>`).
 - In the chat summary, print the artifact URL as a **bare plain-text URL, never a markdown
   link** — terminals render `[label](url)` with the URL hidden and uncopyable.
-- Artifacts are private by default with no public toggle; the user can share from the
-  artifact's own share menu.
+- A `dev-process-artifacts` Pages URL is public — anyone can open it (a just-pushed file may
+  404 for ~1 min while Pages rebuilds). An Anthropic Artifact is private with no public toggle;
+  the user can share it from the artifact's own share menu, but only to fellow subscribers.
 
 ## Processing the answers
 
