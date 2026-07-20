@@ -74,6 +74,12 @@ depends on who needs to read it** (see `../dev-process-artifacts.md`):
 
 ## Copy-back block
 
+**Placement:** the copy-back lives as the **final card at the end of the decisions column**
+(the bottom of the right column on wide screens, directly after the last question) — its own
+titled card (e.g. "Send your answers back") with a one-line description, the button, and the
+readonly textarea beneath it. Do **not** make it a full-width sticky footer or a bar spanning
+under both columns — it must read as the last segment of the same column the questions are in.
+
 **One copy-back button** that serializes every selection, every `Other:` text, and every
 non-empty note into a clean plaintext block the user pastes straight back into the session.
 

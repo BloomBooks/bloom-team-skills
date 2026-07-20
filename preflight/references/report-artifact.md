@@ -104,6 +104,12 @@ each item:
 
 ## Copy-back button
 
+**Placement:** the copy-back lives as the **final card at the end of the decisions column**
+(the bottom of the right column on wide screens, directly after the last decision) — its own
+titled card (e.g. "Send your answers back") with a one-line description, the button, and the
+readonly textarea beneath it. Do **not** make it a full-width sticky footer or a bar spanning
+under both columns — it must read as the last segment of the same column the decisions are in.
+
 **One copy-back button** that serializes every selection, every "Other" text, and every note
 into a clean plaintext block the user can paste straight back into the session. **The
 `Leave comment` checkbox is serialized only when ticked** (emit something like a
