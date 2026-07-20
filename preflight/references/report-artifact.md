@@ -9,8 +9,9 @@ then write the page content to a file and publish it.
 - **Choose the publish target by audience** (see `../../dev-process-artifacts.md`): if the link
   needs to be read by anyone outside this session — posted to a YouTrack card, a PR, or handed
   to another agent (e.g. every `process-sentry-issues` escalation) — publish the HTML file to
-  the public **`dev-process-artifacts`** GitHub Pages repo and use that URL. The Anthropic
-  Artifact tool produces **subscriber-only** links (private, no public toggle; shareable only
+  the public **`dev-process-artifacts`** repo and use its **githack** URL (Pages URL as durable
+  fallback). The Anthropic Artifact tool produces **subscriber-only** links (private, no public
+  toggle; shareable only
   to fellow subscribers), so use it only when a subscriber-only link is acceptable — then tell
   the user they can share it from the artifact's own share menu. Either way it augments, never
   replaces, the chat summary.

@@ -65,10 +65,11 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 Several skills produce HTML/asset artifacts (decider forms, preflight reports, PR screenshots).
 The Anthropic Artifact tool hosts those privately — readable only by the developer who created
 them (SIL Global subscribers). When a link must be readable by anyone (a YouTrack card, a PR, a
-teammate, or a zero-context agent resuming later), publish it to the public
-`BloomBooks/dev-process-artifacts` GitHub Pages repo instead. The convention — repo layout,
-naming, the commit/push step, the deterministic URL, and the public-vs-private tradeoff — lives
-in [`dev-process-artifacts.md`](dev-process-artifacts.md); `decider`, `preflight`, and
+teammate, or a zero-context agent resuming later), commit it to the public
+`BloomBooks/dev-process-artifacts` repo and serve it via its githack URL (live the instant you
+push), with GitHub Pages as a durable fallback. The convention — repo layout, naming, the
+commit/push step, the deterministic URL, githack-vs-Pages, and the public-vs-private tradeoff —
+lives in [`dev-process-artifacts.md`](dev-process-artifacts.md); `decider`, `preflight`, and
 `process-sentry-issues` reference it.
 
 ## Installation

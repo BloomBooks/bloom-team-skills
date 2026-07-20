@@ -160,8 +160,8 @@ here. What differs is what you attach for that human:
 1. Preflight already produced its report artifact with decision controls and a copy-back
    block (per the `decider` spec). Because this link goes on a YouTrack card for a human or
    another agent to open, it **must be publicly readable** — publish the report to the
-   **`dev-process-artifacts`** GitHub Pages repo (see `../dev-process-artifacts.md`), not as a
-   subscriber-only Anthropic Artifact. Verify the copy-back block is **fully self-contained for
+   **`dev-process-artifacts`** repo and use its githack URL (see `../dev-process-artifacts.md`),
+   not a subscriber-only Anthropic Artifact. Verify the copy-back block is **fully self-contained for
    a zero-context agent in a fresh session** — its header must name: the repo (`owner/name`),
    the branch, the PR URL, the YouTrack id, the public artifact URL, and explicit resume
    instructions, e.g. "In a clone of `<owner/name>`, create a worktree for branch `<branch>`
