@@ -103,9 +103,20 @@ the report ("Own small branch", "Enable on both") would be useless there. Theref
 - **`Leave comment` is serialized only when ticked** (a line spelling out what to do: record
   the decision as a code comment near the named code); when unticked the copy-back text must
   not mention comments at all for that item.
-- Copy via `navigator.clipboard.writeText` **with a fallback**: also write the block into a
-  visible readonly `<textarea>` and `select()` it, so a blocked async clipboard still leaves
-  the user one Ctrl+C away. Show a "copied" confirmation on success.
+- **Copy robustly, and report honestly.** The Artifact iframe's Permissions-Policy omits
+  `clipboard-write`, so `navigator.clipboard.writeText` **rejects** ("The Clipboard API has
+  been blocked because of a permissions policy") — you cannot rely on it, and you must never
+  show "Copied" on a path that didn't verify a real copy. Wire the button as this ladder,
+  driving the status text from what actually happened:
+  1. Always fill the visible readonly `<textarea>` and `select()` it **first**, so a manual
+     copy is one keystroke away no matter what follows.
+  2. `try { await navigator.clipboard.writeText(text) }` → on resolve, status = "Copied ✓".
+  3. On reject (the normal case in the sandbox), fall back to `document.execCommand('copy')`
+     on the still-selected textarea; if it returns `true`, status = "Copied ✓".
+  4. If both fail, leave the textarea selected and show a **neutral, non-success** message —
+     e.g. "Couldn't copy automatically — the text is selected below; press Ctrl+C (⌘C on
+     Mac)." Do not style this green or say "Copied".
+  Guard the whole handler in `try/catch` so a throw can't fall through to a success message.
 - The URL must appear in the block. On the public `dev-process-artifacts` repo the Pages URL
   is **deterministic** (you choose the path), so bake it in before pushing — no round-trip
   needed. With the Anthropic Artifact tool, publish first, then patch the URL into the file and
