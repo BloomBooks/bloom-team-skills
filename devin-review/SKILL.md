@@ -387,6 +387,24 @@ Note: Investigate flags have no "Resolved" state in Devin — when Devin stops f
 
 Because it is quite expensive to consult Devin, it's important that we can avoid consulting it if we know that we have not committed anything since the last time we consulted it. For this reason, whenever a consultation with Devin is finished, add a comment to the PR: "Consulted Devin on (date time) up to commit (SHA)". Of course it is vital that we actually gave Devin sufficient time to do the check (step 2) before we decide it has no new findings.
 
+### 7b. Ensure the PR description links the Devin review
+
+Add a link to the Devin review page to the **PR description** (not a comment), so a human on
+the PR can jump straight to it. Make it the **last item** in the description, after a horizontal
+rule. **Skip if it's already there** — this is idempotent, never add a second one.
+
+```bash
+BODY=$(gh pr view <number> --repo <owner>/<repo> --json body --jq .body)
+# already linked? (match the review URL or the "Devin review" label) → do nothing
+echo "$BODY" | grep -qiE 'devinreview\.com|app\.devin\.ai/review|\[Devin review\]' || {
+  printf '%s\n\n---\n[Devin review](https://app.devin.ai/review/<owner>/<repo>/pull/<number>)\n' "$BODY" \
+    | gh pr edit <number> --repo <owner>/<repo> --body-file -
+}
+```
+
+The link text is **`Devin review`**. The URL is the results page
+(`https://app.devin.ai/review/<owner>/<repo>/pull/<number>`, per "URLs").
+
 ### 8. Report
 
 Return a summary:
@@ -399,6 +417,7 @@ Return a summary:
 - If this was a re-review and the current commit's job has no bugs and no Investigate flags: report **"re-review clean — bots quiet."** (Include the informational count.)
 - Whether any findings need developer attention before moving to human review — these are the
   threads deliberately left **open**, awaiting a decision (see next section)
+- Whether the "Devin review" link was added to the PR description (or was already present)
 
 ## Recording a developer decision ("leave as is")
 
