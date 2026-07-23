@@ -2,6 +2,21 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-07-23 — nx test runner hangs with no output; direct vitest is instant
+
+- **Cut:** Running a package's tests through nx (`npm run … testonce` → `nx vite:test`, or
+  `nx run-many --target test`) produced **zero output for 7+ minutes** while the node process
+  stayed alive — indistinguishable from a hang. The identical suite run directly with
+  `npx vitest run --config vitest.config.ts` (cd'd into the package) finished in ~4s. Made
+  preflight's fast gate and full-suite steps unusable through nx.
+- **Idea:** Figure out whether it's the nx daemon on this machine or output buffering in nx's
+  task runner — try `nx reset`, `NX_DAEMON=false`, or check the daemon logs. If it's chronic,
+  teach the preflight/run skills to fall back to per-package `vitest run` (the workaround used
+  here) instead of going through nx.
+- **Context:** Preflight run on EthnoLib (worktree `C:\dev\EthnoLib.worktrees\next`, PR #150),
+  Windows 11, nx 20.4.6. Workaround: loop over packages, `cd $pkg && npx vitest run --config
+  vitest.config.ts`.
+
 ## 2026-07-18 — One shared local Supabase stack, many parallel agents
 
 - **Cut:** Parallel agents (and sessions) all share the single local Supabase stack for
