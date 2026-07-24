@@ -2,6 +2,20 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-07-24 — Devin polling silently reads about:blank when its isolated tab disappears
+
+- **Cut:** Two related cuts in the `devin-review` browser loop. (1) `chrome-devtools new_page
+  <devin url> --isolatedContext devin-noauth` **never returns** — it opened the tab fine but the
+  CLI call hung until the 300 s tool timeout, twice. (2) Mid-run, the `devin-noauth` tab
+  vanished; `evaluate_script` then ran against the leftover `about:blank`, where the
+  same-origin fetch fails, so 14 consecutive poll iterations returned empty strings that look
+  identical to "no job yet". Six minutes burned before I checked `list_pages`.
+- **Idea:** The skill tells you to verify `location.pathname` every iteration (good) — extend
+  that to say what to do when the tab is *gone* rather than merely drifted (reopen it), and to
+  run `new_page` as a background/fire-and-forget call since it may not return. A one-line
+  "empty result means the tab, not the job" note would have saved the whole detour.
+- **Context:** BloomDesktop PR #8107 preflight, 2026-07-24; chrome-devtools CLI 1.2.0.
+
 ## 2026-07-23 — nx test runner hangs with no output; direct vitest is instant
 
 - **Cut:** Running a package's tests through nx (`npm run … testonce` → `nx vite:test`, or
