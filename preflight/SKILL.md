@@ -299,11 +299,12 @@ and the count of items now waiting on the user.
 
 ### Report artifact (always)
 
-In addition to the chat summary, **always** render the report as a **Claude Artifact**.
-**Read `references/report-artifact.md` (in this skill's folder) now and follow it exactly** —
-it defines the publishing steps (including opening it in the browser and printing a bare URL),
-the visual style, the content blocks, the decision-item controls (`Leave as is` /
-`Leave comment` / `Other:` conventions), and the copy-back button.
+In addition to the chat summary, **always** render the report as a standalone HTML page and
+publish it **once** — never through two targets, which yields two links and two browser tabs.
+**Read `references/report-artifact.md` (in this skill's folder) now and follow it exactly** — it
+defines the publish target and steps (including the single URL to open in the browser and
+printing a bare URL), the visual style, the content blocks, the decision-item controls
+(`Leave as is` / `Leave comment` / `Other:` conventions), and the copy-back button.
 
 ## Processing the user's decisions (after the run)
 

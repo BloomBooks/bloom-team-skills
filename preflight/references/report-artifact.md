@@ -6,18 +6,29 @@ then write the page content to a file and publish it.
 
 ## Publishing
 
-- **Choose the publish target by audience** (see `../../dev-process-artifacts.md`): if the link
-  needs to be read by anyone outside this session — posted to a YouTrack card, a PR, or handed
-  to another agent (e.g. every `process-sentry-issues` escalation) — publish the HTML file to
-  the public **`dev-process-artifacts`** repo and use its **githack** URL (Pages URL as durable
-  fallback). The Anthropic Artifact tool produces **subscriber-only** links (private, no public
-  toggle; shareable only
-  to fellow subscribers), so use it only when a subscriber-only link is acceptable — then tell
-  the user they can share it from the artifact's own share menu. Either way it augments, never
-  replaces, the chat summary.
-- **After publishing, open the report in the user's default browser** (Windows:
+- **Publish once, to exactly one target.** Do not publish the same report through both the
+  public repo and the Anthropic Artifact tool — that produces two links and opens two browser
+  tabs.
+- **Default target: the Anthropic Artifact tool.** The normal preflight report is transient —
+  the in-session developer reads it, answers the decisions, and it's spent. Preflight itself
+  never links the report anywhere outbound (it posts the *PR* URL to the tracker card, not this
+  page), so a private link is enough. It's one tool call: no clone/push, no third-party CDN, and
+  no cache staleness when a fix loop re-runs preflight minutes later. Say in the chat summary
+  that the link is **subscriber-only** (private, no public toggle) and that the user can share it
+  to fellow subscribers from the artifact's own share menu.
+- **Escalate to the public `dev-process-artifacts` repo (githack URL)** — see
+  `../../dev-process-artifacts.md` — only when the link genuinely has to leave the session:
+  it's going onto a YouTrack card or a PR body, being handed to a teammate or another agent, or
+  the user asks for a public link. Also use it if the Artifact tool is unavailable. Name it
+  `deciders/<sourceRepo>-<branch>.html`; note that re-pushing that same path can serve the
+  previous version for up to ~60s (githack cache), so on a re-run either wait or use the
+  commit-pinned `rawcdn` URL.
+- Either way the report augments, never replaces, the chat summary.
+- **After publishing, open the report in the user's default browser exactly once** — the one
+  canonical URL, and only if this report hasn't already been opened this run. Windows:
   `Start-Process '<url>'` from PowerShell or `start "" "<url>"`; macOS: `open <url>`; Linux:
-  `xdg-open <url>`) — in addition to printing the URL in the chat summary.
+  `xdg-open <url>`. When you published to the public repo, the Pages URL is a written-down
+  fallback: print it, never open it.
 - **In the chat summary, print the artifact URL as a bare, plain-text URL — never a markdown
   link** (`[label](url)`). In the terminal a markdown link renders as styled label text with the
   URL hidden, so the user cannot open or copy it. The same applies to any other link the user
