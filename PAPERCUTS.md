@@ -2,6 +2,16 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-07-27 — reviewable CLI rejects JSON piped from Windows PowerShell (BOM)
+
+- **Cut:** Piping a JSON body to `reviewable review discussions reply` from Windows PowerShell
+  5.1 fails with `Expected valid JSON on stdin: Unexpected token '﻿'` — the PowerShell pipe
+  prepends a UTF-8 BOM even with `$OutputEncoding` set to BOM-less UTF-8.
+- **Idea:** Note the working pattern in the reviewable-replies skill: write the JSON to a file
+  and run `cmd /c "reviewable ... < file.json"` (raw stdin redirect, no BOM).
+- **Context:** BloomDesktop PR #8100 preflight, 2026-07-27; also hit the CLI's 1.0.1-outdated
+  warning (updated to 1.0.3 on this machine the same day).
+
 ## 2026-07-24 — Devin polling silently reads about:blank when its isolated tab disappears
 
 - **Cut:** Two related cuts in the `devin-review` browser loop. (1) `chrome-devtools new_page
