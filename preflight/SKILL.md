@@ -275,6 +275,15 @@ or replied), branch mergeable, and only human-decision items (if any) remain.
   **only** reason to skip is a genuinely missing prerequisite — no ticket id or no YouTrack
   token — and then note it in the report. This is independent of whether decision items remain —
   do it either way.
+- **Link the preflight report on the tracker card (once).** If a ticket id was found in Phase 0
+  and a YouTrack token is available, post the report artifact's URL to the card after publishing
+  it (see "Report artifact" below — a ticket id means the report publishes to the **public**
+  repo, whose URL is stable per branch). Same mechanics and idempotence as the Phase 3 PR link:
+  list the card's comments, and only if that URL isn't already there post `Preflight report:
+  <url>` (prefixed with an identifier of which model you are). Do this **before ending the run**
+  — decision items may be deferred to a different human who picks up the card later, and the
+  report is where the decisions live. No ticket id or no token → skip silently and note it in
+  the report.
 - **If decision items remain** → (via the board skill) a "needs response / ball in the user's
   court" state, and deliver the **decision report**.
 - **If nothing remains** → (via the board skill) the user's **"ready for my own final review
@@ -294,7 +303,8 @@ or replied), branch mergeable, and only human-decision items (if any) remain.
 Branch/PR link & draft status; fast-gate and full-suite results; what changed this run;
 reviewer outcomes — one line per reviewer per "The reviewers" (the local review included, each
 remote one terminal: complete or "timed out after N min", how long we waited); mergeability;
-whether the QA test-ideas comment was posted/updated (or skipped, with why); final board state;
+whether the QA test-ideas comment was posted/updated and the report link posted to the card (or
+skipped, with why); final board state;
 and the count of items now waiting on the user.
 
 ### Report artifact (always)

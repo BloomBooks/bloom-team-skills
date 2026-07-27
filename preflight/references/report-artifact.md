@@ -9,20 +9,23 @@ then write the page content to a file and publish it.
 - **Publish once, to exactly one target.** Do not publish the same report through both the
   public repo and the Anthropic Artifact tool — that produces two links and opens two browser
   tabs.
-- **Default target: the Anthropic Artifact tool.** The normal preflight report is transient —
-  the in-session developer reads it, answers the decisions, and it's spent. Preflight itself
-  never links the report anywhere outbound (it posts the *PR* URL to the tracker card, not this
-  page), so a private link is enough. It's one tool call: no clone/push, no third-party CDN, and
-  no cache staleness when a fix loop re-runs preflight minutes later. Say in the chat summary
-  that the link is **subscriber-only** (private, no public toggle) and that the user can share it
-  to fellow subscribers from the artifact's own share menu.
-- **Escalate to the public `dev-process-artifacts` repo (githack URL)** — see
-  `../../dev-process-artifacts.md` — only when the link genuinely has to leave the session:
-  it's going onto a YouTrack card or a PR body, being handed to a teammate or another agent, or
-  the user asks for a public link. Also use it if the Artifact tool is unavailable. Name it
-  `deciders/<sourceRepo>-<branch>.html`; note that re-pushing that same path can serve the
-  previous version for up to ~60s (githack cache), so on a re-run either wait or use the
-  commit-pinned `rawcdn` URL.
+- **Picking the target: does the link leave the session?** When a ticket id was found, it does —
+  Phase 5 posts the report URL to the YouTrack card so decisions can be picked up later by
+  someone other than the in-session developer — so publish to the **public
+  `dev-process-artifacts` repo (githack URL)**; see `../../dev-process-artifacts.md`. The same
+  applies whenever the link otherwise has to leave the session (handed to a teammate or another
+  agent, the user asks for a public link) or the Artifact tool is unavailable. Name it
+  `deciders/<sourceRepo>-<branch>.html` — the URL is stable per branch, so a re-run overwrites
+  the same page and the card's report-link comment stays valid (post that stable URL to the
+  card, not a commit-pinned one). Re-pushing the same path can serve the previous version for up
+  to ~60s (githack cache), so on a re-run either wait or *open* the commit-pinned `rawcdn` URL
+  yourself while still posting the stable one.
+- **Otherwise (no tracker card, link stays in-session): the Anthropic Artifact tool.** That
+  report is transient — the in-session developer reads it, answers the decisions, and it's
+  spent — so a private link is enough. It's one tool call: no clone/push, no third-party CDN,
+  and no cache staleness when a fix loop re-runs preflight minutes later. Say in the chat
+  summary that the link is **subscriber-only** (private, no public toggle) and that the user can
+  share it to fellow subscribers from the artifact's own share menu.
 - Either way the report augments, never replaces, the chat summary.
 - **After publishing, open the report in the user's default browser exactly once** — the one
   canonical URL, and only if this report hasn't already been opened this run. Windows:
