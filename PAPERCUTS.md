@@ -144,3 +144,31 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   of the work, not a nice-to-have.
 - **Context:** BloomBridge paragraph indent/spacing detection — shipped reading the PDF text
   layer, while the book that prompted it is a pure scan with zero text items on every page.
+
+## 2026-07-28 — Review sub-agents can stall indefinitely with no way to see progress
+- **Cut:** During a `preflight` run the light-review sub-agent never returned. After ~50 min I
+  nudged it via `SendMessage`, got nothing, dispatched a second, tightly-scoped one with an
+  explicit "return in ~15 tool calls" budget, and that stalled the same way. There is no way to
+  poll a running sub-agent's progress or partial output — you only ever get the completion
+  notification — so a stalled agent is indistinguishable from a slow one, and it silently blocks
+  the phase that depends on it. I finished by doing the review pass myself, which worked fine and
+  would have been faster from the start.
+- **Idea:** Either (a) give `preflight`'s local-review step an explicit wall-clock budget with a
+  documented fallback ("if the sub-agent hasn't returned in N min, do the pass inline and say so
+  in the reviewer row"), or (b) find out whether sub-agent partial output is inspectable
+  anywhere on disk (the way background Bash tasks write to a task output file) and document the
+  path. Right now every skill that fans out to a review agent has this failure mode.
+- **Context:** preflight on BloomDesktop PR #8117 (MXB-More-PageOptions), two agents lost.
+
+## 2026-07-28 — A piped exit code made a failing `tsc --noEmit` look clean
+- **Cut:** I ran `tsc --noEmit -p tsconfig.json 2>&1 | tail -20; echo "tsc exit=$?"` as a
+  background Bash task and reported typecheck as clean, because the task's exit code was 0 and
+  my `$?` was `tail`'s, not tsc's. `tsc` was actually reporting 13 errors the whole time. The
+  errors turned out to be pre-existing and unrelated to the branch, so the conclusion held, but
+  the gate row in my report was wrong until I re-read the output file and corrected it.
+- **Idea:** Worth a line in TEAM-AGENTS.md (or wherever the quality-gate mechanics live): when a
+  gate command's pass/fail matters, never read `$?` through a pipe — use
+  `set -o pipefail`, capture the status directly (`cmd > out.txt; st=$?`), or judge by grepping
+  the output for the tool's own error format. This bites hardest in `preflight`, whose whole
+  output is a table of pass/fail claims.
+- **Context:** preflight on BloomDesktop PR #8117; `src/BloomBrowserUI` typecheck.
