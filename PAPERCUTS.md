@@ -191,3 +191,20 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   the output for the tool's own error format. This bites hardest in `preflight`, whose whole
   output is a table of pass/fail claims.
 - **Context:** preflight on BloomDesktop PR #8117; `src/BloomBrowserUI` typecheck.
+
+## 2026-07-28 — Repro steps written from a warm session were missing the one step that matters
+- **Cut:** I filed a bug card with repro steps I had never re-run from a cold start. John asked the
+  obvious questions — does it need the MXB subscription? the MXB front matter? — and testing
+  revealed the steps were wrong in a way that would have wasted a tester's time: the flash needs a
+  **fresh book load from disk**. Clicking to another page doesn't show it, and neither does
+  selecting a different book and coming back (Bloom keeps the loaded `Book` in memory), so anyone
+  following my steps in an already-open Bloom would have concluded "cannot reproduce". Restarting
+  Bloom was the missing step. The two things I *had* implied were required (MXB branding, MXB
+  xmatter) turned out to be irrelevant — the capture reproduces under Factory xmatter and
+  Local-Community branding, because everything load-bearing travels in the book's data-div.
+- **Idea:** Add to the bug-filing skills (`youtrack-create-issue`, and the report side of
+  `preflight`): before writing repro steps, run them yourself in the state a *tester* will be in —
+  cold app, fresh book — and state explicitly what is NOT required, since a reader assumes every
+  detail of your setup is load-bearing. If a step can't be verified, say so in the card rather
+  than asserting it.
+- **Context:** BL-16619, the stale-`overflow`-class red flash found alongside PR #8117.
