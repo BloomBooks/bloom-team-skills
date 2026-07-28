@@ -17,31 +17,60 @@ It is referenced by the higher-level YouTrack skills — use those for their spe
 
 If you only need to *read* one issue, the REST calls below are all you need.
 
-## 1. Authentication (never hard-code a token in a committed file)
+## 1. Authentication — two tokens (never hard-code a token in a committed file)
 
-You need a YouTrack **permanent token** (they start with `perm-`). Find one in this order:
+YouTrack **permanent tokens** (they start with `perm-`) are per-user. We use **two**, and which
+one you send decides who the action is attributed to:
 
-1. **`$YOUTRACK` environment variable** — on this machine the token is stored here. Check with
-   `echo "${YOUTRACK:+set}"`. This is the normal path; use `-H "Authorization: Bearer $YOUTRACK"`.
-   (Some older skills referred to `$YOUTRACK_TOKEN`; the variable that is actually set is
-   `$YOUTRACK`.)
-2. **A stored token memory** (e.g. a `youtrack-api-token` memory) if the env var is not set.
-3. If none of the above, ask the user to create one: in YouTrack click the avatar →
-   **Profile** → **Account Security** → **New token…**, scope **YouTrack**. Do **not** paste a
-   real token into this skill or any committed file.
+- **`$YOUTRACK`** — *your personal* token. Use it for all **reads** (GET): reading an issue,
+  listing comments, querying/reporting. Check with `echo "${YOUTRACK:+set}"`. (Some older skills
+  referred to `$YOUTRACK_TOKEN`; the personal variable that is actually set is `$YOUTRACK`.)
+- **`$YOUTRACK_BOT`** — the token of the shared **Bloom "Bot"** account. Use it for every
+  **write/mutation**: posting a comment, creating an issue, changing State or any custom field,
+  adding an attachment. This makes automated changes show up in YouTrack as authored by *Bot*
+  rather than masquerading as the human at the keyboard. Check with `echo "${YOUTRACK_BOT:+set}"`.
 
-Validate before doing real work:
+**Writes require `$YOUTRACK_BOT`.** If it isn't set, do **not** fall back to posting under your
+personal `$YOUTRACK` — posting as the human is exactly what the Bot account exists to avoid.
+Tell the user the Bot token is missing so they can set it; for a low-stakes write (e.g. a PR-link
+comment) skip it and note that instead. To get the token: ask the repo owner (it's distributed
+out-of-band, like every secret here — never committed). A personal `$YOUTRACK` is created in
+YouTrack via avatar → **Profile** → **Account Security** → **New token…**, scope **YouTrack**.
+
+So: `-H "Authorization: Bearer $YOUTRACK"` on reads, `-H "Authorization: Bearer $YOUTRACK_BOT"`
+on writes.
+
+### Attribution — every comment/issue the Bot posts must say who really wrote it
+
+Because the author YouTrack shows is now just *Bot*, the **text** you post is the only provenance
+a reader gets. Start the body of every comment, and every issue description you create, with a
+bracketed tag:
+
+- Driven by a skill: `[<model name> from <developer-name>'s machine during <skill-name>]`
+  — e.g. `[Claude Opus 4.8 from Hatton's machine during preflight]`
+- Ad-hoc (no skill running): `[<model name> following a prompt from <developer-name>]`
+  — e.g. `[Claude Opus 4.8 following a prompt from Hatton]`
+
+Get `<developer-name>` from `git config user.name`. This is the YouTrack-specific form of the
+team-wide attribution rule in `TEAM-AGENTS.md`.
+
+Validate your tokens before doing real work:
 ```bash
+# reads — should report YOUR login:
 curl -s -H "Authorization: Bearer $YOUTRACK" \
   "https://issues.bloomlibrary.org/youtrack/api/users/me?fields=login,name"
+# writes — should report the BOT's login:
+curl -s -H "Authorization: Bearer $YOUTRACK_BOT" \
+  "https://issues.bloomlibrary.org/youtrack/api/users/me?fields=login,name"
 ```
-A 200 with your login confirms the token works.
+A 200 with the expected login confirms each token works.
 
 ## 2. Conventions
 
 - **Base URL:** `https://issues.bloomlibrary.org/youtrack/api`
-- **Headers:** every call sends `Authorization: Bearer $YOUTRACK` and `Accept: application/json`;
-  POSTs also send `Content-Type: application/json`.
+- **Headers:** every call sends `Accept: application/json` and an `Authorization: Bearer …`
+  header — `$YOUTRACK` for reads, `$YOUTRACK_BOT` for writes (see §1). POSTs also send
+  `Content-Type: application/json`.
 - **Fields:** YouTrack returns nothing unless you ask — always pass a `fields=` query param
   listing what you want (e.g. `fields=idReadable,summary,description`).
 - **Web URL is a SPA:** `https://issues.bloomlibrary.org/youtrack/issue/BL-xxxxx` is a
@@ -68,11 +97,13 @@ curl -s -H "Authorization: Bearer $YOUTRACK" \
 ```
 
 ### Post a comment
+A write — authenticate as the **Bot** (`$YOUTRACK_BOT`) and start the text with the attribution
+tag from §1:
 ```bash
 curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/comments" \
-  -H "Authorization: Bearer $YOUTRACK" \
+  -H "Authorization: Bearer $YOUTRACK_BOT" \
   -H "Content-Type: application/json" \
-  -d '{"text": "your comment text"}'
+  -d '{"text": "[Claude Opus 4.8 from Hatton'\''s machine during preflight] your comment text"}'
 ```
 Before posting, list existing comments and check you are not creating a duplicate (e.g. when
 posting a PR link, `grep -i "github.com.*pull"` the existing comment text first). For bodies
@@ -84,11 +115,15 @@ curl -s -H "Authorization: Bearer $YOUTRACK" \
   "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/attachments?fields=name,url,size"
 ```
 
-## 4. If the token is unavailable
+## 4. If a token is unavailable
 
-Tell the user plainly: e.g. "I need a YouTrack API token (`$YOUTRACK`) to do this. Set it in
-your environment, or do the step manually: …". For low-stakes steps (like posting a PR-link
-comment) note that it's skipped and continue; for read operations you cannot proceed without it.
+Tell the user plainly which one is missing:
+
+- **`$YOUTRACK` (personal) missing** → you cannot read; say so and stop the read.
+- **`$YOUTRACK_BOT` missing** → you cannot write *as the Bot*. Do **not** post under `$YOUTRACK`
+  instead. For a low-stakes write (a PR-link comment) note that it's skipped and continue;
+  otherwise say "I need the Bloom Bot token (`$YOUTRACK_BOT`) to post this" and let the user set
+  it or do the step manually.
 
 ## 5. Alternative: the YouTrack MCP server
 

@@ -32,7 +32,10 @@ Use the chosen value as the `State` field below.
 
 ## 3. Create via the REST API
 
-Calls use the base URL, headers, and token from the **`youtrack-api`** skill.
+Calls use the base URL, headers, and tokens from the **`youtrack-api`** skill. Creating an issue
+and setting its fields are **writes**, so authenticate with **`$YOUTRACK_BOT`** (the Bot
+account), and start the issue **description** with the attribution tag from `youtrack-api` §1
+(e.g. `[Claude Opus 4.8 from Hatton's machine during youtrack-create-issue]`).
 
 **Look IDs up dynamically — do not trust the cached values, they change every release:**
 
@@ -68,5 +71,7 @@ Recommended sequence:
 
 Give the user the readable id and a clickable link:
 `https://issues.bloomlibrary.org/youtrack/issue/<idReadable>`, and note the final Type / board /
-state. The reporter will be whoever owns the token. Do not push code or change anything else
+state. The reporter will be the **Bot** account (since you created it with `$YOUTRACK_BOT`); the
+attribution tag in the description records which model/developer actually filed it. Do not push
+code or change anything else
 unless separately asked.

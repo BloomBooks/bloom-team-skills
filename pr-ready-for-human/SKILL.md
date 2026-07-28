@@ -71,7 +71,7 @@ Use the **`youtrack-api`** skill for the mechanics (auth, base URL, comments):
 
    ```bash
    curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>?fields=customFields(name,value(name))" \
-     -H "Authorization: Bearer $YOUTRACK" -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $YOUTRACK_BOT" -H "Content-Type: application/json" \
      -d '{"customFields":[{"name":"State","$type":"StateIssueCustomField","value":{"name":"Ready For Code Review"}}]}'
    ```
 

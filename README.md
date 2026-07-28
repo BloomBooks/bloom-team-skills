@@ -91,7 +91,8 @@ Set these in your user environment (never commit them — see [Ground rules](#gr
 
 | Variable                   | What                                | How to get it                                                                                                                   |
 | -------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `**YOUTRACK**`             | YouTrack permanent token (`perm-…`) | In YouTrack: avatar → **Profile** → **Account Security** → **New token…**, scope **YouTrack**. Used by every YouTrack skill.    |
+| `**YOUTRACK**`             | *Your personal* YouTrack permanent token (`perm-…`) — used for **reads** | In YouTrack: avatar → **Profile** → **Account Security** → **New token…**, scope **YouTrack**. Used by every YouTrack skill to read. |
+| `**YOUTRACK_BOT**`         | The shared **Bloom "Bot"** account's permanent token (`perm-…`) — used for **writes** (comments, new issues, state/field changes) | Get it from the repo owner (distributed out-of-band, never committed). Makes automated YouTrack changes show up as authored by *Bot*, not by you; the comment/issue text carries a `[model from dev's machine during skill]` tag for provenance. |
 | `**REVIEWABLE_API_TOKEN**` | Reviewable agent token (`rvbl_…`)   | In Reviewable: **Account settings** → **Provision new agent** → choose the **Author** agent type. Used by `reviewable-replies`. |
 | `**REVIEWABLE_URL**`       | `https://reviewable.io`             | Constant. Used by `reviewable-replies`.                                                                                         |
 
@@ -224,7 +225,8 @@ Notes:
 ## Ground rules
 
 - **Never commit a token or secret here** — this repo is public. Skills reference tokens only
-  by environment variable name (`$YOUTRACK`, `REVIEWABLE_API_TOKEN`, …).
+  by environment variable name (`$YOUTRACK`, `$YOUTRACK_BOT`, `REVIEWABLE_API_TOKEN`, …). The
+  shared `$YOUTRACK_BOT` token in particular is distributed to each dev out-of-band, never here.
 - Repo-specific skills (build quirks, XLF strings, etc.) stay in that repo's
   `.github/skills/`; this repo is for cross-repo team workflow.
 - Skills that touch a developer's _personal_ setup (e.g. a private board) stay in that
