@@ -151,9 +151,21 @@ Whether or not preflight came back clean, the card stays in **Ready For Work** a
 stays a **draft**. This skill never un-drafts a PR or promotes a card — a human takes it from
 here. What differs is what you attach for that human:
 
+**Pairing rule (always):** whenever a fix produced a PR, the card must carry **both** its **PR
+link and its preflight-report link, together** — never post one without the other. The PR link
+alone leaves a teammate without the review/gate outcome; the report link alone leaves them
+without the code. This applies to every card that has a branch/PR, on both paths below (and to
+any earlier card that has only one of the two — backfill the missing link).
+
 **Clean** (preflight's decision report has zero items needing a human):
-- YouTrack: add a PR-link comment (dedup-checked, attributed) noting the draft PR is green and
-  ready for a human to review and un-draft.
+- **Publish the preflight report to `dev-process-artifacts` and link it on the card** — *every*
+  card gets a public, teammate-readable report, not only the "needs a human" ones. Publish the
+  preflight report page (gate results, reviewers, what changed, PR link) to the public
+  **`dev-process-artifacts`** repo and post its githack URL (Pages URL as fallback) as an
+  attributed comment on the card (see `../dev-process-artifacts.md`). A subscriber-only Anthropic
+  Artifact is not acceptable here — a teammate must be able to open it.
+- YouTrack: also add a PR-link comment (dedup-checked, attributed) noting the draft PR is green
+  and ready for a human to review and un-draft.
 - Leave the PR as a draft. (No `gh pr ready`, no board promotion.)
 
 **Needs a human** (decision items remain, a reviewer timed out, or the fix stalled):
