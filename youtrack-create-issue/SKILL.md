@@ -29,6 +29,13 @@ Use the chosen value as the `State` field below.
 - **Type**: usually `Bug` (use `Task`/`Feature` if appropriate).
 - **Board/version**: which release board the user wants (e.g. "6.5"). This maps to the
   **Kanban Board** version field / agile sprint — see below.
+- **Screenshots / video / a repro book**: attach them *and* **embed the images in the
+  description** where they're discussed — see `youtrack-api`'s "Uploading an image or video is
+  only half the job". GIFs get attached but not embedded (they loop distractingly).
+- **Repro steps**: run them yourself in the state a *tester* will be in — cold app, freshly
+  opened book — before writing them down, and state what is **not** required, because a reader
+  assumes every detail of your setup is load-bearing. If you couldn't verify a step, say so in
+  the card rather than asserting it.
 
 ## 3. Create via the REST API
 

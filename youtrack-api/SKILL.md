@@ -115,6 +115,41 @@ curl -s -H "Authorization: Bearer $YOUTRACK" \
   "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/attachments?fields=name,url,size"
 ```
 
+### Add an attachment
+```bash
+curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/attachments?fields=id,name,size" \
+  -H "Authorization: Bearer $YOUTRACK" \
+  -F "file=@screenshot.png;type=image/png"
+```
+Several `-F file=@…` fields in one call work, but the response only echoes one of them — confirm
+what actually landed by listing the attachments afterwards, not by reading the POST response.
+
+### Uploading an image or video is only half the job — INLINE it
+
+**An attachment nobody can see in context might as well not be there.** Whenever you add a
+screenshot or a video to an issue, also embed it at the point in the **description or comment**
+where it is being discussed, so a reader meets the picture where the words explain it instead of
+having to hunt through the attachments list. Markdown, referencing the attachment by its file
+name:
+
+```markdown
+![The title page during the flash: every block is outlined in red](red-state-title-page.png)
+```
+
+Give the alt text real content — describe what the reader is meant to notice, not "screenshot".
+For a video, embed it the same way if the format renders inline; otherwise name the file in the
+prose and say what it shows.
+
+**GIFs are the exception: attach, but do not embed.** An embedded GIF loops forever next to text
+someone is trying to read. Reference it by name, note that it's attached, and say what speed it
+plays at — e.g. slowed to half speed with the real timing stated, since a bug that flashes past
+in 300 ms is unwatchable at true speed.
+
+When you update a description to add media, fetch the current `description`, edit it, and POST it
+back whole (`-d @file.json`) — there is no partial-update; anchor your replacement on unique
+existing text and assert the anchor was found before writing, so a failed match can't silently
+blank a section.
+
 ## 4. If a token is unavailable
 
 Tell the user plainly which one is missing:
