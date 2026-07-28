@@ -2,6 +2,25 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-07-28 — Markdown links in Claude Code replies aren't clickable in Orca's terminal
+
+- **Cut:** `[BL-16618](https://…)` in a chat reply renders coloured + underlined but does
+  nothing on click, and the URL is hidden inside the markup so it can't be copied either —
+  strictly worse than plain text. Cause is Claude Code's hyperlink gate, not Orca: it emits OSC 8
+  only for `WT_SESSION`, or `TERM_PROGRAM` in {ghostty, Hyper, kitty, alacritty, iTerm.app,
+  iTerm2, WezTerm, vscode}, or JediTerm/alacritty. Orca sets `TERM_PROGRAM=Orca`, which matches
+  nothing, so hyperlinks are suppressed. Orca's own terminal is fine — it bundles xterm.js with
+  `OscLinkService` + `WebLinksAddon` (which is why *bare* URLs are clickable).
+- **Idea:** Fixed locally with `"FORCE_HYPERLINK": "1"` in the `env` block of
+  `~/.claude/settings.json` (scoped to Claude Code; a machine-wide env var would force
+  hyperlinks on every CLI). Worth asking Orca to set `FORCE_HYPERLINK` itself when it launches
+  an agent, and/or asking Anthropic to add `Orca` to the allowlist. Note Claude Code checks an
+  embedder handshake (`attacherCaps.hyperlinks`) *before* the env var, so if Orca ever declares
+  that capability explicitly it wins over `FORCE_HYPERLINK`.
+- **Context:** Found 2026-07-28 while reporting BL-16618 links; guidance to prefer bare URLs in
+  chat replies added to `TEAM-AGENTS.md` regardless, since it survives copy-paste and doesn't
+  depend on the reader's terminal.
+
 ## 2026-07-27 — reviewable CLI rejects JSON piped from Windows PowerShell (BOM)
 
 - **Cut:** Piping a JSON body to `reviewable review discussions reply` from Windows PowerShell
