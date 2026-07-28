@@ -52,10 +52,10 @@ Use the friendly model name (e.g. `Claude Opus 4.8`), and get `<developer-name>`
 `git config user.name`. Don't omit the tag; writing under someone's identity without it is
 misleading.
 
-**YouTrack is a special case:** its writes go through a shared **"Bot"** account (not the
-developer's own login), so the tag is the *only* provenance a reader gets. The `youtrack-api`
-skill carries the mechanics (which token, `$YOUTRACK` vs `$YOUTRACK_BOT`) and repeats this tag
-format.
+**YouTrack is a special case:** all of its traffic — reads and writes alike — goes through a
+shared **"Bot"** account (never the developer's own login), so the tag is the *only* provenance a
+reader gets. The `youtrack-api` skill carries the mechanics (`$YOUTRACK_BOT`, and only that token)
+and repeats this tag format.
 
 ## Papercuts
 

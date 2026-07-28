@@ -1,10 +1,9 @@
 ---
 name: preflight
-description: Run the automated pre-review checklist on the current branch — the work before the "flight" of human review. Local quality gate, commit & push, draft PR, then trigger and WAIT for every async reviewer (Devin, other review bots, CI) to actually finish — auto-fixing and auto-replying to bots — refresh the QA test-ideas comment on the YouTrack card, and finish with a decision report of anything that genuinely needs the user. Local review level -- light single-sub-agent pass by default; "thorough review"/"expensive review" = full /code-review + fix loop; "without review" = skip it. Never marks the PR ready-for-review and never requests a teammate's review (that's pr-ready-for-human).
+description: Run the automated pre-review checklist on the current branch — the work before the "flight" of human review. Local quality gate, commit & push, draft PR, then trigger and WAIT for every async reviewer (Devin, other review bots, CI) to actually finish — auto-fixing and auto-replying to bots — refresh the QA test-ideas comment on the tracker card, and finish with a decision report of anything that genuinely needs the user. Local review level -- light single-sub-agent pass by default; "thorough review"/"expensive review" = full /code-review + fix loop; "without review" = skip it. Never marks the PR ready-for-review and never requests a teammate's review (that's pr-ready-for-human).
 argument-hint: "optional: PR number or branch name — defaults to the current branch/worktree. Review level: 'thorough review' or 'without review'."
 user-invocable: true
 ---
-
 # Preflight
 
 Goal: run the pre-review preflight on whatever is on the current branch — make it the best,
@@ -26,15 +25,16 @@ Running `/preflight` is the user's **explicit, durable authorization** to perfor
 outward-facing GitHub write this skill defines, autonomously and **without stopping to
 re-confirm**. The general "outward-facing actions need confirmation first" guard does **not**
 apply to these — the skill invocation already granted them:
+
 - commit and push the branch;
 - create a **draft** PR, or convert an existing PR back to draft;
 - post replies to **bot** comments/reviews (including telling a bot it's mistaken);
 - reply to a **human** comment **to acknowledge a fix you made** at their suggestion — a brief,
-  polite thanks plus what you changed — and resolve that thread (the *agree-and-act* case;
-  arguing with or dismissing a human is still excluded, below);
+polite thanks plus what you changed — and resolve that thread (the *agree-and-act* case;
+arguing with or dismissing a human is still excluded, below);
 - trigger Devin and, via `devin-review`, mirror its findings as inline review threads, resolve
-  the threads for findings Devin now considers fixed, and add the "Consulted Devin … up to
-  `<SHA>`" log comment;
+the threads for findings Devin now considers fixed, and add the "Consulted Devin … up to
+`<SHA>`" log comment;
 - resolve/close the review threads this workflow owns.
 
 Do not pause to ask "should I publish this?" for any of the above — publishing bot feedback and
@@ -54,6 +54,7 @@ for the `autoMode.allow` / `permissions.allow` setup that unblocks it.
 
 Do it yourself when it's safe and clear. Put it in the decision report (and keep going on
 everything else) when it is any of:
+
 - a change to **user-facing behavior or a public API/interface/contract**;
 - a **large or architecturally-significant** change, or one touching **many files**;
 - a **semantic** merge conflict (resolve only trivial ones — lockfile, imports, formatting);
@@ -71,49 +72,97 @@ Every preflight run answers to the same panel of reviewers. Define it once here;
 phase says "each reviewer" and means this list:
 
 1. **The local review** (Phase 1) — runs in-session at the user's chosen level. Its outcome
-   (level ran, findings raised / fixed / escalated / dismissed, or "clean", or "skipped at
-   user request") is captured and reported as a reviewer row like any other — never silently
-   omitted.
+ (level ran, findings raised / fixed / escalated / dismissed, or "clean", or "skipped at
+ user request") is captured and reported as a reviewer row like any other — never silently
+ omitted.
 2. **Devin** — available for **every** GitHub PR via its review page
-   (`https://devinreview.com/<owner>/<repo>/pull/<n>`, alias of `app.devin.ai/review/…` —
-   literally the PR's `github.com` URL with the host swapped). It needs **no GitHub app, no CI
-   workflow, and no prior comment** to be usable; the absence of a `devin-ai-integration`
-   comment or a `pr-automation`/`Devin Review` check proves **nothing** and must never be read
-   as "Devin isn't configured here." The only per-repo difference is the *trigger*:
-   BloomDesktop auto-triggers Devin on push via `pr-automation.yml`; on any other repo you
-   trigger it yourself by loading the review URL. **Always run Devin.** All Devin mechanics —
-   triggering, waiting, gathering, mirroring findings — go through the **`devin-review`** skill.
+ (`https://devinreview.com/<owner>/<repo>/pull/<n>`, alias of `app.devin.ai/review/…` —
+ literally the PR's `github.com` URL with the host swapped). It needs **no GitHub app, no CI
+ workflow, and no prior comment** to be usable; the absence of a `devin-ai-integration`
+ comment or a `pr-automation`/`Devin Review` check proves **nothing** and must never be read
+ as "Devin isn't configured here." The only per-repo difference is the *trigger*:
+ BloomDesktop auto-triggers Devin on push via `pr-automation.yml`; on any other repo you
+ trigger it yourself by loading the review URL. **Always run Devin.** All Devin mechanics —
+ triggering, waiting, gathering, mirroring findings — go through the **`devin-review`** skill.
 3. **Comment-posting review bots detected on this repo** (e.g. Greptile, CodeRabbit). Detect
-   via a prior review/comment from the bot, a check context in `gh pr checks <n>`, or a config
-   file (`.greptile*` / `.coderabbit*`). They trigger themselves on push.
+ via a prior review/comment from the bot, a check context in `gh pr checks <n>`, or a config
+ file (`.greptile*` / `.coderabbit*`). They trigger themselves on push.
 4. **CI** — the PR's checks (`gh pr checks <n>`).
 
 **Terminal-state rule (the rule this skill exists to enforce):** the run is not done until
 every reviewer is in exactly one of two states for the **current HEAD sha**:
+
 - **complete** — its review finished and its findings were folded into the fix/reply loop; or
 - **timed out** — we waited the cap and it hadn't finished, recorded verbatim as **"timed out
-  after N min"** (with a note that re-running `preflight` folds in late results).
+after N min"** (with a note that re-running `preflight` folds in late results).
 
 A reviewer still analyzing has not "passed" — it just hasn't spoken yet. **"Pending" / "still
 running" is never an acceptable terminal outcome.** If you are about to write "pending" as a
 reviewer's final status, you have exited too early — go back and wait it out or record the
 timeout.
 
+## The issue tracker — project-declared, never assumed
+
+Preflight posts two things to a work-tracking card: the PR link (Phase 3) and the QA test-ideas
+comment (Phase 5). It does not know or care which tracker a project uses.
+
+**How a project declares one.** In its own instructions at the repo root — `AGENTS.md` bridged by a
+`@AGENTS.md` line in `CLAUDE.md` (Claude Code reads `CLAUDE.md`, not `AGENTS.md`), or `CLAUDE.md`
+directly. Root, not a subdirectory: root is also what gets re-injected after a `/compact`, which a
+long preflight run can hit. A declaration is a passage that names **all three** of: the tracker,
+what its ticket ids look like, and which skill talks to it.
+
+**Anything less is not a declaration.** A project's instructions mentioning a tracker's name in
+passing — in a contributing note, a commit-message convention, a link — does **not** count, however
+obvious the answer looks. Treat partial and incidental mentions exactly like none.
+
+**If the project has no declaration, STOP and ask — immediately, on your first turn.** This is the
+one question preflight raises up front instead of deferring to the decision report: it arrives in
+Phase 0, while the user is still at the keyboard and nothing has been triggered yet, and one answer
+settles it for that repo permanently. Offer to write the declaration into the project's `AGENTS.md`
+(adding the `@AGENTS.md` import to `CLAUDE.md` if it's missing). **"This project doesn't use a
+tracker" is a valid answer and gets written down too** — otherwise preflight re-asks forever in a
+repo that will never have cards.
+
+**Do not investigate.** Establishing the tracker and the ticket id costs at most two cheap looks:
+the project's instructions (already in context — no tool call) and the branch name. If those don't
+answer it, you are done looking. Do **not** consult the PR title, commit messages, open cards, issue
+searches, or the codebase to reconstruct what a declaration should have said, and do not reason
+from surrounding evidence (`BL-`-shaped strings in the repo, a tracker skill being installed) to a
+conclusion the project never stated. Reaching the right answer by investigation is the **failure
+mode** here, not a save: it burns the user's tokens, and it leaves the repo undeclared so the next
+run investigates again. Asking is one cheap turn and fixes it permanently.
+
+**What preflight needs from a tracker skill.** Four operations. How it authenticates is entirely its
+own business — a token, an MCP server, an already-authenticated CLI, anything:
+
+1. **Reachable?** — a cheap check that tracker operations will work at all.
+2. **Read this branch's ticket id off the branch name** — one look, using the id format the
+declaration gave. No id there means this branch has no card: skip the card steps, note it once in
+the report, and move on. That is a normal outcome, not a problem to solve, and **not** a reason to
+go hunting through the PR or the commit log.
+3. **List a card's comments** — both the PR-link step and `add-test-ideas` dedup against these.
+4. **Post or update a comment** on a card.
+
+Never write "token" — or any other auth mechanism — into a preflight instruction. Ask the tracker
+skill whether it's reachable and let it decide what that means.
+
 ## Phase 0 — Discover
 
 - Identify branch, base (default `master`/`main` — confirm via remote HEAD), and `owner/repo`
-  from `git remote get-url origin`.
-- Extract a YouTrack ticket id from the branch name if present (a `BL-1234`-style prefix).
+from `git remote get-url origin`.
+- **Identify the issue tracker and this branch's ticket id**, per "The issue tracker" above — stop
+and ask if the project declares none.
 - Detect the toolchain — **every stack present, not just Node**: package manager from the
-  lockfile (`pnpm-lock.yaml`→pnpm, `yarn.lock`→yarn, else npm) and the **typecheck / lint /
-  test / build** commands from `package.json` `scripts`; a .NET solution (`*.sln` /
-  `*.csproj`) → `dotnet build` / `dotnet test`; likewise any other stack in the repo. Record a
-  **non-watch** test command per stack (prefer a `test:ci`/`run` variant; NEVER launch a
-  watch-mode runner — it hangs). Fallbacks: typecheck → `<pm> exec tsc --noEmit`; lint → the
-  `lint` script.
+lockfile (`pnpm-lock.yaml`→pnpm, `yarn.lock`→yarn, else npm) and the **typecheck / lint /
+test / build** commands from `package.json` `scripts`; a .NET solution (`*.sln` /
+`*.csproj`) → `dotnet build` / `dotnet test`; likewise any other stack in the repo. Record a
+**non-watch** test command per stack (prefer a `test:ci`/`run` variant; NEVER launch a
+watch-mode runner — it hangs). Fallbacks: typecheck → `<pm> exec tsc --noEmit`; lint → the
+`lint` script.
 - Look for a **private board skill** the user has (a skill whose job is their personal
-  work/review board). If found, invoke it to mark this worktree as actively being worked on, and
-  use it for all later board moves. If none, skip board steps silently.
+work/review board). If found, invoke it to mark this worktree as actively being worked on, and
+use it for all later board moves. If none, skip board steps silently.
 
 ## Phase 1 — Local quality gate (loop until clean)
 
@@ -126,19 +175,19 @@ The local review runs at one of three levels — the full `/code-review` + fix l
 lot of tokens, so it is opt-in:
 
 - **Light (the DEFAULT):** dispatch ONE general-purpose subagent over the working diff.
-  Prompt it to: read the diff plus just enough surrounding code to judge it; report only
-  **clear, high-confidence correctness problems** (bugs, broken edge cases, misused APIs,
-  unintended behavior changes) — no style points, no nits, no refactor ideas, no "consider…";
-  and return a short structured list (file:line, what breaks, why it's wrong). One pass, no
-  verification loop, no re-review after fixes (typecheck/lint/tests are the re-check).
+Prompt it to: read the diff plus just enough surrounding code to judge it; report only
+**clear, high-confidence correctness problems** (bugs, broken edge cases, misused APIs,
+unintended behavior changes) — no style points, no nits, no refactor ideas, no "consider…";
+and return a short structured list (file:line, what breaks, why it's wrong). One pass, no
+verification loop, no re-review after fixes (typecheck/lint/tests are the re-check).
 - **Thorough** — only when the user asked for a **"thorough review"** or **"expensive
-  review"** (both phrasings mean the same thing — since preflight always includes *a* review,
-  "with code-review" would be ambiguous). Each cycle: run the `/code-review` skill at `high`
-  effort with `--fix` on the working diff; findings that cross the autonomy line are NOT
-  applied — decision report; run the fast gate; re-run `/code-review` to confirm nothing
-  remains. Cycle.
+review"** (both phrasings mean the same thing — since preflight always includes *a* review,
+"with code-review" would be ambiguous). Each cycle: run the `/code-review` skill at `high`
+effort with `--fix` on the working diff; findings that cross the autonomy line are NOT
+applied — decision report; run the fast gate; re-run `/code-review` to confirm nothing
+remains. Cycle.
 - **None** — only when the user asked (e.g. **"/preflight without review"**), for
-  tiny/mechanical changes: skip straight to the fast gate.
+tiny/mechanical changes: skip straight to the fast gate.
 
 Triage findings the same way at every level: safe and clear → fix; crosses the autonomy line →
 decision report; wrong → dismiss with a one-line reason. **Capture the outcome for the
@@ -159,18 +208,18 @@ the gate: merging needs a clean tree, so the work has to be committed first, and
 reject un-gated code — hence gate in Phase 1, integrate here.)
 
 - **Commit everything on the branch** (including pre-existing uncommitted work — that's "what's
-  on the branch"), so the tree is clean enough to merge and the pre-commit hooks run against
-  already-gated code. Message: `<concise summary> (<TICKET>)` plus the repo/user's required
-  commit trailer, identifying which model you are. Let the hooks run.
+on the branch"), so the tree is clean enough to merge and the pre-commit hooks run against
+already-gated code. Message: `<concise summary> (<TICKET>)` plus the repo/user's required
+commit trailer, identifying which model you are. Let the hooks run.
 - `git fetch origin`, then merge `origin/<base>` into the branch:
   - **Clean / already up to date** → done; the branch is integrated.
   - **Trivial** conflicts (lockfile, imports, formatting) → resolve them, complete the merge,
-    then **re-run the fast gate** on the integrated result (even a conflict-free merge can fold
-    base's hunks into files you also touched) and commit any fixes.
+  then **re-run the fast gate** on the integrated result (even a conflict-free merge can fold
+  base's hunks into files you also touched) and commit any fixes.
   - **Semantic** conflicts → **abort the merge** (`git merge --abort`) to leave the branch
-    un-integrated, record a decision item, and set (via the board skill) a "needs response"
-    state. Continue the run on the un-integrated branch — publishing the draft PR is still
-    worthwhile for review — and leave the base integration to the user.
+  un-integrated, record a decision item, and set (via the board skill) a "needs response"
+  state. Continue the run on the un-integrated branch — publishing the draft PR is still
+  worthwhile for review — and leave the base integration to the user.
 
 ## Phase 3 — Publish (push, draft PR, link)
 
@@ -179,20 +228,19 @@ Everything is already committed in Phase 2; this phase only pushes and opens the
 - Push, setting upstream if needed.
 - Ensure a **draft** PR exists: `gh pr list --head <branch> --json number,url,state,isDraft`.
   - None → create one: write the body (`<summary>` + `Ref: <tracker-url-if-known>`) to a temp
-    file and `gh pr create --draft --base <base> --title "<summary> (<TICKET>)" --body-file
-    <file>` (a literal `--body "...\n..."` won't expand `\n` in PowerShell — always use
-    `--body-file`).
+  file and `gh pr create --draft --base <base> --title "<summary> (<TICKET>)" --body-file <file>` (a literal `--body "...\n..."` won't expand `\n` in PowerShell — always use
+  `--body-file`).
   - Exists but is **ready-for-review** → convert it back to draft (`gh pr ready <n> --undo`):
-    preflight means the work is pre-review again. Note the conversion in the report.
+  preflight means the work is pre-review again. Note the conversion in the report.
   - (Do NOT do the promote-to-human ceremony — that's `pr-ready-for-human`.)
 - Record PR number & URL.
 - **Link the PR on the tracker card (once).** If a ticket id was found in Phase 0, use the
-  **`youtrack-api`** skill for the mechanics: list the issue's comments, check a PR link isn't
-  already there (`grep -i "github.com.*pull"`), and only if none post a comment `PR: <PR URL>`
-  (prefixed with an identifier of which model you are). This is idempotent — never post a second
-  PR link. If no YouTrack token is available or no ticket id was found, skip silently and note it
-  in the report. (`pr-ready-for-human` performs the same dedup-checked step later, so a link
-  posted here means that step finds it already present and does nothing.)
+project's **tracker skill**: list the card's comments, check a PR link isn't already there
+(`grep -i "github.com.*pull"`), and only if none post a comment `PR: <PR URL>`
+(prefixed with an identifier of which model you are). This is idempotent — never post a second
+PR link. If the branch carries no ticket id, or the tracker isn't reachable, skip the step and
+note it in the report. (`pr-ready-for-human` performs the same dedup-checked step later, so a link
+posted here means that step finds it already present and does nothing.)
 
 ## Phase 4 — Bot gauntlet
 
@@ -200,59 +248,59 @@ The gauntlet runs every reviewer (see "The reviewers") to a terminal state. The 
 already ran in Phase 1; its captured outcome joins the results here.
 
 1. **Trigger Devin** for the current HEAD via the `devin-review` skill (on BloomDesktop the
-   push already triggered it via CI; elsewhere the skill loads the review URL — either way it
-   runs, never skip it as "not set up"). Record that it was triggered for this commit. Detect
-   which comment-posting bots are active (see "The reviewers"). The other reviewers trigger
-   themselves on push.
+ push already triggered it via CI; elsewhere the skill loads the review URL — either way it
+ runs, never skip it as "not set up"). Record that it was triggered for this commit. Detect
+ which comment-posting bots are active (see "The reviewers"). The other reviewers trigger
+ themselves on push.
 2. **First pass — gather whatever feedback is already available and act on it** (don't idle
-   waiting for the slow ones yet):
-   - CI: `gh pr checks <n>`.
-   - Bot comments/reviews via `gh api repos/<owner>/<repo>/pulls/<n>/comments`,
-     `.../issues/<n>/comments`, `.../pulls/<n>/reviews`. Consider items newer than our last
-     commit / not yet resolved.
+ waiting for the slow ones yet):
+  - CI: `gh pr checks <n>`.
+  - Bot comments/reviews via `gh api repos/<owner>/<repo>/pulls/<n>/comments`,
+  `.../issues/<n>/comments`, `.../pulls/<n>/reviews`. Consider items newer than our last
+  commit / not yet resolved.
    Evaluate each item — **from a bot or a human**; the split is agree-and-act vs. disagree, not
    who wrote it:
-   - Clear, correct, within the autonomy line → **fix it, then post a reply documenting the
-     outcome and resolve the thread** (prefix the body with an identifier of which model you
-     are): "Fixed in `<sha>`: …", and for a **human** a brief thanks for the catch. A
-     documented, resolved thread is the record a later human reviewer sees.
-   - **Bot** is mistaken → **post a reply** explaining why **and resolve the thread** — refuting
-     a bot needs no user sign-off.
-   - Crosses the autonomy line, **or you disagree with a human** → **decision report**, with the
-     thread left **open** (never auto-dismiss a human; it gets closed when the decision comes
-     back — see "Processing the user's decisions"). Only clear-cut, acted-on items get closed
-     above.
+  - Clear, correct, within the autonomy line → **fix it, then post a reply documenting the
+  outcome and resolve the thread** (prefix the body with an identifier of which model you
+  are): "Fixed in `<sha>`: …", and for a **human** a brief thanks for the catch. A
+  documented, resolved thread is the record a later human reviewer sees.
+  - **Bot** is mistaken → **post a reply** explaining why **and resolve the thread** — refuting
+  a bot needs no user sign-off.
+  - Crosses the autonomy line, **or you disagree with a human** → **decision report**, with the
+  thread left **open** (never auto-dismiss a human; it gets closed when the decision comes
+  back — see "Processing the user's decisions"). Only clear-cut, acted-on items get closed
+  above.
 3. If any fixes were made → re-run the fast gate, commit, push. A new commit **restarts** every
-   async reviewer, so re-trigger Devin and **reset the wait clock**. Cap the overall
-   fix-push-rewait cycle at **4**; note in the report if capped.
+ async reviewer, so re-trigger Devin and **reset the wait clock**. Cap the overall
+ fix-push-rewait cycle at **4**; note in the report if capped.
 4. **Run the FULL test suite — once, here, overlapped with the wait.** While waiting in step 5,
-   run every stack's full non-watch suite against the settled code. If it already passed on an
-   identical tree this run, don't re-run it. Failures → fix if safely fixable (that's a new
-   commit → back to step 3), else decision report + (via the board skill) a "needs response"
-   state. Phase 5 requires the full suite green at the final HEAD.
+ run every stack's full non-watch suite against the settled code. If it already passed on an
+ identical tree this run, don't re-run it. Failures → fix if safely fixable (that's a new
+ commit → back to step 3), else decision report + (via the board skill) a "needs response"
+ state. Phase 5 requires the full suite green at the final HEAD.
 5. **Wait for every async reviewer to reach a terminal state** (the terminal-state rule).
-   Skipping this wait is exactly what produces "pending" rows. Keep it **non-blocking**: do
-   remaining work between polls (step 4's full suite, report drafting) and never block-sleep
-   the whole interval; poll roughly every 2–3 min. Shared cap: **~30 min from the latest push**
-   (a re-triggering push resets it, bounded by step 3's cycle cap). Per reviewer:
-   - **Devin:** run the `devin-review` skill through to its terminal result — it waits
-     internally (both the `Generating` summary panel **and** the `PR analysis in progress`
-     findings pass must clear for the current HEAD sha; ~30-min internal cap) and then
-     gathers/mirrors findings. Use **its** returned outcome ("findings posted …" / "re-review
-     clean — bots quiet" / timed out) as Devin's state. Do **NOT** infer Devin's state from
-     `gh` signals alone: "finished clean" and "still running" look identical over the API, so
-     reporting off a missing comment is exactly the bug to avoid.
-   - **Comment-posting bots:** complete when the bot has posted its review/summary for the
-     **current HEAD sha** (a review/comment dated after the latest commit, **or** its check
-     context in a terminal `completed` conclusion). A "reviewing…" placeholder or in-progress
-     check means keep waiting. Once complete, fold its findings into step 2's
-     evaluate/fix/reply logic.
-   - **CI:** complete when every required check is terminal (success/failure), not
-     queued/in-progress. Failures → treat like any finding (fix if safe; else decision report).
-   - **On timeout:** record "timed out after N min" (for Devin, re-trigger once as you give
-     up). Late results get folded in on a re-run.
+ Skipping this wait is exactly what produces "pending" rows. Keep it **non-blocking**: do
+ remaining work between polls (step 4's full suite, report drafting) and never block-sleep
+ the whole interval; poll roughly every 2–3 min. Shared cap: **~30 min from the latest push**
+ (a re-triggering push resets it, bounded by step 3's cycle cap). Per reviewer:
+  - **Devin:** run the `devin-review` skill through to its terminal result — it waits
+   internally (both the `Generating` summary panel **and** the `PR analysis in progress`
+   findings pass must clear for the current HEAD sha; ~30-min internal cap) and then
+   gathers/mirrors findings. Use **its** returned outcome ("findings posted …" / "re-review
+   clean — bots quiet" / timed out) as Devin's state. Do **NOT** infer Devin's state from
+   `gh` signals alone: "finished clean" and "still running" look identical over the API, so
+   reporting off a missing comment is exactly the bug to avoid.
+  - **Comment-posting bots:** complete when the bot has posted its review/summary for the
+  **current HEAD sha** (a review/comment dated after the latest commit, **or** its check
+  context in a terminal `completed` conclusion). A "reviewing…" placeholder or in-progress
+  check means keep waiting. Once complete, fold its findings into step 2's
+  evaluate/fix/reply logic.
+  - **CI:** complete when every required check is terminal (success/failure), not
+  queued/in-progress. Failures → treat like any finding (fix if safe; else decision report).
+  - **On timeout:** record "timed out after N min" (for Devin, re-trigger once as you give
+  up). Late results get folded in on a re-run.
 6. New findings fixed → re-cycle from step 3 (bounded; note if capped). Otherwise, with every
-   reviewer terminal and the full suite green, proceed to Phase 5.
+ reviewer terminal and the full suite green, proceed to Phase 5.
 
 ## Phase 5 — Converge, land, report
 
@@ -260,35 +308,34 @@ Enter when: fast gate clean, **full test suite green at HEAD**, every reviewer t
 (complete or recorded timeout — the terminal-state rule), all **bot** comments resolved (fixed
 or replied), branch mergeable, and only human-decision items (if any) remain.
 
-- **Refresh the QA test-ideas comment (idempotent).** If a ticket id was found in Phase 0 and a
-  YouTrack token is available, invoke the **`add-test-ideas`** skill against this branch's change
-  and post the result to the card. This runs on **every** preflight, so rely on that skill's
-  **update-in-place** default (it finds its own marked comment via `bloom-test-ideas` and rewrites
-  it) — do **not** let it stack a fresh comment each run just because preflight ran again. (The
-  skill may still *choose* to add a new "round 2" comment when history matters — e.g. testers
-  already worked the old notes and only part needs retesting; that deliberate case is fine, blind
-  duplication is not.) The write is authorized by this skill invocation like the other tracker
-  writes. Base the write-up on the final diff for the current HEAD (this is why it lives here,
-  after the code has settled). Post it **even when the change has nothing user-testable** (a pure
-  refactor, tooling, docs) — in that case the comment is `add-test-ideas`'s short "nothing for a
-  tester to do, because …" note; never skip the comment just because there's nothing to test. The
-  **only** reason to skip is a genuinely missing prerequisite — no ticket id or no YouTrack
-  token — and then note it in the report. This is independent of whether decision items remain —
-  do it either way.
-- **Link the preflight report on the tracker card (once).** If a ticket id was found in Phase 0
-  and a YouTrack token is available, post the report artifact's URL to the card after publishing
-  it (see "Report artifact" below — a ticket id means the report publishes to the **public**
-  repo, whose URL is stable per branch). Same mechanics and idempotence as the Phase 3 PR link:
-  list the card's comments, and only if that URL isn't already there post `Preflight report:
-  <url>` (prefixed with an identifier of which model you are). Do this **before ending the run**
-  — decision items may be deferred to a different human who picks up the card later, and the
-  report is where the decisions live. No ticket id or no token → skip silently and note it in
-  the report.
+- **Refresh the QA test-ideas comment (idempotent).** If a ticket id was found in Phase 0 and the tracker is  
+ reachable, invoke the **`add-test-ideas`** skill against this branch's change  
+and post the result to the card. This runs on **every** preflight, so rely on that skill's  
+**update-in-place** default (it finds its own marked comment via `test-ideas` and rewrites  
+it) — do **not** let it stack a fresh comment each run just because preflight ran again. (The  
+skill may still *choose* to add a new "round 2" comment when history matters — e.g. testers  
+already worked the old notes and only part needs retesting; that deliberate case is fine, blind  
+duplication is not.) The write is authorized by this skill invocation like the other tracker  
+writes. Base the write-up on the final diff for the current HEAD (this is why it lives here,  
+after the code has settled). Post it **even when the change has nothing user-testable** (a pure  
+refactor, tooling, docs) — in that case the comment is `add-test-ideas`'s short "nothing for a  
+tester to do, because …" note; never skip the comment just because there's nothing to test. The  
+**only** reason to skip is a genuinely missing prerequisite — no ticket id or an unreachable  
+tracker — and then note it in the report. This is independent of whether decision items remain —  
+do it either way.
+- **Link the preflight report on the tracker card (once).** If a ticket id was found in Phase 0 and
+the tracker is reachable, post the report artifact's URL to the card after publishing it (see
+"Report artifact" below — a ticket id means the report publishes to the **public** repo, whose URL
+is stable per branch). Same mechanics and idempotence as the Phase 3 PR link: list the card's
+comments, and only if that URL isn't already there post `Preflight report: <url>` (prefixed with an
+identifier of which model you are). Do this **before ending the run** — decision items may be
+deferred to a different human who picks up the card later, and the report is where the decisions
+live. No ticket id, or an unreachable tracker → skip and note it in the report.
 - **If decision items remain** → (via the board skill) a "needs response / ball in the user's
-  court" state, and deliver the **decision report**.
+court" state, and deliver the **decision report**.
 - **If nothing remains** → (via the board skill) the user's **"ready for my own final review
-  before handing to a colleague"** state; leave the PR **draft**; deliver the summary. Never
-  request a teammate's review and never mark the PR ready.
+before handing to a colleague"** state; leave the PR **draft**; deliver the summary. Never
+request a teammate's review and never mark the PR ready.
 
 ### Decision report format (one block per item)
 
@@ -323,34 +370,35 @@ sometimes informally in chat — that answer carries the same authorization as t
 `/preflight` invocation for the writes below. For each decided item:
 
 - **A fix option was chosen** → implement it (then re-run preflight's gauntlet as usual — it's
-  a new commit).
-- **`Leave as is` on an item that originated as a bot review thread** (Devin or any other
-  bot) → close the loop on the PR, **unconditionally**: reply on the thread recording the
-  decision and the reasoning (in plain English, using the user's notes where given), then
-  resolve it — per `devin-review`'s "Recording a developer decision" section, which has the
-  mechanics. Every mirrored Devin Bug/Investigate flag must end with a documented outcome on
-  the PR; "we chose not to act, because …" is a valid outcome, silence is not.
-- **`Leave comment` was ticked** → additionally record the decision as a **code comment in the
-  repo** near the relevant code (this is what that checkbox means — a durable record in the
-  source, not a PR comment; the PR-thread reply above happens regardless of the checkbox).
-  Commit it with the normal conventions.
-- **`Other:` text or notes** → follow them; if they amount to a fix, treat as a chosen fix.
+a new commit).
+- `**Leave as is` on an item that originated as a bot review thread** (Devin or any other
+bot) → close the loop on the PR, **unconditionally**: reply on the thread recording the
+decision and the reasoning (in plain English, using the user's notes where given), then
+resolve it — per `devin-review`'s "Recording a developer decision" section, which has the
+mechanics. Every mirrored Devin Bug/Investigate flag must end with a documented outcome on
+the PR; "we chose not to act, because …" is a valid outcome, silence is not.
+- `**Leave comment` was ticked** → additionally record the decision as a **code comment in the
+repo** near the relevant code (this is what that checkbox means — a durable record in the
+source, not a PR comment; the PR-thread reply above happens regardless of the checkbox).
+Commit it with the normal conventions.
+- `**Other:` text or notes** → follow them; if they amount to a fix, treat as a chosen fix.
 
 ## Rules
 
 - Never mark the PR ready-for-review (leave it draft). Never request a teammate's review. Clean &
-  quiet → the user's own final-review state (via their board skill).
+quiet → the user's own final-review state (via their board skill).
 - Never run a watch-mode test command.
 - Any text posted to GitHub under the user's account is prefixed with an identifier of which
-  model you are (per the user's identity conventions) — do not hardcode a model name.
+model you are (per the user's identity conventions) — do not hardcode a model name.
 - A **human** comment that's clearly right and in scope → fix it, reply with a brief thanks and
-  what you changed, and resolve. **Disagreeing** with a human → report, never auto-reply/
-  auto-dismiss. A **bot** → auto-reply is always fine (documenting a fix, or refuting a mistake).
+what you changed, and resolve. **Disagreeing** with a human → report, never auto-reply/
+auto-dismiss. A **bot** → auto-reply is always fine (documenting a fix, or refuting a mistake).
 - Include the repo/user's required commit trailer on commits.
 - Defer local board moves to the user's private board skill; Devin mechanics to the
-  `devin-review` skill; and the tracker link, shared project board, and "ready for human"
-  promotion to the `pr-ready-for-human` skill (which the developer runs after their own review).
+`devin-review` skill; and the tracker link, shared project board, and "ready for human"
+promotion to the `pr-ready-for-human` skill (which the developer runs after their own review).
 - Idempotent & re-entrant: safe to re-run; it re-cycles from wherever the branch currently is
-  (new commits restart the bot gauntlet).
+(new commits restart the bot gauntlet).
 - Degrade gracefully: if a board skill / `gh` / a bot / the Devin trigger is unavailable, note it
-  and continue with everything else.
+and continue with everything else.
+

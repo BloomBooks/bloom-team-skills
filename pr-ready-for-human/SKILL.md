@@ -1,6 +1,6 @@
 ---
 name: pr-ready-for-human
-description: Promote a preflighted, self-reviewed PR to human (peer) review. Step 3 of the review sequence — (1) run preflight, (2) the developer reviews the work themselves, (3) the developer runs this. Verifies the PR is genuinely clean (CI green, bots quiet, nothing newer than the last preflight), links YouTrack and moves the card to Ready For Code Review, marks the PR ready-for-review, and moves the shared and personal boards to their human-review columns. If anything is not clean, it bounces back to preflight instead of fixing things itself.
+description: Promote a preflighted, self-reviewed PR to human (peer) review. Step 3 of the review sequence — (1) run preflight, (2) the developer reviews the work themselves, (3) the developer runs this. Verifies the PR is genuinely clean (CI green, bots quiet, nothing newer than the last preflight), links the PR on the tracker card and moves it to the project's ready-for-peer-review state, marks the PR ready-for-review, and moves the shared and personal boards to their human-review columns. If anything is not clean, it bounces back to preflight instead of fixing things itself.
 argument-hint: "optional: PR number or branch name — defaults to current worktree"
 user-invocable: true
 ---
@@ -58,28 +58,31 @@ Check all of the following. **Any failure → do not promote** (see "Not clean" 
   developer's court.
 - Tell the user to re-run `preflight`, then stop. Do **not** fix, reply, or wait here.
 
-## Stage 2 — YouTrack: PR link + card state
+## Stage 2 — The tracker: PR link + card state
 
-Use the **`youtrack-api`** skill for the mechanics (auth, base URL, comments):
+Use the project's **tracker skill** — whichever one its `AGENTS.md`/`CLAUDE.md` declares (see
+`preflight`'s "The issue tracker" section for how that declaration works and for the four
+operations every tracker skill provides). This stage needs one more:
 
-1. Find the issue id (`BL-XXXXX`) from the branch name, PR title, or recent commits.
-2. List the issue's comments and check a PR link isn't already there
+5. **Move a card to the project's "ready for peer review" state.** Ask for it *semantically* —
+   the tracker skill owns the concrete vocabulary, since the state's name, and whether the
+   tracker even has states, varies by tracker and project.
+
+Then:
+
+1. Find this branch's ticket id. No id → skip this whole stage and note it.
+2. List the card's comments and check a PR link isn't already there
    (`grep -i "github.com.*pull"`) — avoid duplicates.
 3. If none, post a comment: `PR: <PR URL>`.
-4. **Move the card's State to "Ready For Code Review"** (exact value name, including
-   capitalization):
+4. **Move the card to the ready-for-peer-review state**, then confirm the tracker echoes the new
+   state back.
 
-   ```bash
-   curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>?fields=customFields(name,value(name))" \
-     -H "Authorization: Bearer $YOUTRACK_BOT" -H "Content-Type: application/json" \
-     -d '{"customFields":[{"name":"State","$type":"StateIssueCustomField","value":{"name":"Ready For Code Review"}}]}'
-   ```
+**Never move a card backwards.** If it's already in that state, or further along (in Bloom's
+YouTrack: "Ready For Testing", "Closed"), leave it and say so in the report rather than
+downgrading it. That ordering is the tracker skill's knowledge, but the no-downgrade rule is
+this skill's policy.
 
-   Verify the response echoes `State = Ready For Code Review`. If the card is already in
-   that state (or further along, e.g. "Ready For Testing"/"Closed"), leave it alone and note
-   that instead of downgrading it.
-
-If no YouTrack token is available, note it in the final report and continue — this is the
+If the tracker isn't reachable, note it in the final report and continue — this is the
 lowest-stakes step.
 
 ## Stage 3 — Promote
@@ -93,8 +96,9 @@ lowest-stakes step.
 3. **Personal board**: if a `personal-board` skill is available, invoke it to record that the
    developer has explicitly handed this to peer review (the user running this skill is the
    explicit command that skill requires). Skip silently if unavailable.
-4. **Report**: "PR #<n> is now marked ready and in **Ready for Human**; YouTrack card is in
-   **Ready For Code Review**. PR: <URL>" plus anything skipped (e.g. YouTrack token missing).
+4. **Report**: "PR #<n> is now marked ready and in **Ready for Human**; the tracker card is in
+   its ready-for-peer-review state (name it). PR: <URL>" plus anything skipped (e.g. the tracker
+   was unreachable).
 
 ## Rules
 
@@ -102,6 +106,6 @@ lowest-stakes step.
   bounce to preflight instead. No exceptions except an explicit user override ("skip the
   checks, promote anyway"), which must be noted in the report.
 - Never request a teammate's review; un-drafting + the board column is the handoff.
-- Anything posted under the user's account (YouTrack or GitHub) starts with an identifier of
+- Anything posted under the user's account (the tracker or GitHub) starts with an identifier of
   which model you are.
-- Always check for duplicate YouTrack comments before posting.
+- Always check for duplicate comments on the card before posting.

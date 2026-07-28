@@ -1,14 +1,14 @@
 ---
 name: add-test-ideas
-description: Write manual test ideas / a QA test plan for a feature or change, aimed at a Bloom-savvy but semi-technical tester. Use when asked to "add test ideas", "write manual testing ideas", "make a test plan for QA", or to put testing notes on a YouTrack card. Leads with a plain-language explanation of how the feature works, then testing ideas, then the risky parts to watch.
-argument-hint: "optional: a BL-xxxxx card id or PR/branch to base the test ideas on — defaults to the current branch's change"
+description: Write manual test ideas / a QA test plan for a feature or change, aimed at a product-savvy but semi-technical tester. Use when asked to "add test ideas", "write manual testing ideas", "make a test plan for QA", or to put testing notes on a tracker card. Leads with a plain-language explanation of how the feature works, then testing ideas, then the risky parts to watch.
+argument-hint: "optional: a ticket id or PR/branch to base the test ideas on — defaults to the current branch's change"
 user-invocable: true
 ---
 
 # Writing manual test ideas
 
 Use this when someone asks for manual **test ideas**, a **test plan**, or **QA notes** for a
-feature or change — often to post as a comment on the YouTrack card. The goal is a document a
+feature or change — often to post as a comment on the tracker card. The goal is a document a
 human tester can actually follow.
 
 The single most important thing: **start by explaining how the feature works**, in plain
@@ -18,12 +18,12 @@ explanation is the backbone of the whole write-up.
 
 ## Who you're writing for
 
-A tester who **knows Bloom well but is only semi-technical**. They know Collection Settings, the
-Book Making tab, editing books, Team Collections, languages, publishing, etc. They do **not**
-think in code. So:
+A tester who **knows the product well but is only semi-technical** — in Bloom's case, someone at
+home in Collection Settings, the Book Making tab, editing books, Team Collections, languages, and
+publishing. They do **not** think in code. So:
 
 - Write **whole sentences**, not terse checklist fragments.
-- Describe **what the tester does and what they should see**, in the words of the Bloom UI.
+- Describe **what the tester does and what they should see**, in the words of the product's own UI.
 - **No developer jargon.** Never mention code-level things like class names, DOM attributes,
   file internals, threads, endpoints, or data structures. Translate every such idea into what a
   user does or sees. Some common translations:
@@ -203,9 +203,10 @@ code/PR to be sure, or phrase it as a question for the tester ("confirm whether 
 
 ## Where it goes
 
-- Usually a **comment on the YouTrack card.** Post it with the **`youtrack-api`** skill
-  (auth, base URL, POST a comment). For a body with headings/quotes, write the Markdown to a file
-  and `curl -d @file.json` after JSON-encoding (`jq -Rs '{text: .}' body.md > body.json`).
+- Usually a **comment on the work-tracking card.** Post it with the project's **tracker skill** —
+  the one its `AGENTS.md`/`CLAUDE.md` names (for Bloom repos, `youtrack-api`); that skill owns
+  authentication and the request mechanics. For a body with headings/quotes, avoid quoting hell by
+  writing the Markdown to a file and JSON-encoding it (`jq -Rs '{text: .}' body.md > body.json`).
 - **Prefix the comment** with an identifier of which model you are (per the user's identity
   convention, e.g. `[Claude Opus 4.8] …`), since it posts under their account.
 - If it's wanted somewhere else (a doc, a PR comment, a message), same content, same voice.
@@ -217,14 +218,15 @@ find that comment and rewrite it rather than pile on a new one every time (prefl
 particular, calls this repeatedly as a PR evolves). A stable marker makes it findable:
 
 - **Marker.** Make the marker the *first line of the body*, on its own:
-  `<!-- bloom-test-ideas -->`. Put the identity prefix and the human title on the next lines.
-  Include it regardless of whether YouTrack renders HTML comments visibly — a stray marker line
+  `<!-- test-ideas -->`. Put the identity prefix and the human title on the next lines.
+  Include it regardless of whether the tracker renders HTML comments visibly — a stray marker line
   showing in the text is a fine price for reliable find-again.
-- **Find-or-create.** Before posting, list the card's comments asking for `id` and `text`
-  (`GET …/issues/<id>/comments?fields=id,text`) and look for ones whose text contains
-  `bloom-test-ideas`.
-  - **Found →** update the **most recent** marked comment in place:
-    `POST …/issues/<id>/comments/<commentId>` with the new full body (marker line included).
+- **Find-or-create.** Before posting, list the card's comments (with their ids) via the tracker
+  skill and look for ones whose text contains `test-ideas`. (Search by that **substring**, not an
+  exact marker-line match — it also catches comments written with the older `bloom-test-ideas`
+  marker, so cards from before the rename are still found and get the new marker when refreshed.)
+  - **Found →** update the **most recent** marked comment in place, with the new full body (marker
+    line included).
   - **None →** create a new comment (marker line included).
 - Always write the **complete** refreshed body, not a diff — the update replaces the whole text.
 
@@ -273,7 +275,7 @@ comment when you can name what would be lost by overwriting.
 ## Quality bar before you post
 
 - Does it **open with how the feature works**, in user language?
-- Could a semi-technical Bloom tester **follow every step** without asking a developer what a
+- Could a semi-technical tester **follow every step** without asking a developer what a
   word means?
 - Is every item **do-this → expect-that**, with specific examples?
 - Does **every item have a plausible failure mechanism tied to this change**? Cut any

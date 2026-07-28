@@ -11,7 +11,7 @@ Run searches against the YouTrack REST API — see the **`youtrack-api`** skill 
 URL, and request conventions. Issues are fetched from `GET /api/issues` with the search text in
 the `query=` parameter and the fields you need in `fields=`, e.g.:
 ```bash
-curl -s -H "Authorization: Bearer $YOUTRACK" \
+curl -s -H "Authorization: Bearer $YOUTRACK_BOT" \
   "https://issues.bloomlibrary.org/youtrack/api/issues?fields=idReadable,summary,created&query=project:%20Bloom%20created:%20%7Bminus%2012M%7D%20..%20*&$top=200"
 ```
 
