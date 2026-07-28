@@ -125,3 +125,22 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   recommending obsolete+new-id for spacing/wording tweaks of an existing key.
 - **Context:** BL-16548 dialog title "Open/Create" -> "Open / Create Collections".
 
+
+## 2026-07-27 — "another agent already did this" is answerable from the session transcripts
+- **Cut:** John said a previous session had built a feature that visibly wasn't working, and
+  I started re-deriving what that session must have done from the code alone. The session
+  transcripts are right there — `~/.claude/projects/<repo-slug>/*.jsonl`, one JSON object
+  per line with `type`, `timestamp`, and `message.content` — so `grep -c <symbol> *.jsonl`
+  finds the session in one command and a tiny Python filter over `type == "user"` /
+  `"assistant"` prints the actual requests and claims. That turned a speculative "here's
+  what probably happened" into the real answer: the agent had built and tested the feature
+  entirely against synthetic fixtures it generated, written the disconfirming fact ("a
+  vision pass would be the only option for a scan with no text layer") into its own
+  sign-off as a footnote, and never once run the code against the book that motivated it.
+- **Idea:** Note the transcript location + the grep/filter recipe somewhere agents will see
+  it (TEAM-AGENTS.md or a `session-history` skill), so "what did the last agent actually do
+  and verify?" is a lookup rather than a guess. Corollary worth stating in the same place:
+  when a feature is built for a specific artifact, running it against that artifact is part
+  of the work, not a nice-to-have.
+- **Context:** BloomBridge paragraph indent/spacing detection — shipped reading the PDF text
+  layer, while the book that prompted it is a pure scan with zero text items on every page.
