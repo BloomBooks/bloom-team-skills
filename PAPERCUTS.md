@@ -223,3 +223,22 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   edit built on the mangled text would corrupt a file that was fine.
 - **Context:** investigating a BloomBridge origami/overflow bug; reading `HtmlGenerator.pagePx` and
   `origamiPaneRect`.
+
+## 2026-07-29 — The YouTrack Bot account cannot set Assignee at all, and no skill says so
+- **Cut:** Asked to file a card "assigned to me", I created it fine (Type, Kanban Board, State all
+  set via `$YOUTRACK_BOT`) but every attempt at Assignee returned
+  `400 {"error_description":"Assignee expected: <whatever I passed>"}`. Not a syntax problem: the
+  Bot has no read access to the user directory, so it cannot *resolve* any assignee. Evidence —
+  `GET /api/users` returns only `Bot` itself; the Assignee values on existing issues all come back
+  as `anonymized-6104`, `anonymized-8057`, …; `commands/assist` on `"Assignee "` offers no user
+  completions at all; and even `Assignee Bot` fails. I burned a round of guesses on plausible
+  logins (`JohnHatton`, `jhatton`, `john_hatton`, `hatton`, `John.Hatton`, the email) before
+  testing `Bot` and realising the account is the limitation, not the value.
+- **Idea:** `youtrack-create-issue` should say up front that **Assignee is not settable by the Bot**
+  — set Type/board/State, then hand the user the link and ask them to assign (one click), rather
+  than letting an agent discover it by trial and error. Same for `youtrack-api` §fields. If we do
+  want agents to assign, that needs a token with user-directory read, and the skill should name it.
+  Worth also noting the anonymization, since it makes *any* "who is on this card" question
+  unanswerable through the Bot.
+- **Context:** filing BL-16627 (Bloom auto-fit origami splits) with State=In Progress, requested
+  "assigned to me".
