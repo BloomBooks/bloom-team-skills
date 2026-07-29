@@ -96,7 +96,9 @@ curl -s -H "Authorization: Bearer $YOUTRACK_BOT" -H "Accept: application/json" \
 
 ### Find the issue id for the current work
 Read a `BL-XXXXX` id off the **branch name** (`git rev-parse --abbrev-ref HEAD`). That's the whole
-check: our branches carry the id, so no id in the branch name means no card for this branch.
+check: our branches carry the id, so no id in the branch name means no card for this branch. (The
+naming rule this depends on — `<TICKET-ID>-<1–3 words>`, and create the card *before* the branch —
+is in `TEAM-AGENTS.md` under "Branch and worktree names start with the ticket id".)
 
 The PR title and recent commit messages (`git log --oneline -20`) are fallbacks for when a **human
 asks you to track down** which card some work belongs to. An automated caller like `preflight` must

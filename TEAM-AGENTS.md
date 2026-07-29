@@ -57,6 +57,23 @@ shared **"Bot"** account (never the developer's own login), so the tag is the *o
 reader gets. The `youtrack-api` skill carries the mechanics (`$YOUTRACK_BOT`, and only that token)
 and repeats this tag format.
 
+## Branch and worktree names start with the ticket id
+
+Name a branch **`<TICKET-ID>-<1–3 words>`** — the tracker id first, then just enough words to
+remember what it's about: `BL-16627-shrink-image-pane`, `BL-15958-edge-to-edge-theme`. Give the
+Orca worktree the same name, so the workspace card, the branch, and the card all read the same.
+
+The id-first part is **load-bearing, not cosmetic**: `youtrack-api` ("Find the issue id for the
+current work") and `preflight` identify a branch's card by reading a `BL-XXXXX` prefix off
+`git rev-parse --abbrev-ref HEAD`, and that is the *whole* check — they are told not to go
+hunting through commit messages or PR titles. A branch with no id in its name is a branch with no
+card as far as every automated caller is concerned.
+
+So: **create the card before the branch.** If you've already made a branch and the card comes
+later, rename it (`git branch -m <old> <new>`) while that's still free — before pushing, and
+before a PR or an Orca worktree is pointing at the old name. The 1–3 words are for humans; don't
+paste the card's whole summary in.
+
 ## Papercuts
 
 When you hit tooling/process friction, have to work around something, or learn something the
