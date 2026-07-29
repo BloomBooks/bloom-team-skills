@@ -208,3 +208,18 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   detail of your setup is load-bearing. If a step can't be verified, say so in the card rather
   than asserting it.
 - **Context:** BL-16619, the stale-`overflow`-class red flash found alongside PR #8117.
+
+## 2026-07-29 — The Read tool renders `//` as `\` in some source files, so comments look like syntax errors
+- **Cut:** Reading `packages/lib/src/4-generate-html/html-generator.ts` with the Read tool, several
+  line comments came back with the `//` replaced by a single backslash — e.g.
+  `const MARGIN_PX = 12 * MM_TO_PX; \ --page-margin: 12mm` and
+  `return i < count - 1 ? 1 \ 2 ** (i + 1) : 1 / 2 ** i;`. Both are valid `//` in the file
+  (confirmed with `grep | cat -A`). The mangling is *inconsistent within one Read* — some `//`
+  survive, some don't — and it lands on real code (`1 \ 2 **` reads as a broken expression), so I
+  stopped mid-investigation to check whether the repo was actually corrupt.
+- **Idea:** Worth reporting upstream as a Read/display bug. Meanwhile: if a Read shows a lone `\`
+  where an operator or comment marker belongs, don't trust it — confirm with `grep -n … | cat -A`
+  before concluding the source is broken. Never "fix" such a line based on Read output alone; an
+  edit built on the mangled text would corrupt a file that was fine.
+- **Context:** investigating a BloomBridge origami/overflow bug; reading `HtmlGenerator.pagePx` and
+  `origamiPaneRect`.
