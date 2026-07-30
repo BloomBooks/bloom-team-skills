@@ -2,6 +2,27 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-07-30 — a `cd` in the Bash tool silently moves the PowerShell tool's cwd too
+
+- **Cut:** The Bash and PowerShell tools share one working directory, so a throwaway
+  `cd <somewhere> && grep …` in a Bash call leaves *every later PowerShell call* in that
+  directory. The failure surfaces far from the cause and looks like a broken repo: `vp test run
+  packages/lib` died with `Startup Error … Projects definition references a non-existing file or
+  a directory: D:/BloomBridge/test-outputs/fix-cover-credits/in/bench`, because root
+  `vite.config.ts`'s `test.projects` are resolved relative to cwd. Nothing in that message hints
+  at "you are in the wrong directory". Confusingly, Bash *sometimes* prints
+  `Shell cwd was reset to <repo>` after a `cd` and sometimes doesn't, so you can't tell from the
+  transcript whether the cwd leaked.
+- **Idea:** Never `cd` in either shell tool — both are already launched in the repo root, and
+  absolute paths work everywhere. Worth a line in TEAM-AGENTS.md next to the existing
+  "never mix shell syntaxes" rule, since this is the same class of trap (two shell tools that
+  look independent but aren't). Belt-and-braces for agents: start any PowerShell call that runs
+  `vp`/`pnpm` with `Set-Location <repo root>`.
+- **Context:** Hit 2026-07-30 on BloomBridge (`master`) while verifying a Stage 4 cover-credits
+  fix; cost a confusing detour into "did I break vitest discovery?".
+
+---
+
 ## 2026-07-28 — Markdown links in Claude Code replies aren't clickable in Orca's terminal
 
 - **Cut:** `[BL-16618](https://…)` in a chat reply renders coloured + underlined but does
