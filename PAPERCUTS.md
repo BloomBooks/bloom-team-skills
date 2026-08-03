@@ -2,6 +2,21 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-03 — githack serves 403/404 for dev-process-artifacts while GitHub Pages works
+
+- **Cut:** After pushing a fresh preflight report to dev-process-artifacts, the "default"
+  `raw.githack.com/main/...` URL gave the user a 404 in the browser, and both it and the
+  commit-pinned `rawcdn.githack.com/<sha>/...` URL returned 403 to curl — while
+  `raw.githubusercontent.com` served the file fine (200) and the GitHub Pages URL worked
+  immediately. So the link posted to the YouTrack card was dead until replaced.
+- **Idea:** Flip `dev-process-artifacts.md`'s recommendation: make GitHub Pages the default
+  target (first-party, no third-party proxy, worked when githack didn't) and githack the
+  instant-but-flaky alternative — or at least have publishers verify the URL with a HEAD
+  request before posting it anywhere.
+- **Context:** Hit 2026-08-03 during preflight on BloomDesktop BL-16627-process-book (PR 8135).
+
+---
+
 ## 2026-07-30 — a `cd` in the Bash tool silently moves the PowerShell tool's cwd too
 
 - **Cut:** The Bash and PowerShell tools share one working directory, so a throwaway
