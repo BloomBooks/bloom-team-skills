@@ -395,8 +395,8 @@ what you changed, and resolve. **Disagreeing** with a human → report, never au
 auto-dismiss. A **bot** → auto-reply is always fine (documenting a fix, or refuting a mistake).
 - Include the repo/user's required commit trailer on commits.
 - Defer local board moves to the user's private board skill; Devin mechanics to the
-`devin-review` skill; and the tracker link, shared project board, and "ready for human"
-promotion to the `pr-ready-for-human` skill (which the developer runs after their own review).
+`devin-review` skill; and the tracker link and "ready for human" promotion to the
+`pr-ready-for-human` skill (which the developer runs after their own review).
 - Idempotent & re-entrant: safe to re-run; it re-cycles from wherever the branch currently is
 (new commits restart the bot gauntlet).
 - Degrade gracefully: if a board skill / `gh` / a bot / the Devin trigger is unavailable, note it

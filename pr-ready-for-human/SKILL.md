@@ -1,6 +1,6 @@
 ---
 name: pr-ready-for-human
-description: Promote a preflighted, self-reviewed PR to human (peer) review. Step 3 of the review sequence — (1) run preflight, (2) the developer reviews the work themselves, (3) the developer runs this. Verifies the PR is genuinely clean (CI green, bots quiet, nothing newer than the last preflight), links the PR on the tracker card and moves it to the project's ready-for-peer-review state, marks the PR ready-for-review, and moves the shared and personal boards to their human-review columns. If anything is not clean, it bounces back to preflight instead of fixing things itself.
+description: Promote a preflighted, self-reviewed PR to human (peer) review. Step 3 of the review sequence — (1) run preflight, (2) the developer reviews the work themselves, (3) the developer runs this. Verifies the PR is genuinely clean (CI green, bots quiet, nothing newer than the last preflight), links the PR on the tracker card and moves it to the project's ready-for-peer-review state, marks the PR ready-for-review, and moves the personal board to its human-review column. If anything is not clean, it bounces back to preflight instead of fixing things itself.
 argument-hint: "optional: PR number or branch name — defaults to current worktree"
 user-invocable: true
 ---
@@ -22,17 +22,9 @@ This is **step 3** of the review sequence:
 If a new commit lands after this skill has run, the sequence restarts at step 1 —
 re-run `preflight`, re-review, then run this again.
 
-## GitHub Project Board Reference
-
-Project: **PR Review Tracker** — https://github.com/orgs/BloomBooks/projects/2
-
-GraphQL IDs (hardcoded — do not re-query unless these stop working):
-- Project ID: `PVT_kwDOAFlSFM4Bawkp`
-- Status field ID: `PVTSSF_lADOAFlSFM4BawkpzhVl0_w`
-- Status option IDs:
-  - `97860183` → "Waiting for AI-Review"
-  - `99a3f545` → "Has Comments"
-  - `05eedb52` → "Ready for Human"
+> The BloomBooks "PR Review Tracker" org project board (project #2) has been retired, along
+> with the CI workflows that fed it. This skill no longer touches any shared board; the only
+> board it moves is the developer's personal one, via the `personal-board` skill.
 
 ## Stage 1 — Verify the PR is actually clean
 
@@ -53,7 +45,6 @@ Check all of the following. **Any failure → do not promote** (see "Not clean" 
 ### Not clean → bounce to preflight
 
 - Report exactly what is dirty (failing checks, the unanswered comments, the unpushed work).
-- Set the shared project board card to **"Has Comments"** (`99a3f545`).
 - If a `personal-board` skill is available, invoke it to reflect that the ball is back in the
   developer's court.
 - Tell the user to re-run `preflight`, then stop. Do **not** fix, reply, or wait here.
@@ -89,15 +80,11 @@ lowest-stakes step.
 
 1. **Mark the PR ready for review**: `gh pr ready <n>`. Do **not** request a specific
    reviewer — choosing a reviewer is the developer's call, made outside this skill.
-2. **Shared project board** → "Ready for Human":
-   - Find the PR's item in project 2 (add it if missing — `addProjectV2ItemById` with the PR
-     node id from `gh pr view <n> --json id`).
-   - Set Status via `updateProjectV2ItemFieldValue` with option `05eedb52`.
-3. **Personal board**: if a `personal-board` skill is available, invoke it to record that the
+2. **Personal board**: if a `personal-board` skill is available, invoke it to record that the
    developer has explicitly handed this to peer review (the user running this skill is the
    explicit command that skill requires). Skip silently if unavailable.
-4. **Report**: "PR #<n> is now marked ready and in **Ready for Human**; the tracker card is in
-   its ready-for-peer-review state (name it). PR: <URL>" plus anything skipped (e.g. the tracker
+3. **Report**: "PR #<n> is now marked ready for review; the tracker card is in its
+   ready-for-peer-review state (name it). PR: <URL>" plus anything skipped (e.g. the tracker
    was unreachable).
 
 ## Rules
@@ -105,7 +92,7 @@ lowest-stakes step.
 - Never promote with failing CI, unanswered bot comments, or without Devin having run —
   bounce to preflight instead. No exceptions except an explicit user override ("skip the
   checks, promote anyway"), which must be noted in the report.
-- Never request a teammate's review; un-drafting + the board column is the handoff.
+- Never request a teammate's review; un-drafting the PR is the handoff.
 - Anything posted under the user's account (the tracker or GitHub) starts with an identifier of
   which model you are.
 - Always check for duplicate comments on the card before posting.
