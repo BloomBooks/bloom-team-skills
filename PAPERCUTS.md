@@ -278,3 +278,18 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   unanswerable through the Bot.
 - **Context:** filing BL-16627 (Bloom auto-fit origami splits) with State=In Progress, requested
   "assigned to me".
+
+## 2026-08-04 — `node -e` from the Bash tool: output can vanish, and module resolution follows the script, not cwd
+- **Cut:** Wanted a quick "does this LESS still compile" check. `node -e "…"` with a multi-line
+  double-quoted script returned *no output at all* twice (exit 0, empty), so the check looked like
+  it had silently succeeded when it had not run; the identical logic in a single-line form printed
+  fine. Then, moving the script to a `.cjs` file in the scratchpad, `require("less")` failed with
+  MODULE_NOT_FOUND — node resolves from the *script's* directory, and the scratchpad has no
+  `node_modules`. Also worth knowing: `npx prettier` dies on this repo with `EBADDEVENGINES`
+  (devEngines pins node 24.13.0, machine has 24.15.0); `pnpm exec prettier` works.
+- **Idea:** For any throwaway node script that needs the project's deps, write the `.cjs` **inside
+  the package directory** (`src/BloomBrowserUI/`), run it, and delete it — don't use the scratchpad,
+  and don't trust a silent `node -e`. Have it write results to a file and `cat` that, so "no output"
+  can't be mistaken for "passed". And reach for `pnpm exec`, never `npx`, in this repo.
+- **Context:** verifying that a new `inlineImages.less` partial compiled into basePage.css,
+  basePage-legacy-5-6.css, baseEPUB.css and editMode.css during the inline-images work.
