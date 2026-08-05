@@ -2,7 +2,36 @@
 
 Read this when building the Phase 5 report artifact. It defines the page's design, content
 blocks, decision-item controls, and copy-back behavior. Load the `artifact-design` skill first,
-then write the page content to a file and publish it.
+then write the page content to a file, **check how it renders**, and publish it.
+
+Note on the file itself: when publishing to the public repo the page is served directly by
+githack, so write a **complete HTML document** — `<!doctype html>`, `<head>` with a `<title>`, and
+your own CSS reset. (The wrapping-skeleton behaviour, where you write body content only, applies
+to the Anthropic Artifact tool, not here.)
+
+## Check the render before you publish
+
+You are writing a page you never look at, which is how a report with the decisions column pushed
+off-screen gets published and linked on a card. **Open the local file and check it before
+publishing** — the whole check is four assertions and takes one round-trip:
+
+```bash
+chrome-devtools new_page "file:///<path>/preflight-report.html"
+chrome-devtools resize_page 1440 1000
+chrome-devtools evaluate_script "() => ({ overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth })"
+chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   # then Read it
+```
+
+1. **No horizontal overflow** — `scrollWidth > clientWidth` must be `false`, at a wide width
+   (~1440) *and* a narrow one (~620, where it collapses to one column). Sideways scroll almost
+   always means a grid item that cannot shrink; see the Visual style rules.
+2. **Look at the screenshot.** Both columns present, the decisions visible, no prose set in
+   monospace, no text running under or past a neighbour.
+3. **The copy-back actually serializes.** Read `#payload`, then flip a couple of controls and read
+   it again — confirm a selection changes the text, a `Leave comment` tick adds its line, an
+   untouched `Leave comment` adds nothing, and `Other:` picks up its typed value.
+4. **Only then publish.** If you find a defect after publishing, fix and republish to the *same*
+   path so the card's link stays valid.
 
 ## Publishing
 
@@ -12,7 +41,12 @@ then write the page content to a file and publish it.
 - **Picking the target: does the link leave the session?** When a ticket id was found, it does —
   Phase 5 posts the report URL to the YouTrack card so decisions can be picked up later by
   someone other than the in-session developer — so publish to the **public
-  `dev-process-artifacts` repo (githack URL)**; see `../../dev-process-artifacts.md`. The same
+  `dev-process-artifacts` repo (githack URL)**; see **`dev-process-artifacts.md` at the root of the
+  bloom-team-skills clone** — do *not* resolve that as a path relative to this file. Skills are
+  symlinked individually into `~/.claude/skills`, so a `../../` hop lands in the skills directory,
+  not in the clone, and the file appears to be missing when it is not. Reach it via this file's
+  real path (`readlink -f`), or read it from
+  https://github.com/BloomBooks/bloom-team-skills/blob/main/dev-process-artifacts.md. The same
   applies whenever the link otherwise has to leave the session (handed to a teammate or another
   agent, the user asks for a public link) or the Artifact tool is unavailable. Name it
   `deciders/<sourceRepo>-<branch>.html` — the URL is stable per branch, so a re-run overwrites
@@ -47,6 +81,16 @@ then write the page content to a file and publish it.
 - **Two columns on wide screens:** the report (gate table, what-changed, reviewer outcomes,
   session notes) on the left and the interactive decisions on the right; collapse to one column
   when narrow.
+- **Put `min-width: 0` on the two grid children.** A grid item's automatic minimum size is its
+  *content's* size, so one wide table cell expands its column until the whole page scrolls
+  sideways — which pushes the entire decisions column off-screen, i.e. the user never sees the
+  questions. `overflow-x: auto` on the table wrapper does **not** save you here: the wrapper
+  cannot shrink below its content until the grid item is allowed to. This has actually shipped a
+  broken report; treat it as required, not as a tip.
+- **Monospace and `tabular-nums` are for figures, not sentences.** Wrap the numbers
+  (`<span class="numeral">3024 passed · 12 skipped</span>`) and leave the surrounding prose in the
+  body face. Never put `white-space: nowrap` on a cell that contains prose — an unbreakable
+  sentence is the usual cause of the sideways-scroll above.
 - **Plain headings — no decorative eyebrows/kickers or numbered section labels** ("Section 1",
   "Over to you", etc.). Just the heading text.
 - **No instructional preamble** telling the user how the controls work — the questions and
