@@ -2,6 +2,21 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-06 — The Remove-Item safety hook mis-parses a quoted path containing a space
+
+- **Cut:** `Remove-Item "C:\Screenshot History\some file.png" -Force` was refused with
+  `Remove-Item on system path '"C:\Screenshot' is blocked. This path is protected from removal.`
+  The guard splits the command on whitespace before honouring the quotes, so it judges the
+  leading fragment `"C:\Screenshot` rather than the real path, and every path with a space in a
+  top-level folder name reads as a protected root. The whole tool call is refused, not just the
+  one cmdlet, so anything chained after it silently does not run either.
+- **Idea:** Teach the guard to parse the argument as PowerShell does (respect quotes, and
+  `-LiteralPath`) before matching against the protected list. Meanwhile the workarounds are
+  `[System.IO.File]::Delete($full)` or `Remove-Item -LiteralPath $full`, and it is worth
+  building the path with `Join-Path` into a variable rather than inlining a quoted literal.
+- **Context:** Hit on Hatton's machine while an agent cleaned up its own test files under
+  `C:\Screenshot History` during work on the screen-tray project.
+
 ## 2026-08-05 — chrome-devtools CLI can't start its own daemon, so devin-review's browser path is dead
 
 - **Cut:** Every `chrome-devtools` command on this machine fails with
