@@ -2,6 +2,27 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-05 — chrome-devtools CLI can't start its own daemon, so devin-review's browser path is dead
+
+- **Cut:** Every `chrome-devtools` command on this machine fails with
+  `Error: connect ENOENT \\.\pipe\chrome-devtools-mcp\server.sock` — including
+  `chrome-devtools start`, which is supposed to *create* that daemon, and `status`/`stop`. So the
+  `devin-review` skill's whole documented mechanism (step 1 onward) is unusable, behind an error
+  that reads like "daemon not running" rather than "the thing that starts it is broken". CLI
+  reports 1.5.0 with 1.6.0 available.
+- **Idea:** Two things. Fix the install (likely `npm i -g chrome-devtools-mcp@latest`, which the
+  CLI's own nag suggests). And give `devin-review` a fallback that needs no browser at all: its
+  JSON endpoints answer plain unauthenticated `curl --compressed` requests —
+  `/api/pr-review/jobs?pr_path=...` then
+  `/api/pr-review/job-result/<jobId>/<versionId>?pr_path=...` — which is how I read three Devin
+  reviews after the CLI died. That path is simpler than the browser loop, needs no isolated
+  context, consumes no credits, and sidesteps both failure modes in the 2026-07-24 entry below.
+  It may deserve to be the *primary* documented route. Note `--compressed`: without it the
+  response comes back gzipped and parses as binary garbage.
+- **Context:** BloomDesktop PR #8156 preflight (BL-16640), 2026-08-05.
+
+---
+
 ## 2026-08-03 — githack serves 403/404 for dev-process-artifacts while GitHub Pages works
 
 - **Cut:** After pushing a fresh preflight report to dev-process-artifacts, the "default"
