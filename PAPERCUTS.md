@@ -330,3 +330,22 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   can't be mistaken for "passed". And reach for `pnpm exec`, never `npx`, in this repo.
 - **Context:** verifying that a new `inlineImages.less` partial compiled into basePage.css,
   basePage-legacy-5-6.css, baseEPUB.css and editMode.css during the inline-images work.
+
+## 2026-08-06 — Chrome MCP `computer` screenshots dead in this session; `chrome-devtools-cli` covered for it
+- **Cut:** Every `mcp__claude-in-chrome__computer` action with `action: screenshot` failed with
+  "Script injection timed out after 5000ms — the page is busy or mid-navigation", including on a
+  freshly-loaded `https://example.com` in a brand new tab. So it was not the page: the extension's
+  capture path was simply broken for the whole session. `javascript_tool`, `navigate`,
+  `read_console_messages` and `tabs_*` on the *same* tab all worked fine throughout, which makes the
+  failure easy to misread as "my app is hanging" and send you debugging a nonexistent render loop.
+  I burned several round trips proving the page was idle (patched `console.log` and counted calls
+  over 1s: zero) before concluding the tool was at fault.
+- **Idea:** When `computer screenshot` times out, don't debug the page — first sanity-check the tool
+  against `example.com` in a new tab. If that fails too, fall back to the `chrome-devtools-cli`
+  skill: `chrome-devtools new_page <url>` then `chrome-devtools take_screenshot --filePath <png>`
+  worked first try. Two gotchas with that fallback: it drives its **own** Chrome instance (separate
+  profile, so localStorage from the extension-driven tab is not there — seed it with
+  `evaluate_script`), and `evaluate_script` rejects a multi-line arrow function ("Unexpected token
+  ')'"), so collapse the script to one line before passing it. Remember `chrome-devtools stop` at
+  the end; `new_page` also holds the terminal until the daemon is stopped, so run it backgrounded.
+- **Context:** verifying the config-r prototyper's three-pane layout (Phase 0 + 1) in the browser.
