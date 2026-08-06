@@ -20,6 +20,22 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   It may deserve to be the *primary* documented route. Note `--compressed`: without it the
   response comes back gzipped and parses as binary garbage.
 - **Context:** BloomDesktop PR #8156 preflight (BL-16640), 2026-08-05.
+- **seen again 2026-08-05, and the cause is now nailed down — it is NOT a broken install.** The
+  daemon keeps a pidfile at `%LOCALAPPDATA%\Temp\chrome-devtools-mcp\daemon.pid`. Mine held pid
+  33456 from 29 July, and no such process existed. That one stale file explains every symptom
+  above: `status` reads the pidfile and cheerfully reports "daemon is running" while every command
+  fails to reach the socket, and `start` sees it too and tries to *restart* the dead daemon by
+  connecting to the socket instead of spawning a new one — so the command meant to fix the problem
+  is disabled by the problem. Deleting the pidfile fixed it instantly. `start` then runs the daemon
+  in the foreground, so background it; after that the whole `devin-review` browser path worked
+  normally for the rest of the run, on the same 1.5.0 the entry above blamed. No upgrade needed.
+- **Idea (revised):** cheapest fix is a troubleshooting line in `devin-review`: if
+  `chrome-devtools` fails with `ENOENT ...server.sock`, check whether the pid in
+  `%LOCALAPPDATA%\Temp\chrome-devtools-mcp\daemon.pid` is alive (`tasklist /FI "PID eq <pid>"`) and
+  delete the file if not, before starting. Worth reporting upstream too — a launcher should treat a
+  pidfile with no live process as absent rather than deadlocking on it. The curl fallback above is
+  still worth having, but it is no longer the only way out.
+- **Context (2nd sighting):** BloomDesktop PR #8159 preflight (BL-16647), 2026-08-05.
 
 ---
 
