@@ -118,6 +118,14 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   and run `cmd /c "reviewable ... < file.json"` (raw stdin redirect, no BOM).
 - **Context:** BloomDesktop PR #8100 preflight, 2026-07-27; also hit the CLI's 1.0.1-outdated
   warning (updated to 1.0.3 on this machine the same day).
+- **seen again 2026-08-06:** Hit it again on BloomDesktop PR #8155 replying to John's review, so
+  the skill's documented recipe still has not been updated -- that is now the whole cost of this
+  cut, since the workaround is known. Confirms a second working pattern: piping from **Git Bash**
+  also produces clean bytes (`cat body.json | reviewable review discussions reply ...`), and Bash
+  can see `REVIEWABLE_API_TOKEN` from the User scope, so it needs no extra setup. Whichever
+  pattern the skill adopts, the PowerShell one it currently shows should be removed rather than
+  annotated, because it never works. Also note the CLI is back to warning it is outdated (1.0.1
+  installed, 1.1.2 latest).
 
 ## 2026-07-24 — Devin polling silently reads about:blank when its isolated tab disappears
 
