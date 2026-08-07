@@ -2,6 +2,27 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-07 — Claude Code sets NoDefaultCurrentDirectoryInExePath=1, so `cmd /c foo.bat` can't find foo.bat
+
+- **Cut:** `claude.exe` puts `NoDefaultCurrentDirectoryInExePath=1` into the environment of
+  everything it spawns, and that is the Windows switch telling `cmd.exe` **not** to search the
+  current directory when resolving a bare command name. Any tool we drive that does
+  `cmd.exe /C something.bat` with a working directory — Reading App Builder's Android build does
+  exactly this — then dies with `'something.bat' is not recognized as an internal or external
+  command` while the file sits in cmd's own working directory. The message names the file, so it
+  reads as "missing dependency, go install it". It cost most of a day over two sessions and
+  produced a Bloom test that fails for every agent and passes for every human.
+- **Idea:** Two things. (1) Add the symptom to `TEAM-AGENTS.md`: *if a subprocess cannot find a file
+  that is demonstrably in its working directory, check `NoDefaultCurrentDirectoryInExePath` before
+  anything else.* (2) Where we drive an external tool with that dependency, clear the variable
+  around the call (`Environment.SetEnvironmentVariable(name, null)`, restored afterwards) rather
+  than working around the symptom.
+- **Context:** BloomDesktop, branch `rab-real-build-test`. Confirmed by reading the environment
+  block of every ancestor process: `claude.exe` has it, its parent `bash.exe` and everything up to
+  `explorer.exe` do not, and it is in neither the User nor the Machine environment — so Git Bash,
+  PowerShell and a normally-launched app are all clean. Purely an agent-session artifact, which is
+  why it never reproduces when the developer tries the same thing by hand.
+
 ## 2026-08-06 — The Remove-Item safety hook mis-parses a quoted path containing a space
 
 - **Cut:** `Remove-Item "C:\Screenshot History\some file.png" -Force` was refused with
