@@ -1,6 +1,6 @@
 ---
 name: youtrack-api
-description: How to talk to the Bloom YouTrack tracker over REST — authentication, base URL, and common operations (read an issue, find an issue id, list/post comments, set an issue's State, attachments). Bloom's implementation of the "tracker skill" that preflight and pr-ready-for-human ask for, and the shared low-level building block the other youtrack-* skills rely on.
+description: How to talk to the Bloom YouTrack tracker over REST — authentication, base URL, and common operations (read an issue, find an issue id, list/post comments, set an issue's State, assign an issue, attachments). Bloom's implementation of the "tracker skill" that preflight and pr-ready-for-human ask for, and the shared low-level building block the other youtrack-* skills rely on.
 ---
 
 # Using the Bloom YouTrack REST API
@@ -35,7 +35,7 @@ Auth is this skill's business alone; callers must not reason about tokens. A tea
 `preflight` for a different tracker writes their own skill covering those four operations, however
 their tracker authenticates, and declares it in their repo's `AGENTS.md`.
 
-## 1. Authentication — one token: `$YOUTRACK_BOT` (never hard-code a token in a committed file)
+## 1. Authentication — `$YOUTRACK_BOT` for everything except one field (never hard-code a token in a committed file)
 
 **Every** call, read or write, authenticates as the shared **Bloom "Bot"** account, using its
 YouTrack **permanent token** (`perm-…`) from `$YOUTRACK_BOT`:
@@ -47,11 +47,25 @@ YouTrack **permanent token** (`perm-…`) from `$YOUTRACK_BOT`:
 Check it's there with `echo "${YOUTRACK_BOT:+set}"`. To get the token: ask the repo owner (it's
 distributed out-of-band, like every secret here — never committed).
 
-**Never authenticate as a human.** Ignore any personal YouTrack token (`$YOUTRACK`) you find in
-the environment or in older docs — do not use it for reads, and above all not for writes, where it
-would make an automated change look like it came from the human at the keyboard, which is exactly
-what the Bot account exists to avoid. If `$YOUTRACK_BOT` is unset, do **not** fall back to it; see
-§4.
+**Never authenticate as a human** — with the single exception in the next paragraph. Ignore any
+personal YouTrack token (`$YOUTRACK`) you find in the environment or in older docs — do not use it
+for reads, and not for writes, where it would make an automated change look like it came from the
+human at the keyboard, which is exactly what the Bot account exists to avoid. If `$YOUTRACK_BOT` is
+unset, do **not** fall back to it; see §4.
+
+### The one exception: setting the Assignee
+
+The Bot lacks permission to read user profiles, so it **cannot set the `Assignee` field** — it
+rejects every login with `"Assignee expected: …"` — and it cannot look logins up either.
+
+**So for the Assignee field only, use the personal token `$YOUTRACK`.** Everything else on the same
+card — creation, Type, board/sprint, State, comments, attachments — still goes through
+`$YOUTRACK_BOT`, as does the attribution rule below.
+
+The trade-off, accepted deliberately: the assignment shows in card history as the human, not the
+Bot. It does **not** widen to any other field.
+
+See §3 "Set an issue's Assignee" for the call.
 
 ### Attribution — every comment/issue the Bot posts must say who really wrote it
 
@@ -138,6 +152,37 @@ workflow order runs roughly `Ready For Work` → `Ready For Code Review` → `Re
 `Closed`, so a card already at or past the state you're setting should be left alone (callers
 treat moving a card backwards as a bug).
 
+### Set an issue's Assignee
+
+**The one call that uses `$YOUTRACK` (the personal token), not `$YOUTRACK_BOT`** — see §1.
+
+Pass the **login**, not the display name. Logins are not derivable from a person's name or email
+(an `a_b@…` address can pair with an `a-b` login), so look it up first — `users/me` for yourself,
+`users` for anyone else (only the personal token can see other users):
+
+```bash
+curl -s -H "Authorization: Bearer $YOUTRACK" \
+  "https://issues.bloomlibrary.org/youtrack/api/users?fields=id,login,name,email&\$top=500"
+```
+
+Then set it:
+
+```bash
+curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/commands" \
+  -H "Authorization: Bearer $YOUTRACK" -H "Content-Type: application/json" \
+  -d '{"query":"Assignee <login>","issues":[{"idReadable":"<issue-id>"}]}'
+```
+
+Success returns `{}`, so read the field back — with `$YOUTRACK`, since the Bot sees other users
+anonymized and cannot tell you who it landed on:
+
+```bash
+curl -s -H "Authorization: Bearer $YOUTRACK" \
+  "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>?fields=customFields(name,value(name,login))"
+```
+
+If `$YOUTRACK` is unset, say so and leave the card unassigned — `$YOUTRACK_BOT` cannot succeed (§1).
+
 ### List an issue's attachments
 ```bash
 curl -s -H "Authorization: Bearer $YOUTRACK_BOT" \
@@ -186,6 +231,7 @@ On Windows, first check the User scope
 usually a stale inherited env block, not a missing token.
 
 If the User scope *is* empty too, you have no YouTrack access — and you must **not** substitute
-some other token. Tell the user plainly: "I need the Bloom Bot token (`$YOUTRACK_BOT`) to reach
-YouTrack." For a low-stakes write (a PR-link comment) note that it's skipped and continue with the
-rest of the task; otherwise let the user set the token or do the YouTrack step manually.
+some other token, including `$YOUTRACK` (whose only sanctioned use is the Assignee field, §1).
+Tell the user plainly: "I need the Bloom Bot token (`$YOUTRACK_BOT`) to reach YouTrack." For a
+low-stakes write (a PR-link comment) note that it's skipped and continue with the rest of the task;
+otherwise let the user set the token or do the YouTrack step manually.
