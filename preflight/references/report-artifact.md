@@ -105,7 +105,11 @@ reviewer outcomes, and the decision items.
   language/test-runner** — e.g. a row for the TypeScript tests (vitest/jest) and a *separate*
   row for the C# tests (`dotnet test`), plus any other stack present. Show the count and
   pass/fail per row. If a stack has no tests in this repo, still give it its own row marked
-  "N/A — none in this repo" so it's clear nothing was silently skipped.
+  "N/A — none in this repo" so it's clear nothing was silently skipped. Likewise a stack whose
+  suite was deliberately **not run** because the diff can't reach it (SKILL.md Phase 4 step 4)
+  gets a row saying exactly that — "not run — no C# in the diff" — carrying the same weight as
+  a pass or a fail. The reader must never have to guess whether a missing suite was a judgment
+  call or a slip.
 - **Reviewer-outcomes block:** one row per reviewer that ran. The **local review first**,
   labeled with the level that ran ("light sub-agent pass" / "thorough /code-review" / "skipped
   at user request") plus findings raised / fixed / escalated / dismissed, or "clean — no

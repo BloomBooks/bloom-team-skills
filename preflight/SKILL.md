@@ -159,7 +159,8 @@ test / build** commands from `package.json` `scripts`; a .NET solution (`*.sln` 
 `*.csproj`) → `dotnet build` / `dotnet test`; likewise any other stack in the repo. Record a
 **non-watch** test command per stack (prefer a `test:ci`/`run` variant; NEVER launch a
 watch-mode runner — it hangs). Fallbacks: typecheck → `<pm> exec tsc --noEmit`; lint → the
-`lint` script.
+`lint` script. Detecting a stack here does **not** commit you to running its suite — whether
+each one runs is decided from the final diff in Phase 4 step 4.
 - Look for a **private board skill** the user has (a skill whose job is their personal
 work/review board). If found, invoke it to mark this worktree as actively being worked on, and
 use it for all later board moves. If none, skip board steps silently.
@@ -273,11 +274,28 @@ already ran in Phase 1; its captured outcome joins the results here.
 3. If any fixes were made → re-run the fast gate, commit, push. A new commit **restarts** every
  async reviewer, so re-trigger Devin and **reset the wait clock**. Cap the overall
  fix-push-rewait cycle at **4**; note in the report if capped.
-4. **Run the FULL test suite — once, here, overlapped with the wait.** While waiting in step 5,
- run every stack's full non-watch suite against the settled code. If it already passed on an
- identical tree this run, don't re-run it. Failures → fix if safely fixable (that's a new
- commit → back to step 3), else decision report + (via the board skill) a "needs response"
- state. Phase 5 requires the full suite green at the final HEAD.
+4. **Run the FULL test suite for every stack the change can reach — once, here, overlapped
+ with the wait.** While waiting in step 5, run each **in-scope** stack's full non-watch suite
+ against the settled code. If it already passed on an identical tree this run, don't re-run it.
+ Failures → fix if safely fixable (that's a new commit → back to step 3), else decision report
+ + (via the board skill) a "needs response" state. Phase 5 requires every in-scope suite green
+ at the final HEAD.
+
+ **In scope = the final diff can plausibly reach it** — decide per stack from the diff, not
+ from what the repo happens to contain. A stack is in scope when the diff touches its own
+ sources or tests, **or** anything it consumes: a shared schema or API contract its tests
+ assert on, generated or content files they read, build/dependency/CI config. A stack is out
+ of scope only when you can *say why* nothing in the diff can reach it — "a TypeScript-only
+ diff, and the .NET suite neither reads nor builds any of it" is a reason; "it's slow" is not.
+ **When in doubt, run it.**
+
+ Running an untouched stack's suite is not free caution. It costs many minutes, and a
+ **pre-existing** failure there then arrives as a red row and a decision item that spends the
+ user's attention on something this branch did not cause and will not fix.
+
+ **Never skip silently.** An out-of-scope stack still gets its row in the report and the final
+ summary, reading e.g. "not run — no C# in the diff", so a reader can tell a deliberate
+ exemption from an oversight.
 5. **Wait for every async reviewer to reach a terminal state** (the terminal-state rule).
  Skipping this wait is exactly what produces "pending" rows. Keep it **non-blocking**: do
  remaining work between polls (step 4's full suite, report drafting) and never block-sleep
@@ -300,11 +318,11 @@ already ran in Phase 1; its captured outcome joins the results here.
   - **On timeout:** record "timed out after N min" (for Devin, re-trigger once as you give
   up). Late results get folded in on a re-run.
 6. New findings fixed → re-cycle from step 3 (bounded; note if capped). Otherwise, with every
- reviewer terminal and the full suite green, proceed to Phase 5.
+ reviewer terminal and every in-scope suite green, proceed to Phase 5.
 
 ## Phase 5 — Converge, land, report
 
-Enter when: fast gate clean, **full test suite green at HEAD**, every reviewer terminal
+Enter when: fast gate clean, **every in-scope test suite green at HEAD**, every reviewer terminal
 (complete or recorded timeout — the terminal-state rule), all **bot** comments resolved (fixed
 or replied), branch mergeable, and only human-decision items (if any) remain.
 
@@ -388,6 +406,8 @@ Commit it with the normal conventions.
 - Never mark the PR ready-for-review (leave it draft). Never request a teammate's review. Clean &
 quiet → the user's own final-review state (via their board skill).
 - Never run a watch-mode test command.
+- Run a stack's full suite only when the change can reach it (Phase 4 step 4), and always say
+in the report when you didn't, and why.
 - Any text posted to GitHub under the user's account is prefixed with an identifier of which
 model you are (per the user's identity conventions) — do not hardcode a model name.
 - A **human** comment that's clearly right and in scope → fix it, reply with a brief thanks and
