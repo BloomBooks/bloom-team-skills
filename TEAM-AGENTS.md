@@ -88,6 +88,29 @@ you can't tell from the transcript whether the cwd leaked.
 Use absolute paths, or a tool's own directory flag (`git -C`, `pnpm -C`, `--cwd`). Belt and
 braces before running `vp`/`pnpm`: start the PowerShell call with `Set-Location <repo root>`.
 
+## A subprocess "can't find" a file that is sitting in its working directory
+
+Check `NoDefaultCurrentDirectoryInExePath` before anything else. **Claude Code puts
+`NoDefaultCurrentDirectoryInExePath=1` into the environment of every process it spawns**, and that
+is the Windows switch telling `cmd.exe` *not* to look in the current directory when it resolves a
+bare command name. So any external tool we drive that runs `cmd.exe /C something.bat` with a
+working directory — a common pattern in generated build scripts — dies with `'something.bat' is not
+recognized as an internal or external command` while the file is right there in cmd's cwd. Windows
+inherits the variable down the whole chain, so it reaches the tool however many processes deep it
+sits.
+
+Everything about the symptom points away from the cause: the message names the file, so it reads as
+a missing dependency you should go install, and the developer cannot reproduce it, because a shell
+they started themselves does not have the variable. It is set in neither the User nor the Machine
+environment, and Git Bash, PowerShell and a normally-launched app are all clean — it enters at
+`claude.exe`. So this is an agent-session artifact: **do not "fix" the product, which is not at
+fault.** If a test or script has to drive such a tool, clear the variable around that call
+(`Environment.SetEnvironmentVariable(name, null)` in C#, restoring it afterwards) and say in a
+comment why.
+
+Real cost: Reading App Builder's Android build in Bloom does exactly this, and it took most of a day
+across two sessions to find, having first produced a confident and completely wrong diagnosis.
+
 ## "A previous session already did this" is a lookup, not a guess
 
 When the user says an earlier session built something — and especially when it doesn't work —
