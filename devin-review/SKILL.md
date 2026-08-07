@@ -158,6 +158,28 @@ If the API shape ever changes, do not assume the logged-out page shows findings 
 render none at all; fix the endpoint usage instead (the git history of this file has the old
 DOM-scraping procedure, which worked on the pre-2026-07 page layout).
 
+### Reading it with plain `curl` (no browser needed)
+
+Both endpoints answer **unauthenticated `curl`**, so when chrome-devtools is broken — or you
+just want the findings without a browser — read them directly. This consumes no credits and
+needs no isolated context:
+
+```bash
+PRPATH="github.com%2F<owner>%2F<repo>%2Fpull%2F<number>"
+curl -s --compressed "https://app.devin.ai/api/pr-review/jobs?pr_path=$PRPATH"
+curl -s --compressed "https://app.devin.ai/api/pr-review/job-result/<job_id>/<version_id>?pr_path=$PRPATH"
+```
+
+⚠️ **`--compressed` is not optional** — without it the response comes back gzipped and parses as
+binary garbage.
+
+What curl **cannot** do is *trigger* a review: only loading the review page does that (or the CI
+re-run in "Triggering a review", which is the better trigger anyway). So the fully browser-free
+route is: re-run `pr-automation.yml` to trigger → poll these two endpoints → mirror findings with
+`gh`. Everything in Procedure §2–§3 works the same way; just swap each `evaluate_script` fetch
+for the matching `curl`, and skip the tab-pinning rules (they only exist because of the shared
+browser context).
+
 ## Write for a human reader (not a log dump)
 
 Everything this skill posts to GitHub is read by an engineer skimming the PR, so write it in
@@ -188,11 +210,30 @@ plain English for a normal engineer — not a dense status line. (John's words f
 Use the Chrome DevTools CLI with an **isolated context** (no shared cookies). This is critical — navigating while logged in to Devin consumes on-demand credits. The isolated context is unauthenticated but still shows all findings.
 
 ```bash
-chrome-devtools new_page "https://app.devin.ai/review/<owner>/<repo>/pull/<number>" --isolatedContext "devin-noauth"
+chrome-devtools new_page "https://app.devin.ai/review/<owner>/<repo>/pull/<number>" --isolatedContext "devin-noauth" &
 sleep 6
 ```
 
-Close this tab when done to avoid accumulating isolated-context tabs.
+`new_page` sometimes never returns even though the tab opened fine (it has hung to the 300 s
+tool timeout), so **run it backgrounded** as above rather than waiting on it. Close this tab when
+done to avoid accumulating isolated-context tabs.
+
+**If any `chrome-devtools` command fails with `connect ENOENT \\.\pipe\chrome-devtools-mcp\server.sock`**
+— including `start`, `status` and `stop` — the cause is almost always a **stale pidfile**, not a
+broken install (no upgrade needed). The daemon records its pid in
+`%LOCALAPPDATA%\Temp\chrome-devtools-mcp\daemon.pid`; if that process is gone, `status` still
+cheerfully reports "daemon is running" while every command fails, and `start` tries to reach the
+dead daemon through the socket instead of spawning a new one — so the command that fixes the
+problem is disabled by the problem. Check and clear it:
+
+```bash
+PIDFILE="$LOCALAPPDATA/Temp/chrome-devtools-mcp/daemon.pid"
+PID=$(cat "$PIDFILE" 2>/dev/null)
+tasklist //FI "PID eq $PID" | grep -q "$PID" || rm -f "$PIDFILE"   # no live process → stale
+chrome-devtools start &                                            # runs in the foreground; background it
+```
+
+If that doesn't clear it, read the review without a browser at all (next section).
 
 ### 2. Wait for the review job for the current commit (via the jobs API)
 
@@ -238,6 +279,12 @@ Notes that keep this loop honest, all learned the hard way:
   whichever tab is currently selected, which silently drifts to the newest page — a
   bloom-player #433 run briefly read a different PR's review this way. The fetch is
   same-origin, so it must run from a tab that is actually on `app.devin.ai`.
+- ⚠️ **An empty result means the tab, not the job.** The tab can *vanish* mid-run (closed by
+  another session), after which `evaluate_script` runs against the leftover `about:blank`, where
+  the same-origin fetch fails and returns an empty string — indistinguishable from "no job yet".
+  A PR #8107 run burned six minutes on 14 such iterations. So when the loop above sees an empty
+  result, don't just retry: run `chrome-devtools list_pages` and, if the tab is gone, **reopen it**
+  (backgrounded `new_page`, per §1) before continuing. Drifted → re-select; gone → reopen.
 - Make the **first** check ~30 s after the trigger — small-delta re-reviews can finish inside
   one poll interval; don't gate on ever *observing* a `running` state (an over-wait bug hit
   bloom-harvester #234 twice). The job for `$HEAD_SHA` being `completed` is sufficient

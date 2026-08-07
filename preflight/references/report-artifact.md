@@ -4,8 +4,8 @@ Read this when building the Phase 5 report artifact. It defines the page's desig
 blocks, decision-item controls, and copy-back behavior. Load the `artifact-design` skill first,
 then write the page content to a file, **check how it renders**, and publish it.
 
-Note on the file itself: when publishing to the public repo the page is served directly by
-githack, so write a **complete HTML document** — `<!doctype html>`, `<head>` with a `<title>`, and
+Note on the file itself: when publishing to the public repo the page is served as-is (by GitHub
+Pages or githack), so write a **complete HTML document** — `<!doctype html>`, `<head>` with a `<title>`, and
 your own CSS reset. (The wrapping-skeleton behaviour, where you write body content only, applies
 to the Anthropic Artifact tool, not here.)
 
@@ -41,7 +41,7 @@ chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   #
 - **Picking the target: does the link leave the session?** When a ticket id was found, it does —
   Phase 5 posts the report URL to the YouTrack card so decisions can be picked up later by
   someone other than the in-session developer — so publish to the **public
-  `dev-process-artifacts` repo (githack URL)**; see **`dev-process-artifacts.md` at the root of the
+  `dev-process-artifacts` repo (GitHub Pages URL)**; see **`dev-process-artifacts.md` at the root of the
   bloom-team-skills clone** — do *not* resolve that as a path relative to this file. Skills are
   symlinked individually into `~/.claude/skills`, so a `../../` hop lands in the skills directory,
   not in the clone, and the file appears to be missing when it is not. Reach it via this file's
@@ -51,9 +51,9 @@ chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   #
   agent, the user asks for a public link) or the Artifact tool is unavailable. Name it
   `deciders/<sourceRepo>-<branch>.html` — the URL is stable per branch, so a re-run overwrites
   the same page and the card's report-link comment stays valid (post that stable URL to the
-  card, not a commit-pinned one). Re-pushing the same path can serve the previous version for up
-  to ~60s (githack cache), so on a re-run either wait or *open* the commit-pinned `rawcdn` URL
-  yourself while still posting the stable one.
+  card, not a commit-pinned one). The Pages deploy takes ~1 min, so on a re-run the previous
+  version can serve briefly — confirm the URL returns 200 (and shows the new report) before you
+  post or open it.
 - **Otherwise (no tracker card, link stays in-session): the Anthropic Artifact tool.** That
   report is transient — the in-session developer reads it, answers the decisions, and it's
   spent — so a private link is enough. It's one tool call: no clone/push, no third-party CDN,

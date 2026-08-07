@@ -161,7 +161,7 @@ any earlier card that has only one of the two — backfill the missing link).
 - **Publish the preflight report to `dev-process-artifacts` and link it on the card** — *every*
   card gets a public, teammate-readable report, not only the "needs a human" ones. Publish the
   preflight report page (gate results, reviewers, what changed, PR link) to the public
-  **`dev-process-artifacts`** repo and post its githack URL (Pages URL as fallback) as an
+  **`dev-process-artifacts`** repo and post its GitHub Pages URL (verified 200) as an
   attributed comment on the card (see `../dev-process-artifacts.md`). A subscriber-only Anthropic
   Artifact is not acceptable here — a teammate must be able to open it.
 - YouTrack: also add a PR-link comment (dedup-checked, attributed) noting the draft PR is green
@@ -172,7 +172,7 @@ any earlier card that has only one of the two — backfill the missing link).
 1. Preflight already produced its report artifact with decision controls and a copy-back
    block (per the `decider` spec). Because this link goes on a YouTrack card for a human or
    another agent to open, it **must be publicly readable** — publish the report to the
-   **`dev-process-artifacts`** repo and use its githack URL (see `../dev-process-artifacts.md`),
+   **`dev-process-artifacts`** repo and use its Pages URL (see `../dev-process-artifacts.md`),
    not a subscriber-only Anthropic Artifact. Verify the copy-back block is **fully self-contained for
    a zero-context agent in a fresh session** — its header must name: the repo (`owner/name`),
    the branch, the PR URL, the YouTrack id, the public artifact URL, and explicit resume

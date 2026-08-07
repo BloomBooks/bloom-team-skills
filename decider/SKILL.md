@@ -54,7 +54,8 @@ Load the `artifact-design` skill first, then write the page to a file. **Where y
 depends on who needs to read it** (see `../dev-process-artifacts.md`):
 - If the link will leave this session — posted to a YouTrack card, a PR, or handed to a
   teammate/another agent — publish the HTML file to the public **`dev-process-artifacts`**
-  repo and use its **githack** URL (Pages URL as durable fallback) so anyone can open it. The
+  repo and use its **GitHub Pages** URL (githack when you need the link live instantly) so
+  anyone can open it — and verify it returns 200 before posting it. The
   Anthropic Artifact tool produces **subscriber-only** links, useless to a teammate without a
   Claude subscription.
 - If only the in-session developer needs it and a subscriber-only link is fine, the Artifact
@@ -128,8 +129,9 @@ the report ("Own small branch", "Enable on both") would be useless there. Theref
   `Start-Process '<url>'`; macOS: `open <url>`; Linux: `xdg-open <url>`).
 - In the chat summary, print the artifact URL as a **bare plain-text URL, never a markdown
   link** — terminals render `[label](url)` with the URL hidden and uncopyable.
-- A `dev-process-artifacts` githack URL is public and live the moment the push finishes; the
-  Pages URL (same path) is the durable fallback. An Anthropic Artifact is private with no
+- A `dev-process-artifacts` Pages URL is public and first-party, live ~1 min after the push; the
+  githack URL (same path) is live instantly but is a third-party proxy that has served 403s for
+  hours at a stretch. Check the one you post returns 200. An Anthropic Artifact is private with no
   public toggle; the user can share it from its share menu, but only to fellow subscribers.
 
 ## Processing the answers

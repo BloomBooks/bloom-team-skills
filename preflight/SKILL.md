@@ -172,6 +172,13 @@ then **lint**, then **fast tests** (only changed/related tests, non-watch) all p
 what's safely fixable; report the rest. (The FULL test suite deliberately runs later, once,
 overlapped with the bot wait — see Phase 4.)
 
+⚠️ **Never read a gate's pass/fail through a pipe.** `tsc --noEmit … | tail -20; echo $?` reports
+`tail`'s status, not the tool's — a run with 13 type errors was reported as a clean gate row this
+way. Every row in this skill's output is a pass/fail claim, so capture the status directly
+(`cmd > out.txt; st=$?`), or `set -o pipefail`, or judge by grepping the output for the tool's own
+error format. A backgrounded task's own exit code has the same problem when its command is a
+pipeline.
+
 The local review runs at one of three levels — the full `/code-review` + fix loop chews up a
 lot of tokens, so it is opt-in:
 
@@ -181,6 +188,12 @@ Prompt it to: read the diff plus just enough surrounding code to judge it; repor
 unintended behavior changes) — no style points, no nits, no refactor ideas, no "consider…";
 and return a short structured list (file:line, what breaks, why it's wrong). One pass, no
 verification loop, no re-review after fixes (typecheck/lint/tests are the re-check).
+**Budget it: ~15 minutes.** A sub-agent that stalls is indistinguishable from a slow one —
+there is no way to poll its progress, and a stalled one silently blocks the phase (a PR #8117
+run lost two agents and ~50 min this way; nudging with `SendMessage` and dispatching a
+replacement both stalled too). If the agent hasn't returned by then, **stop waiting and do the
+review pass inline yourself** — it is fast and it works — and say so in the reviewer row
+("light review, done inline after the sub-agent stalled"). Do not dispatch a second agent.
 - **Thorough** — only when the user asked for a **"thorough review"** or **"expensive
 review"** (both phrasings mean the same thing — since preflight always includes *a* review,
 "with code-review" would be ambiguous). Each cycle: run the `/code-review` skill at `high`

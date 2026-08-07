@@ -66,9 +66,10 @@ Several skills produce HTML/asset artifacts (decider forms, preflight reports, P
 The Anthropic Artifact tool hosts those privately — readable only by the developer who created
 them (SIL Global subscribers). When a link must be readable by anyone (a YouTrack card, a PR, a
 teammate, or a zero-context agent resuming later), commit it to the public
-`BloomBooks/dev-process-artifacts` repo and serve it via its githack URL (live the instant you
-push), with GitHub Pages as a durable fallback. The convention — repo layout, naming, the
-commit/push step, the deterministic URL, githack-vs-Pages, and the public-vs-private tradeoff —
+`BloomBooks/dev-process-artifacts` repo and serve it via its GitHub Pages URL (first-party,
+~1 min deploy), with githack as the instant-but-third-party alternative. The convention — repo
+layout, naming, the commit/push step, the deterministic URL, Pages-vs-githack, and the
+public-vs-private tradeoff —
 lives in [`dev-process-artifacts.md`](dev-process-artifacts.md); `decider`, `preflight`, and
 `process-sentry-issues` reference it.
 

@@ -20,9 +20,12 @@ The CLI needs two environment variables:
   settings. Never print it, and never commit it anywhere.
 - `REVIEWABLE_URL` — `https://reviewable.io`
 
-**Windows gotcha:** these are typically set at the **User** environment scope, which a Git
-Bash tool session does NOT inherit. PowerShell can read them without displaying the secret —
-and since shell state doesn't persist between tool calls, re-set both vars in every call:
+**Windows gotcha:** these are typically set at the **User** environment scope. A shell tool
+session usually inherits them (check without printing the secret:
+`[ -n "$REVIEWABLE_API_TOKEN" ] && echo set` in Bash), but a session started before the vars
+were set won't see them. If they're missing, PowerShell can read them from the User scope
+without displaying the secret — and since shell state doesn't persist between tool calls,
+re-set both vars in every PowerShell call:
 
 ```powershell
 $env:REVIEWABLE_API_TOKEN = [Environment]::GetEnvironmentVariable('REVIEWABLE_API_TOKEN','User')
@@ -68,11 +71,19 @@ Discussion keys tell you how a thread is wired:
 2. **Find what needs a response**: `reviewable review discussions list --query="+needs:me" --pr=...`
 3. **Read each thread**: `reviewable review discussions view --key=<key> --pr=...` — and read
    the relevant code so the reply is accurate, not generic.
-4. **Reply** — pipe a JSON body into `reply`:
-   ```powershell
-   @{ markdownBody = "[<model name>] <the reply>"; disposition = 'satisfied' } |
-     ConvertTo-Json | reviewable review discussions reply --key=<key> --pr=...
+4. **Reply** — the body is JSON on **stdin**. Write it to a file and feed that file in from
+   **Git Bash**:
+   ```bash
+   # body.json (write it with the Write tool — one JSON object):
+   #   { "markdownBody": "[<model name>] <the reply>", "disposition": "satisfied" }
+   cat body.json | reviewable review discussions reply --key=<key> --pr=...
    ```
+   ⚠️ **Never pipe the body from Windows PowerShell** (`... | ConvertTo-Json | reviewable ...`).
+   The PowerShell pipe prepends a UTF-8 BOM even with `$OutputEncoding` set to BOM-less UTF-8,
+   and the CLI rejects it with `Expected valid JSON on stdin: Unexpected token '﻿'`. There is no
+   way to make that form work. If you must run it from PowerShell, use a raw stdin redirect
+   through cmd, which doesn't touch the bytes: `cmd /c "reviewable review discussions reply
+   --key=<key> --pr=... < body.json"`.
 5. **Publish**: `reviewable review publish --pr=...` — replies are drafts until published.
 6. **Verify**: re-run `discussions list` / `view` and confirm each intended reply is visible.
 

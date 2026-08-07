@@ -74,6 +74,34 @@ later, rename it (`git branch -m <old> <new>`) while that's still free — befor
 before a PR or an Orca worktree is pointing at the old name. The 1–3 words are for humans; don't
 paste the card's whole summary in.
 
+## Never `cd` in a shell tool — the Bash and PowerShell tools share one cwd
+
+They look like independent shells; they are not. A throwaway `cd <somewhere> && grep …` in a
+**Bash** call leaves every later **PowerShell** call in that directory, and vice versa. Both
+tools already start in the repo root and absolute paths work everywhere, so a `cd` buys nothing
+and the leak surfaces far from its cause, disguised as a broken repo: `vp test run packages/lib`
+died with `Projects definition references a non-existing file or a directory: …` purely because
+`vite.config.ts` resolves `test.projects` relative to cwd. Nothing in such a message says "you
+are in the wrong directory," and Bash only *sometimes* prints `Shell cwd was reset to <repo>`, so
+you can't tell from the transcript whether the cwd leaked.
+
+Use absolute paths, or a tool's own directory flag (`git -C`, `pnpm -C`, `--cwd`). Belt and
+braces before running `vp`/`pnpm`: start the PowerShell call with `Set-Location <repo root>`.
+
+## "A previous session already did this" is a lookup, not a guess
+
+When the user says an earlier session built something — and especially when it doesn't work —
+read what that session actually did instead of re-deriving it from the code. The transcripts are
+on disk: `~/.claude/projects/<repo-slug>/*.jsonl`, one JSON object per line with `type`,
+`timestamp`, and `message.content`. `grep -c <symbol> *.jsonl` finds the right session in one
+command, and a small filter over `type == "user"` / `"assistant"` prints the real requests and
+the real claims. That turns "here's what probably happened" into what happened — in one case,
+that the feature had only ever been run against synthetic fixtures the agent generated itself,
+never against the book that motivated it, a fact its own sign-off mentioned in a footnote.
+
+Corollary, since that's the failure it exposes: **when a feature is built for a specific
+artifact, running it against that artifact is part of the work**, not a nice-to-have.
+
 ## Papercuts
 
 When you hit tooling/process friction, have to work around something, or learn something the

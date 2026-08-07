@@ -16,23 +16,39 @@ little clipboard JS. Hosting it is "commit a file, push, use the URL."
 
 **`BloomBooks/dev-process-artifacts`** — a public repo whose only job is to host these
 throwaway-but-linkable files. Once a file is pushed, there are **two** ways to serve it as a
-rendered page; **prefer githack** (default) and keep Pages as a fallback:
+rendered page; **prefer GitHub Pages** (default) and keep githack as the instant-but-flaky
+alternative:
 
-- **githack (default)** — a CDN proxy that fetches the raw file and serves it with the right
-  `Content-Type` so it renders (plain `raw.githubusercontent.com` sends `text/plain`, which
-  won't render). No build/deploy step — the file is **live the instant `git push` finishes**.
-  ```
-  https://raw.githack.com/BloomBooks/dev-process-artifacts/main/<path>
-  ```
-- **GitHub Pages (durable fallback)** — first-party GitHub hosting, enabled on the root of
-  `main`. There is a deploy step (~1 min on each push; a couple of minutes the very first
-  time), so it's not instant, but it has no third-party dependency and no cache staleness.
+- **GitHub Pages (default)** — first-party GitHub hosting, enabled on the root of `main`. No
+  third-party dependency, no cache staleness. The cost is a deploy step (~1 min on each push; a
+  couple of minutes the very first time), so the URL is not live the instant the push finishes.
   ```
   https://bloombooks.github.io/dev-process-artifacts/<path>
+  ```
+- **githack (instant alternative)** — a CDN proxy that fetches the raw file and serves it with
+  the right `Content-Type` so it renders (plain `raw.githubusercontent.com` sends `text/plain`,
+  which won't render). No build/deploy step — the file is **live the instant `git push`
+  finishes** — but it is a free third-party proxy with no SLA, and it does go down: on
+  2026-08-03 both `raw.githack.com/main/...` and the commit-pinned `rawcdn.githack.com/<sha>/...`
+  served 403/404 for this repo for hours while Pages and `raw.githubusercontent.com` were fine,
+  and a dead link went out on a YouTrack card.
+  ```
+  https://raw.githack.com/BloomBooks/dev-process-artifacts/main/<path>
   ```
 
 Both are public and both take the same `<path>` (e.g. `deciders/BL-1234.html`). githack works
 on **public** repos only — it fetches anonymously and cannot read a private one.
+
+**Verify the URL before you post it anywhere.** Whichever target you use, the page can be
+missing (Pages still deploying) or refused (githack outage) at the moment you hand out the
+link, and nothing about the successful `git push` tells you which:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' "<the url you are about to post>"   # want 200
+```
+
+A non-200 on Pages usually just means the deploy hasn't landed — wait ~30 s and re-check. A
+non-200 on githack means use the Pages URL instead.
 
 Layout (create subfolders as needed):
 
@@ -61,9 +77,9 @@ so files from different products never clash:
 
 ## Publishing (the agent already has `git` + `gh`)
 
-The githack URL is **deterministic** — you pick the path — so unlike the Anthropic Artifact
-flow there is no publish-then-patch chicken-and-egg: bake the final URL into the page (and into
-a copy-back header) *before* you push, then it's live the moment the push completes.
+Both URLs are **deterministic** — you pick the path — so unlike the Anthropic Artifact flow
+there is no publish-then-patch chicken-and-egg: bake the final URL into the page (and into a
+copy-back header) *before* you push.
 
 ```bash
 DPA="$(dirname "$SCRATCH")/dev-process-artifacts"   # any working dir; a persistent clone is fine
@@ -74,32 +90,36 @@ cp "<local-report>.html" "$DPA/deciders/<name>.html"
 git -C "$DPA" add "deciders/<name>.html"
 git -C "$DPA" commit -m "Add <name> report for <sourceRepo> <branch/PR>"
 git -C "$DPA" push
-# Live immediately (default — bake this into the page/copy-back before pushing):
-#   https://raw.githack.com/BloomBooks/dev-process-artifacts/main/deciders/<name>.html
-# Durable fallback (same path, ~1 min deploy delay):
+# Default (bake this into the page/copy-back before pushing; live ~1 min after the push):
 #   https://bloombooks.github.io/dev-process-artifacts/deciders/<name>.html
+# Instant alternative (same path, no deploy wait, third-party proxy):
+#   https://raw.githack.com/BloomBooks/dev-process-artifacts/main/deciders/<name>.html
+URL="https://bloombooks.github.io/dev-process-artifacts/deciders/<name>.html"
+curl -s -o /dev/null -w '%{http_code}\n' "$URL"   # must be 200 before this link goes anywhere
 ```
 
 Notes:
+- **Pages deploy delay:** the first request after a push can 404 for up to a minute or two while
+  the Pages build runs. That is the one thing githack buys you — so if you need the link *now*,
+  post the githack URL (verified 200) and swap in the Pages URL if it ever matters.
 - **githack cache / re-push staleness:** the `raw.githack.com/main/...` URL caches for **~60
   seconds** (`cache-control: max-age=60`). If you re-push the **same** path (e.g. preflight
   re-runs), the old version can serve for up to a minute. If that matters, either wait a minute
   or use the commit-pinned production URL, which is immutable and never stale:
   `https://rawcdn.githack.com/BloomBooks/dev-process-artifacts/<commit-sha>/<path>` — commit
   locally, read the sha (`git -C "$DPA" rev-parse HEAD`), bake *that* URL in, then push. The
-  cost is a new URL per run, so re-post it if it's already on a card.
-- **githack is a free third-party proxy** (no SLA). For a link that must survive for weeks or
-  an outage, the Pages URL (same path) is the first-party fallback — worth including alongside
-  the githack link on long-lived cards.
+  cost is a new URL per run, so re-post it if it's already on a card. Note the commit-pinned URL
+  is *not* immune to a githack outage — it 403'd alongside the `main` one on 2026-08-03.
 - **Degrade gracefully:** if the push fails (no `gh`/git auth, network), fall back to the
   Anthropic Artifact tool and say in the report that the link is subscriber-only.
 
 ## When to use which target
 
-- **githack URL on `dev-process-artifacts` (default)** — whenever the link will be read by
+- **Pages URL on `dev-process-artifacts` (default)** — whenever the link will be read by
   anyone outside this session: posted to a YouTrack card, dropped in a PR, or handed to a
-  teammate/another agent. This includes every `process-sentry-issues` escalation. Add the Pages
-  URL too when the link needs to outlive githack's cache or a githack outage.
+  teammate/another agent. This includes every `process-sentry-issues` escalation. Use the
+  githack URL instead only when you need the link live immediately and can't wait out the Pages
+  deploy — and verify it returns 200 first, either way.
 - **Anthropic Artifact tool** — fine when only the in-session developer needs to see it and a
   subscriber-only link is acceptable (a quick interactive decider you'll act on immediately).
 
