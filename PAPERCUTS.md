@@ -62,6 +62,9 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Context:** Preflight run on EthnoLib (worktree `C:\dev\EthnoLib.worktrees\next`, PR #150),
   Windows 11, nx 20.4.6. Workaround: loop over packages, `cd $pkg && npx vitest run --config
   vitest.config.ts`.
+- seen again: 2026-08-12 (EthnoLib CharacterVariants branch, Hatton's machine) — `nx run-many
+  --target=test` over two packages overran a 10-minute timeout while per-package `npx vitest run`
+  took ~2s each; NX_DAEMON=false did not help the test target. Same workaround.
 
 ## 2026-07-18 — One shared local Supabase stack, many parallel agents
 
