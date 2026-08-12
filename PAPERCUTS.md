@@ -2,6 +2,18 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-12 — In multi-agent sessions, Write silently clobbers a sibling agent's new file
+
+- **Cut:** Two Opus subagents working the same package each created `src/alphabet.spec.ts`;
+  the second used Write without checking the path existed and silently replaced the first
+  agent's 6 uncommitted tests. Nothing caught it: the suite still went green (72 passing read
+  as "9 added to 63", not "9 replaced 6"), and the file was unrecoverable from git.
+- **Idea:** When orchestrating concurrent agents in one package, tell each agent to Read (or
+  Glob) before Writing any new file, or pre-assign distinct spec filenames. A total-test-count
+  ledger kept by the orchestrator catches the arithmetic mismatch immediately.
+- **Context:** EthnoLib `CharacterVariants` branch on Hatton's machine, FontChooserScreen
+  build-out with parallel polish/cv-extend agents.
+
 ## 2026-08-06 — The Remove-Item safety hook mis-parses a quoted path containing a space
 
 - **Cut:** `Remove-Item "C:\Screenshot History\some file.png" -Force` was refused with
