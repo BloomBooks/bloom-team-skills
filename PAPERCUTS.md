@@ -250,3 +250,19 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   a `cd`, and the team rule against `cd` in shell tools means the flag is the fix, not a directory
   change.
 - **Context:** browser-verifying the font chooser's sample-text provenance work.
+
+## 2026-08-13 — A backgrounded PowerShell command looks hung when its output is piped to `Select-Object -Last`
+- **Cut:** I ran `npm run testonce 2>&1 | Select-Object -Last 30` to keep a noisy nx/vitest run
+  short. It exceeded the 300s tool timeout, moved to the background, and its output file stayed
+  completely empty for another five minutes. Everything pointed at a hang — an nx daemon waiting on
+  stdin, a prompt nobody could answer — and I killed it and started diagnosing the wrong problem.
+  Nothing was wrong: `Select-Object -Last N` cannot know which lines are the last ones until the
+  stream ends, so it buffers the whole run and emits nothing until the command exits. The run had
+  in fact finished successfully at the moment I killed it.
+- **Idea:** Never pipe a long-running command through `Select-Object -Last` (or `Sort-Object`, or
+  anything else that must see the whole stream) when the command might be backgrounded. Let it
+  write raw and read the tail of the output file afterwards, or use `Select-Object -First`/
+  `Where-Object`, which stream. Corollary for reading the result: an empty background output file
+  proves nothing about whether the process is alive.
+- **Context:** running the font packages' vitest suites while implementing the chooser's
+  auto-download work.
