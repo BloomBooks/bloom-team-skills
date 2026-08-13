@@ -217,3 +217,36 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   ')'"), so collapse the script to one line before passing it. Remember `chrome-devtools stop` at
   the end; `new_page` also holds the terminal until the daemon is stopped, so run it backgrounded.
 - **Context:** verifying the config-r prototyper's three-pane layout (Phase 0 + 1) in the browser.
+
+## 2026-08-13 — The Edit tool cannot touch a line containing a zero-width character
+- **Cut:** ESLint's `no-irregular-whitespace` flagged a literal U+200B in a spec assertion
+  (`expect(entries).not.toContain("​")` written with the real character). Every attempt to
+  replace it with `Edit` failed: pasting the line into `old_string`/`new_string` loses the
+  zero-width character somewhere between reading the file and the tool comparing strings, so the
+  call comes back "No changes to make: old_string and new_string are exactly the same" — even
+  though the file on disk plainly differs from what I asked for. `Read` shows the line; the
+  invisible character just doesn't survive the round trip. Three wasted calls, and the failure
+  message actively misleads (it says my two strings match, not that the *file* couldn't be
+  matched).
+- **Idea:** Don't try to edit a line whose content includes an invisible or zero-width character.
+  Patch it from the shell against the code point instead — in PowerShell:
+  `$t=[IO.File]::ReadAllText($p); $t=$t.Replace("x$([char]0x200B)x", 'escaped'); [IO.File]::WriteAllText($p,$t)`
+  — then grep to confirm. Better still, write such characters as `\uXXXX` escapes in the first
+  place; lint requires it anyway.
+- **Context:** the SLDR alphabet provider's spec, asserting that a language's auxiliary exemplar
+  set (which for Thai is a lone zero-width space) stays out of the alphabet.
+
+## 2026-08-13 — `npm -C <pkg> exec -- vite` starts vite with the *repo root* as cwd
+- **Cut:** To run a package's dev server on a fixed port I used
+  `npm -C components/fonts/react/font-chooser-react-mui exec -- vite --port 5390 --strictPort`.
+  Vite started and printed a normal "ready in 144 ms / Local: http://localhost:5390/" banner, but
+  every request to `/` came back 404. `-C` sets npm's own prefix, not the child process's working
+  directory, so vite resolved its config relative to the repo root, found none, and served the
+  monorepo root as a static site — where there is no `index.html`. The banner gives no hint: it
+  looks exactly like a healthy server, and the 404 reads as a routing or build problem in the app.
+- **Idea:** Point vite at the config by absolute path instead — `npx vite --config
+  D:/<repo>/<pkg>/vite.config.ts --port <n> --strictPort` — which works because these configs set
+  `root: __dirname`. Same shape for any tool that discovers config from cwd; `-C`/`--prefix` is not
+  a `cd`, and the team rule against `cd` in shell tools means the flag is the fix, not a directory
+  change.
+- **Context:** browser-verifying the font chooser's sample-text provenance work.
