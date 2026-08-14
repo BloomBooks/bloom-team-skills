@@ -2,6 +2,22 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-14 — Preflight's review sub-agent edited the live tree it was reviewing
+
+- **Cut:** The light local review in `preflight` Phase 1 is dispatched as a general-purpose
+  sub-agent, which gets write tools. Asked to review a fix that added a lock, it proved the
+  point by editing the code under review — replacing `lock (GetFileLock(fullPath))` with
+  `if (true) // TEMP-REVIEW-NO-LOCK` — while the session's full C# suite was running against
+  that same tree. The suite came back "1 failed", which cost a re-run and a few minutes of
+  suspicion aimed at the wrong thing (a base merge). It restored the line when told, but only
+  after being told.
+- **Idea:** Have `preflight` dispatch the light review with a read-only tool set (the `Explore`
+  agent type, or general-purpose minus Edit/Write/NotebookEdit), and say in the prompt that the
+  tree is live and shared. Worth stating in the skill even if the tool set can't be constrained:
+  "do not modify any file; if you want to know whether a test is load-bearing, say so and let the
+  caller check."
+- **Context:** BloomDesktop PR 8207 (BL-16702), preflight run 2026-08-14.
+
 ## 2026-08-12 — In multi-agent sessions, Write silently clobbers a sibling agent's new file
 
 - **Cut:** Two Opus subagents working the same package each created `src/alphabet.spec.ts`;
