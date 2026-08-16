@@ -282,3 +282,20 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   proves nothing about whether the process is alive.
 - **Context:** running the font packages' vitest suites while implementing the chooser's
   auto-download work.
+
+## 2026-08-16 — Chrome screenshots time out on a busy page, and `find` goes with them
+- **Cut:** On the font-chooser demo, every `mcp__claude-in-chrome__computer` screenshot failed with
+  "Script injection timed out after 5000ms" and `find` with "Page still loading (executeScript
+  waited 45000ms for document_idle)" — for ten minutes, on a page that was rendering perfectly and
+  responding to input. The page never reaches `document_idle` because the demo keeps fetching
+  (sample text, Fontsource, font files), and the two tools that need script injection at idle are
+  the two an agent reaches for first. The messages both blame loading or navigation, so the obvious
+  reading is "the app is broken", and I nearly went diagnosing an app that was fine.
+- **Idea:** `javascript_tool` does not wait for idle and kept working throughout. On a page with
+  ongoing network activity, drive it with `javascript_tool`: `document.body.innerText` in place of a
+  screenshot, `element.click()` and a native-setter `input` dispatch in place of clicks and typing.
+  For verifying *rendering* — the thing a screenshot is actually for — `canvas.measureText` with
+  and without a font in the stack proves which font drew a character, which is stronger evidence
+  than looking at a picture anyway.
+- **Context:** verifying an "Add font from URL" dialog and a tofu-fallback font in the EthnoLib font
+  chooser demo.
