@@ -299,3 +299,17 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   than looking at a picture anyway.
 - **Context:** verifying an "Add font from URL" dialog and a tofu-fallback font in the EthnoLib font
   chooser demo.
+
+## 2026-08-17 — Spawning `npx` from a Node script on Windows: both obvious ways fail
+- **Cut:** A skill script needed to run `npx supabase db query ... "<sql>"`. `execFileSync("npx",
+  [...], {shell: true})` let the shell re-parse the SQL argument, so its quotes and newlines came
+  back as garbage flags and the CLI answered by printing its own help — which reads as "you called
+  it with the wrong flags", not as a quoting problem, and sent me looking at the wrong thing.
+  Dropping the shell and calling `npx.cmd` directly then failed with `spawnSync npx.cmd EINVAL`,
+  because Node (since the Windows argument-injection fix in 18.20/20.12) refuses to spawn `.cmd`
+  without `shell: true`. So on Windows you cannot have both a shell-free spawn and a `.cmd` shim.
+- **Idea:** Keep `shell: true` and make sure no argument needs quoting: write SQL (or any
+  multi-line/quoted payload) to a file and pass `-f <file>`, and wrap every path argument in
+  double quotes yourself. Same shape applies to any `.cmd`/`.ps1` shim — npm, pnpm, vercel, tsc.
+- **Context:** building the `feedback-from-font-chooser` skill, which dumps the font chooser demo's
+  Supabase feedback rows verbatim.
