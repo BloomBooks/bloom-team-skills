@@ -313,3 +313,22 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   double quotes yourself. Same shape applies to any `.cmd`/`.ps1` shim — npm, pnpm, vercel, tsc.
 - **Context:** building the `feedback-from-font-chooser` skill, which dumps the font chooser demo's
   Supabase feedback rows verbatim.
+
+## 2026-08-17 — Previewing a locally generated HTML file: neither obvious route works
+- **Cut:** I generated a static dashboard page and wanted to look at it. The Chrome extension
+  refuses `file://` outright ("Can't interact with browser-internal or unparseable URLs"), so the
+  next move is to serve it. But a `node -e "...createServer(...).listen(8757)"` started through the
+  **Bash tool exits instantly with code 0 and no output** — the sandbox blocks listening sockets,
+  and it reports that as a clean exit, which reads as "my one-liner is wrong", not "sockets are
+  denied". With `dangerouslyDisableSandbox: true` the server came up and answered `curl` with 200,
+  and then the extension's `computer screenshot` still timed out three times with "Script injection
+  timed out after 5000ms" on a page that is one `<style>` block and no scripts.
+- **Idea:** Skip the extension for static pages. Headless Chrome takes the screenshot directly:
+  `"/c/Program Files/Google/Chrome/Application/chrome.exe" --headless --disable-gpu
+  --hide-scrollbars --no-first-run --user-data-dir="<scratch>/profile"
+  --window-size=1100,2400 --screenshot="<scratch>/shot.png" http://localhost:8757/`, run with
+  `dangerouslyDisableSandbox`. Two traps: `--screenshot` must be an **absolute** path or it dies
+  with "Failed to write file: Access is denied", and it needs its own `--user-data-dir` (delete it
+  afterwards). Add `--force-dark-mode` for the dark-mode pass. Still needs a server, since headless
+  Chrome inherits the same `file://` awkwardness under the sandbox.
+- **Context:** building `supporting-data/dashboard` in EthnoLib, a generated static coverage page.
