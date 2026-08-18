@@ -348,3 +348,14 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   node's `fetch` answered 200 (same URL, same app-id header) — probably the missing User-Agent.
   Use node for Parse API probing.
 - **Context:** EthnoLib `supporting-data`, checking imported SLDR alphabets for corruption.
+
+## 2026-08-18 — ESM import of a repo module by Windows absolute path fails
+- **Cut:** A scratch ESM script doing `import ... from "D:\repo\tools\lib\x.mjs"` (or the
+  forward-slash form) dies with `ERR_UNSUPPORTED_ESM_URL_SCHEME`: Node parses `D:` as a URL
+  scheme, so a bare Windows absolute path is never a valid ESM specifier.
+- **Idea:** Import by `file:///D:/repo/tools/lib/x.mjs`, or build it with
+  `pathToFileURL(path).href` from `node:url`. Relative specifiers (`./lib/x.mjs`) are also fine —
+  the trap is only the bare drive-letter absolute path, which agents reach for because "always
+  use absolute paths" is the rule everywhere else.
+- **Context:** EthnoLib `supporting-data`, a subagent's scratch script importing
+  `tools/lib/langdata.mjs` while building the BloomLibrary walker.
