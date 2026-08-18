@@ -332,3 +332,19 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   afterwards). Add `--force-dark-mode` for the dark-mode pass. Still needs a server, since headless
   Chrome inherits the same `file://` awkwardness under the sandbox.
 - **Context:** building `supporting-data/dashboard` in EthnoLib, a generated static coverage page.
+
+## 2026-08-18 — `py -m json.tool` makes clean UTF-8 look double-encoded
+- **Cut:** Inspecting Supabase rows with `curl ... | py -m json.tool` printed
+  `"exemplars [a {Ã¢} b ...]"`. `Ã¢` is `Ã¢`, the textbook signature of UTF-8
+  read as Latin-1, so it reads as real mojibake in the database — and I went off and wrote a scan
+  script to find out how many rows were corrupted. Zero were. `json.tool` re-encodes with
+  `ensure_ascii=True` and the bytes get mangled on the way through the pipe on this machine, so
+  correct data is displayed as its own double-encoding.
+- **Idea:** Don't use `py -m json.tool` to eyeball non-ASCII JSON. Either pipe to `node -e` (its
+  `fetch`/`JSON.parse` round-trip is clean), or run `py` with `PYTHONIOENCODING=utf-8` and
+  `sys.stdout.reconfigure(encoding='utf-8')` and print with `ensure_ascii=False`. Corollary: before
+  believing an encoding bug seen through a formatter, check one row through a second path.
+- **Also:** Python's `urllib` got a bare 403 from `server.bloomlibrary.org/parse` for a request
+  node's `fetch` answered 200 (same URL, same app-id header) — probably the missing User-Agent.
+  Use node for Parse API probing.
+- **Context:** EthnoLib `supporting-data`, checking imported SLDR alphabets for corruption.
