@@ -384,3 +384,19 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   scripts — it sits right next to the existing "use the Write tool for scratch scripts" cut.
 - **Context:** EthnoLib `supporting-data`, adding a `--compare-sldr` mode to
   `tools/importBloomBooks.mjs`.
+
+## 2026-08-19 — Chrome extension screenshots time out, so a page cannot be looked at
+
+- **Cut:** Every `mcp__claude-in-chrome__computer` screenshot in a session failed with `Script
+  injection timed out after 5000ms — the page is busy or mid-navigation`, on four different pages
+  (a published artifact, a hand-rolled `http.createServer` page, and `vite preview` twice). The
+  message blames the page, so the first two failures read as "claude.ai is heavy, try a lighter
+  page" and cost a detour building a local server to serve the file. It was the extension.
+- **Idea:** Two failures on two *different* pages means the extension, not the page — stop and say
+  the page is unverified rather than hunting for a lighter one. Also worth knowing: `navigate`
+  refuses `file://` URLs, so looking at a generated HTML file needs a local server at all (and
+  `vite preview` binds `localhost` only, not `127.0.0.1` — the other spelling gives an error page).
+  Both dataviz and artifact-design end with "render it and look at it", which is unreachable when
+  this breaks; that step should say what to do when the screenshot never arrives.
+- **Context:** EthnoLib `supporting-data`, building an HTML report and a dashboard tab whose whole
+  point was a colour-blend diagram — the one thing that most needed a visual check.
