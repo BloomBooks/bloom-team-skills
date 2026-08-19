@@ -86,13 +86,54 @@ lowest-stakes step.
 ## Stage 3 — Promote
 
 1. **Mark the PR ready for review**: `gh pr ready <n>`. Do **not** request a specific
-   reviewer — choosing a reviewer is the developer's call, made outside this skill.
-2. **Personal board**: if a `personal-board` skill is available, invoke it to record that the
+   reviewer — choosing a reviewer is the developer's call, made outside this skill. If Stage 1
+   already found `isDraft: false` (the author un-drafted it by hand), skip the call and say so —
+   but still do step 2, which is precisely the case that leaves a stale report behind.
+2. **Correct the published preflight report's PR-state chip.** Preflight's report page lives at a
+   stable public URL (`deciders/<sourceRepo>-<branch>.html` in `BloomBooks/dev-process-artifacts`)
+   and is linked on the tracker card, so people keep opening it after the promotion — and its
+   header chip still says "Draft PR". Patch that one chip in place; do not re-render the report
+   (its decisions, gate results, and reviewer outcomes must stay exactly as preflight left them).
+
+   ```bash
+   DPA=<any working dir>/dev-process-artifacts
+   git clone --depth 1 https://github.com/BloomBooks/dev-process-artifacts "$DPA" 2>/dev/null \
+     || git -C "$DPA" pull --ff-only
+   F="$DPA/deciders/<sourceRepo>-<branch>.html"
+   node -e '
+     const fs=require("fs"), f=process.argv[1], s=fs.readFileSync(f,"utf8");
+     const out=s.replace(/<!-- pr-state:begin -->[\s\S]*?<!-- pr-state:end -->/g, m =>
+       m.replace(/data-pr-state="draft"/g,"data-pr-state=\"ready\"").replace(/>Draft PR</g,">Ready for review<"));
+     fs.writeFileSync(f,out); console.log(out===s?"NO CHANGE":"patched");
+   ' "$F"
+   git -C "$DPA" commit -am "PR <n> (<sourceRepo> <branch>) is ready for review" && git -C "$DPA" push
+   ```
+
+   Rewriting only what sits between the `pr-state` markers keeps the report's own class names and
+   styling intact. Then confirm the live URL returns 200 and serves the new text (the Pages deploy
+   takes ~1 min — see `dev-process-artifacts.md` at the root of the bloom-team-skills clone, reached
+   via this file's real path, not a `../` hop).
+
+   Cases where there is nothing to patch — note each in the report and move on, never guess at
+   unmarked HTML:
+   - **No such file** (no ticket id, so preflight published a private Anthropic Artifact instead,
+     or no report was ever published) → nothing to do. The one exception: if that private artifact
+     came from *this* session and you still have its local file, correct the chip there and
+     redeploy to the same `url`.
+   - **The file has no `pr-state` markers** (published before this convention) → say in the report
+     that the published report still shows "Draft PR" and that re-running `preflight` would
+     refresh it. Do not attempt a blind text substitution on the page.
+   - **`NO CHANGE`** printed with markers present → it already says ready; leave it.
+
+   If `data-pr-state` flipped but the visible label did not (a report that worded its chip
+   differently), fix the label by hand in the same edit — the text is what people actually read.
+3. **Personal board**: if a `personal-board` skill is available, invoke it to record that the
    developer has explicitly handed this to peer review (the user running this skill is the
    explicit command that skill requires). Skip silently if unavailable.
-3. **Report**: "PR #<n> is now marked ready for review; the tracker card is in its
-   ready-for-peer-review state (name it). PR: <URL>" plus anything skipped (e.g. the tracker
-   was unreachable).
+4. **Report**: "PR #<n> is now marked ready for review; the tracker card is in its
+   ready-for-peer-review state (name it). PR: <URL>" plus whether the published preflight report's
+   PR-state chip was updated (with its URL), and anything skipped (e.g. the tracker was
+   unreachable).
 
 ## Rules
 
@@ -100,6 +141,11 @@ lowest-stakes step.
   bounce to preflight instead. No exceptions except an explicit user override ("skip the
   checks, promote anyway"), which must be noted in the report.
 - Never request a teammate's review; un-drafting the PR is the handoff.
+- **Whenever the PR's draft state changes — or you find a human already changed it — the published
+  preflight report has to agree.** A report that still shows "Draft PR" is read by the reviewer and
+  by whoever picks the card up later. Invoking this skill authorizes the one-chip patch-and-push to
+  the public `dev-process-artifacts` repo that Stage 3 step 2 describes; it authorizes nothing else
+  in that repo.
 - Anything posted under the user's account (the tracker or GitHub) starts with an identifier of
   which model you are.
 - Always check for duplicate comments on the card before posting.

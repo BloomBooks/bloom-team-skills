@@ -335,6 +335,9 @@ Everything is already committed in Phase 2; this phase only pushes and opens the
   `Ref: <tracker-url-if-known>`.
   - Exists but is **ready-for-review** → convert it back to draft (`gh pr ready <n> --undo`):
   preflight means the work is pre-review again. Note the conversion in the report.
+  - Either way the PR state changed under you, so the report must render its PR-state chip from a
+  fresh `gh pr view <n> --json isDraft` at report time rather than from what happened here — see
+  `references/report-artifact.md`, "Header — the run summary and the status chips".
   - (Do NOT do the promote-to-human ceremony — that's `pr-ready-for-human`.)
 - Record PR number & URL.
 - **The PR description is the narrative's other home — keep it current, idempotently.** Preflight
@@ -499,7 +502,8 @@ request a teammate's review and never mark the PR ready.
 where it isn't obvious) and what the whole PR does about it. That is the first thing the user
 reads, on every run.
 
-Then: branch/PR link & draft status; fast-gate and full-suite results; **one line** on what this
+Then: branch/PR link & its PR state (read it live — `gh pr view <n> --json isDraft` — never assumed
+from what this run did to it); fast-gate and full-suite results; **one line** on what this
 run changed; reviewer outcomes — one line per reviewer per "The reviewers" (the local review
 included, each remote one terminal: complete or "timed out after N min", how long we waited);
 mergeability; whether the QA test-ideas comment was posted/updated, whether the PR description's

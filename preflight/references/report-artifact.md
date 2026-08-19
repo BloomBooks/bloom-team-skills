@@ -106,6 +106,31 @@ right column is the decision items and the copy-back.
 (The numbers below are this spec's ordering, not heading text — the page's headings stay plain,
 per Visual style.)
 
+### 0. Header — the run summary and the status chips
+
+A one-line summary of the run plus a row of status chips: **PR state**, mergeability, bots quiet,
+and how many items are waiting on the user.
+
+**The PR-state chip is read live, never assumed.** This report outlives the run: it sits at a
+stable URL linked on the tracker card, and afterwards `pr-ready-for-human` — or the human author
+by hand — un-drafts the PR. A chip that still says "Draft PR" then misleads everyone who opens
+that link. Two rules keep it honest:
+
+- **Read the state at the moment you write the page** (`gh pr view <n> --json isDraft,state`) and
+  render from that. Never hard-code "Draft PR" on the grounds that preflight just made it one.
+- **Make it patchable in place**, so a later skill can correct the one chip without re-rendering
+  the whole report. Wrap it in marker comments and stamp the state as a data attribute:
+
+  ```html
+  <!-- pr-state:begin --><span class="chip" data-pr-state="draft">Draft PR</span><!-- pr-state:end -->
+  ```
+
+  `data-pr-state` is `draft` or `ready`; the label is `Draft PR` or `Ready for review`. Keep the
+  markers and the chip on **one line**, in exactly this shape (your own class names are fine) —
+  `pr-ready-for-human` rewrites what sits between the markers, and drifting from this shape is
+  what leaves a stale "draft" chip on a promoted PR. Emit the markers on every run, including the
+  ordinary one where the PR really is a draft.
+
 ### 1. What this PR is about — the first thing on the page, on every run
 
 **Required, always, from the very first run.** The report's opening card is the **PR narrative**:

@@ -36,7 +36,7 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 ![A preflight report: header with status chips, a quality-gate table and "what changed" list on the left, and interactive decision items with a copy-back button on the right.](preflight/references/preflight-report-sample.png)
 
  It has these parts:
-- **Header** — a one-line summary of the run and a row of status chips (draft PR count, mergeability, bots clean, how many items are waiting on you).
+- **Header** — a one-line summary of the run and a row of status chips (PR state — draft or ready for review, read live and corrected in place when `pr-ready-for-human` promotes the PR — mergeability, bots clean, how many items are waiting on you).
 - **What this PR is about** — the first thing on the page, on every run: the problem the PR set out to solve, the cause that was diagnosed (when that isn't obvious from the problem), and what the **whole PR** changes to fix it. Kept up to date run after run rather than replaced by notes on the latest one — so a reviewer, or a colleague who picks the card up next week, can read the report cold. The same text goes in the PR description.
 - **Quality gate** — a table of typecheck, lint, and merge-cleanliness, with **tests broken out one row per language/runner** (TS/vitest, C#/dotnet, …) so nothing looks silently skipped; each row shows pass / fail / N/A with detail.
 - **What changed this run** — deliberately brief: a few lines on what this run did to the branch (a run being one `/preflight`, usually several commits), plus links to the commits. Not a paragraph per commit.
@@ -48,7 +48,7 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 
 | Skill                      | What it does                                                                                                                                                                            |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pr-ready-for-human`       | Step 3 of the pipeline: after preflight and your own review, verify clean, link YouTrack, un-draft the PR, move boards.                                                                 |
+| `pr-ready-for-human`       | Step 3 of the pipeline: after preflight and your own review, verify clean, link YouTrack, un-draft the PR (correcting the published report's "draft" chip), move boards.                                                                 |
 | `devin-review`             | Single source of truth for operating Devin (devinreview.com / app.devin.ai): trigger, read signals, post findings to GitHub.                                                            |
 | `reviewable-replies`       | Reply to Reviewable.io review discussions per-thread via the `reviewable` CLI.                                                                                                          |
 | `youtrack-api`             | Low-level: auth and REST conventions for our YouTrack (`issues.bloomlibrary.org`).                                                                                                      |
