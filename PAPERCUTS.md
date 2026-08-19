@@ -233,6 +233,14 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   ')'"), so collapse the script to one line before passing it. Remember `chrome-devtools stop` at
   the end; `new_page` also holds the terminal until the daemon is stopped, so run it backgrounded.
 - **Context:** verifying the config-r prototyper's three-pane layout (Phase 0 + 1) in the browser.
+- **seen again 2026-08-19:** same failure across a whole session, on a local Vite dev server and
+  its `vite preview` build alike, in a fresh tab. `javascript_tool`, `navigate`,
+  `read_console_messages` and `tabs_close_mcp` all worked on that tab throughout. Verified a new
+  dashboard tab entirely through the DOM instead: read back the SVG geometry and the rendered
+  labels, dispatched `click` on the regions, and drove the filter box with the native value
+  setter plus an `input` event. That was enough to catch a real bug (a filter left over from the
+  previously selected region), so DOM-reading is a workable substitute for anything but pure
+  appearance.
 
 ## 2026-08-13 — The Edit tool cannot touch a line containing a zero-width character
 - **Cut:** ESLint's `no-irregular-whitespace` flagged a literal U+200B in a spec assertion
