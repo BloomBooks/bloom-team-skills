@@ -367,3 +367,20 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   use absolute paths" is the rule everywhere else.
 - **Context:** EthnoLib `supporting-data`, a subagent's scratch script importing
   `tools/lib/langdata.mjs` while building the BloomLibrary walker.
+
+---
+
+## 2026-08-19 — A backslash escape inside a Bash heredoc reaches the file as a real newline
+
+- **Cut:** Patching a JS file through `py - <<'PY'` with a Python string holding `\\n` — the
+  normal way to write a literal `\n` into generated source — produced an actual line break in the
+  output file instead, giving `console.log("` followed by a newline and a `SyntaxError: Invalid or
+  unexpected token`. The heredoc is single-quoted, so the shell is not supposed to touch it; the
+  mangling happens before Python sees the script. It cost three round-trips, and the first one
+  looked like a Python quoting mistake rather than anything to do with the tool.
+- **Idea:** Never put a backslash escape in a string that goes through a shell heredoc. Build the
+  escape from `chr(92)` (or `chr(92) + "n"`), or match on a substring that has no backslash in it
+  at all, which is what finally worked. Worth a line in whatever guidance covers writing scratch
+  scripts — it sits right next to the existing "use the Write tool for scratch scripts" cut.
+- **Context:** EthnoLib `supporting-data`, adding a `--compare-sldr` mode to
+  `tools/importBloomBooks.mjs`.
