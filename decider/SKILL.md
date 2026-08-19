@@ -48,6 +48,13 @@ from the conversation or the code. For each item:
 - End the form with a **"next step" question** (e.g. "implement my recommendations now" vs
   "discuss first") — same `Leave as is` / `Other:` / notes conventions.
 
+**Only open questions belong in a form.** A decision the user already made — on an earlier form,
+or in conversation — is settled, and its record belongs where the next person will be looking: a
+code comment, a reply on the thread that raised it, updated test notes. Re-listing it "for
+completeness" makes the form longer and the real questions harder to find. Likewise, keep the
+standing background that several items share in a single context block at the top, rather than
+repeating it inside each one.
+
 ## Building the artifact
 
 Load the `artifact-design` skill first, then write the page to a file. **Where you publish it

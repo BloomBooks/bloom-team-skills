@@ -25,8 +25,9 @@ chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   #
 1. **No horizontal overflow** — `scrollWidth > clientWidth` must be `false`, at a wide width
    (~1440) *and* a narrow one (~620, where it collapses to one column). Sideways scroll almost
    always means a grid item that cannot shrink; see the Visual style rules.
-2. **Look at the screenshot.** Both columns present, the decisions visible, no prose set in
-   monospace, no text running under or past a neighbour.
+2. **Look at the screenshot.** The "what this PR is about" card is the first thing on the page,
+   both columns are present, the decisions are visible, no prose set in monospace, no text
+   running under or past a neighbour.
 3. **The copy-back actually serializes.** Read `#payload`, then flip a couple of controls and read
    it again — confirm a selection changes the text, a `Leave comment` tick adds its line, an
    untouched `Leave comment` adds nothing, and `Other:` picks up its typed value.
@@ -78,9 +79,9 @@ chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   #
   (avoid heavy shadows), one restrained accent, system serif headings + system sans body (do NOT
   link webfonts — the artifact CSP blocks them). If the project has its own design system,
   follow it.
-- **Two columns on wide screens:** the report (gate table, what-changed, reviewer outcomes,
-  session notes) on the left and the interactive decisions on the right; collapse to one column
-  when narrow.
+- **Two columns on wide screens:** the report (the PR narrative, gate table, what-changed,
+  reviewer outcomes, worth-knowing) on the left and the interactive decisions on the right;
+  collapse to one column when narrow.
 - **Put `min-width: 0` on the two grid children.** A grid item's automatic minimum size is its
   *content's* size, so one wide table cell expands its column until the whole page scrolls
   sideways — which pushes the entire decisions column off-screen, i.e. the user never sees the
@@ -98,39 +99,114 @@ chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   #
 
 ## Content blocks
 
-**The whole run at a glance:** quality-gate table, what changed this run (each commit),
-reviewer outcomes, and the decision items.
+The page has, in this order down the left column: **what this PR is about**, the quality gate,
+what changed this run, reviewer outcomes, and (only if it earns a place) worth-knowing. The
+right column is the decision items and the copy-back.
 
-- **Quality-gate table:** typecheck, lint, merge-cleanliness, and **tests broken out one row per
-  language/test-runner** — e.g. a row for the TypeScript tests (vitest/jest) and a *separate*
-  row for the C# tests (`dotnet test`), plus any other stack present. Show the count and
-  pass/fail per row. If a stack has no tests in this repo, still give it its own row marked
-  "N/A — none in this repo" so it's clear nothing was silently skipped. Likewise a stack whose
-  suite was deliberately **not run** because the diff can't reach it (SKILL.md Phase 4 step 4)
-  gets a row saying exactly that — "not run — no C# in the diff" — carrying the same weight as
-  a pass or a fail. The reader must never have to guess whether a missing suite was a judgment
-  call or a slip.
-- **Reviewer-outcomes block:** one row per reviewer that ran. The **local review first**,
-  labeled with the level that ran ("light sub-agent pass" / "thorough /code-review" / "skipped
-  at user request") plus findings raised / fixed / escalated / dismissed, or "clean — no
-  findings" — never omit this row. Then one row per remote reviewer and CI. **Every
-  remote-reviewer row shows a terminal state** — "complete" (with its findings summary) or
-  "timed out after N min" — per the skill's terminal-state rule; if a row would say "pending",
-  the run converged too early — fix that, don't paper over it in the report.
-- **Links everywhere they exist.** PR, Files-changed, Commits; each commit page; each
-  reviewer's summary/review and every resolved/open thread (fetch the real comment/thread ids
-  via `gh`) — for Devin, link its review page `https://devinreview.com/<owner>/<repo>/pull/<n>`;
-  and **precise `file:line` deep links** into the code — build blob URLs at the HEAD sha
-  (`.../blob/<sha>/<path>#L<line>`) and **verify the current line numbers first** (grep at HEAD;
-  they shift after edits) so every anchor is accurate. **Every `<a>` must open in a new tab**
-  (`target="_blank" rel="noopener"`).
+(The numbers below are this spec's ordering, not heading text — the page's headings stay plain,
+per Visual style.)
+
+### 1. What this PR is about — the first thing on the page, on every run
+
+**Required, always, from the very first run.** The report's opening card is the **PR narrative**:
+what problem the PR set out to solve, the cause that was diagnosed where that isn't already
+obvious from the problem, and what the **whole PR** changes to fix it. SKILL.md's "The PR
+narrative" section defines it — its content, its length budget (~150–250 words), and how it is
+maintained across runs. Follow that; this file only says where it goes: first, above the quality
+gate, in the left column, as its own card.
+
+Give the card sub-headings so it can be skimmed — **Problem**, **Cause** (omit the heading
+entirely when there is no separate cause to state), **What the PR does**. Prose and short
+bullets, in behavior terms, not a commit log and not a file list.
+
+This card is the reason someone can open the report cold — a reviewer, or the developer's
+colleague picking up the card next week — and answer the decisions sensibly. It is **never**
+dropped on a later run on the grounds that it hasn't changed, and it is never replaced by an
+account of what the latest run did.
+
+### 2. Quality gate
+
+A table: typecheck, lint, merge-cleanliness, and **tests broken out one row per
+language/test-runner** — e.g. a row for the TypeScript tests (vitest/jest) and a *separate* row
+for the C# tests (`dotnet test`), plus any other stack present. Show the count and pass/fail per
+row. If a stack has no tests in this repo, still give it its own row marked "N/A — none in this
+repo" so it's clear nothing was silently skipped. Likewise a stack whose suite was deliberately
+**not run** because the diff can't reach it (SKILL.md Phase 4 step 4) gets a row saying exactly
+that — "not run — no C# in the diff" — carrying the same weight as a pass or a fail. The reader
+must never have to guess whether a missing suite was a judgment call or a slip.
+
+### 3. What changed this run — short, and that is the point
+
+A **run** is one invocation of preflight, usually several commits (SKILL.md, "What a run is").
+This block says, in **at most three sentences or four bullets**, what this run did to the branch
+— e.g. "Fixed the two findings Devin raised about command-line entry points, merged master
+twice, and committed three test cases that were sitting in the working tree." Then link the PR's
+commit list, and the individual commits if there are few.
+
+**Do not write a table with a paragraph per commit.** That is the failure this block is
+constrained against: it grows every run, it duplicates what GitHub already shows better, and it
+crowds out the narrative that a reader actually needs. Per-commit detail lives in the commit
+messages; what the PR *does* lives in block 1. If a run's change is genuinely significant, the
+right move is to fold it into block 1 — not to expand this one.
+
+On a re-run where nothing changed but the verification, one sentence: "No code changes — re-ran
+the gauntlet against the same HEAD to fold in late reviewer results."
+
+### 4. Reviewer outcomes
+
+One row per reviewer that ran, **one to three sentences each**. The **local review first**,
+labeled with the level that ran ("light sub-agent pass" / "thorough /code-review" / "skipped at
+user request") plus findings raised / fixed / escalated / dismissed, or "clean — no findings" —
+never omit this row. Then one row per remote reviewer and CI. **Every remote-reviewer row shows a
+terminal state** — "complete" (with its findings summary) or "timed out after N min" — per the
+skill's terminal-state rule; if a row would say "pending", the run converged too early — fix
+that, don't paper over it in the report.
+
+**Not a transcript.** A reviewer that ran eight times gets its current state and a one-sentence
+summary of what it found across the branch, with links to the threads — not a round-by-round
+history, not a re-narration of each finding and how we judged it. Each finding already has a PR
+thread carrying its own outcome; that thread is the record, and linking it beats retelling it.
+
+### 5. Worth knowing — only what changes what someone does
+
+Optional, capped at about five bullets, and each bullet must pass the test in SKILL.md's "What
+the report is for": **would a reviewer, or the person answering the decisions, do something
+differently for having read it?** Legitimate entries look like:
+
+- behavior that has **not** been exercised by hand and could be silently broken;
+- something deliberately left out of scope, and why;
+- a pre-existing oddity in the touched code that looks alarming and isn't (so a reviewer doesn't
+chase it).
+
+What does **not** go here, however interesting: the decisions we already made and acted on, the
+reasoning behind each fix, an assessment of ours that a later round corrected, a bot that
+errored and was re-triggered, a sub-agent that stalled, a tool that needed a workaround. Those
+belong in the code, on the review thread, in the test ideas, or in a papercut — not in the
+report. If nothing survives the test, **omit the block**; an absent section is better than a
+padded one.
+
+### Links everywhere they exist
+
+PR, Files-changed, Commits; each commit page; each reviewer's summary/review and every
+resolved/open thread (fetch the real comment/thread ids via `gh`) — for Devin, link its review
+page `https://devinreview.com/<owner>/<repo>/pull/<n>`; and **precise `file:line` deep links**
+into the code — build blob URLs at the HEAD sha (`.../blob/<sha>/<path>#L<line>`) and **verify
+the current line numbers first** (grep at HEAD; they shift after edits) so every anchor is
+accurate. **Every `<a>` must open in a new tab** (`target="_blank" rel="noopener"`).
+
+Links are how the report stays short: a link to a thread replaces a paragraph retelling it.
 
 ## Decision items
 
 Written for a reader with **zero context**. Use complete sentences and spell everything out:
 what the situation is, what the user would actually see or experience, why it happens, and why
-it may or may not matter. Never assume the reader remembers the code or the conversation. For
-each item:
+it may or may not matter. Never assume the reader remembers the code or the conversation. (The
+narrative card carries the shared background about the PR, so an item need not restate that —
+but it must still stand up on its own for someone who scrolled straight to the questions.)
+
+Only **open** questions belong here. A decision the user already made on an earlier run is
+settled: it lives on the review thread, in a code comment, or in the test ideas, and it is not
+re-asked or re-summarized (SKILL.md, "Processing the user's decisions"). For each item:
 
 - Render the choices as a radio group (checkboxes only when genuinely non-exclusive), with the
   recommended option pre-selected and tagged.

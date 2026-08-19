@@ -1,6 +1,6 @@
 ---
 name: preflight
-description: Run the automated pre-review checklist on the current branch — the work before the "flight" of human review. Local quality gate, commit & push, draft PR, then trigger and WAIT for every async reviewer (Devin, other review bots, CI) to actually finish — auto-fixing and auto-replying to bots — refresh the QA test-ideas comment on the tracker card, and finish with a decision report of anything that genuinely needs the user. Local review level -- light single-sub-agent pass by default; "thorough review"/"expensive review" = full /code-review + fix loop; "without review" = skip it. Never marks the PR ready-for-review and never requests a teammate's review (that's pr-ready-for-human).
+description: Run the automated pre-review checklist on the current branch — the work before the "flight" of human review. Local quality gate, commit & push, draft PR, then trigger and WAIT for every async reviewer (Devin, other review bots, CI) to actually finish — auto-fixing and auto-replying to bots — refresh the QA test-ideas comment on the tracker card, and finish with a report that leads with the problem the PR solves and what the whole PR changes to fix it, plus the decisions that genuinely need the user. Local review level -- light single-sub-agent pass by default; "thorough review"/"expensive review" = full /code-review + fix loop; "without review" = skip it. Never marks the PR ready-for-review and never requests a teammate's review (that's pr-ready-for-human).
 argument-hint: "optional: PR number or branch name — defaults to the current branch/worktree. Review level: 'thorough review' or 'without review'."
 user-invocable: true
 ---
@@ -18,6 +18,86 @@ need them. Do **not** stop mid-run to ask.
 If the branch turns out to have nothing new (no uncommitted work, no commits beyond the base,
 or a PR already clean), still run the gauntlet against the current HEAD — preflight is
 re-entrant and "verify everything is still green" is a valid run.
+
+## What a "run" is
+
+A **run** is one invocation of this skill — Phase 0 through the report at the end of Phase 5.
+A single run normally contains **several commits**: the work that was already on the branch,
+one or more base merges, and each round of fixes made in response to the local review, a bot,
+or CI. All of those belong to the same run. A later `/preflight` on the same branch — after the
+user answers the decision report, or after they push more work — is a **new** run.
+
+So "this run" is *everything since the previous preflight report on this branch*, not the
+latest commit. And a PR is usually several runs' worth of work, which is why the report cannot
+be a description of the current run: see the next two sections.
+
+## The PR narrative — problem, cause, fix
+
+**Every** preflight report and chat summary — the first run and the fifth alike — opens with a
+short, current answer to the three questions a reviewer or a decision-maker asks first:
+
+1. **Problem** — what is wrong, in terms of what a user hits or what breaks. Two to four
+sentences. Where a ticket describes it, this is that, tightened.
+2. **Cause** — the root cause that was diagnosed. **Include it only when it is not already
+obvious from the problem statement.** "The button does nothing because its handler was never
+wired up" needs no separate cause paragraph; "joining a Team Collection silently fails" does.
+3. **Fix** — what the **whole PR** changes in order to fix it. Not commit by commit: one short
+paragraph, or up to about six bullets, one per coherent *group* of changes — "the path is now
+normalized at the single place every caller passes through", not "edited ProjectContext.cs".
+
+**Keep it short, and keep it in behavior terms.** The three together should fit on one screen —
+roughly 150–250 words. Someone who knows nothing about the branch should finish it knowing what
+the PR is for and what it does. Say "opening a collection whose name ends in a period", not
+"`GetRealSettingsPath` now calls `GetPathAsOnDisk`". Name symbols only where a reviewer needs
+them to find the code.
+
+**Maintain it across runs; never let a run's notes replace it.** On each run, re-derive the
+narrative from the **current full diff** (`git diff origin/<base>...HEAD`) and the problem
+statement, and update it to describe the PR **as it now stands**. This run's fixes get folded
+into the fix summary where they changed what the PR does; they are not appended as a running
+log. If a later commit reversed what an earlier one did, the narrative says only what is true
+now. The narrative is the one part of the report that is cumulative — everything else is a
+snapshot.
+
+**Where to get it**, cheapest first: the ticket/card (the problem), the PR description an
+earlier run wrote (the previous narrative), the full diff (the fix), and — once Devin has run —
+**Devin's own Overview**, which the `devin-review` skill returns. Devin writes unusually good PR
+summaries; read it against yours and take what is better. If Devin's is clearer, better
+organized, or covers a part of the change you left out, adopt that (in your own words, at your
+own length). If yours is shorter and leaves nothing essential out, keep yours: **shorter with
+nothing essential missing is the better summary.**
+
+**One text, two homes.** Write it once per run and use the same text in both places the humans
+look: the **PR description** (Phase 3) and the top of the **report** (Phase 5).
+
+## What the report is for — and what does not belong in it
+
+The report has exactly two jobs:
+
+1. **Context** — enough that a human reviewer, or whoever picks the card up days later, knows
+what this PR is and where it stands: the narrative above, the state of the gates and the
+reviewers, and the few caveats a reader would act differently without.
+2. **Questions** — the decisions that still need a human.
+
+Everything else makes the report worse by making it longer. These in particular do **not**
+belong in it:
+
+- **A recital of decisions already made.** A settled decision is recorded where the person who
+needs it will actually be standing: a **code comment** next to the code, a **reply on the
+review thread** that raised it, an updated **test-ideas** comment on the card (when it changes
+what a tester should check or not report), or the narrative itself when it changed what the PR
+does. Not a paragraph in the next report.
+- **A log of the difficulties we hit.** A bot that errored and was re-triggered, a sub-agent
+that stalled, a flaky suite, a tool that needed a workaround, an assessment of ours that a
+later round corrected — none of it changes what a reviewer or a decision-maker does. Fix it,
+or log it via the `papercut` skill, and leave it out. Where a difficulty changed the *result*
+— a reviewer that never finished — it appears as that reviewer's state, which is the whole
+record needed.
+- **A round-by-round transcript of a reviewer.** One row per reviewer, current state.
+- **A paragraph per commit.** See "what changed this run" in the report spec.
+
+The test for anything you are about to add: **would a reviewer, or the person answering the
+decisions, do something differently for having read it?** If not, cut it.
 
 ## Authorization — invoking this skill IS your permission to write to GitHub
 
@@ -133,7 +213,7 @@ conclusion the project never stated. Reaching the right answer by investigation 
 mode** here, not a save: it burns the user's tokens, and it leaves the repo undeclared so the next
 run investigates again. Asking is one cheap turn and fixes it permanently.
 
-**What preflight needs from a tracker skill.** Four operations. How it authenticates is entirely its
+**What preflight needs from a tracker skill.** Five operations. How it authenticates is entirely its
 own business — a token, an MCP server, an already-authenticated CLI, anything:
 
 1. **Reachable?** — a cheap check that tracker operations will work at all.
@@ -143,6 +223,7 @@ the report, and move on. That is a normal outcome, not a problem to solve, and *
 go hunting through the PR or the commit log.
 3. **List a card's comments** — both the PR-link step and `add-test-ideas` dedup against these.
 4. **Post or update a comment** on a card.
+5. **Read a card's title and description** — the problem statement the PR narrative starts from (Phase 0). A card that says nothing useful is a normal outcome; fall back to the diff.
 
 Never write "token" — or any other auth mechanism — into a preflight instruction. Ask the tracker
 skill whether it's reachable and let it decide what that means.
@@ -153,6 +234,11 @@ skill whether it's reachable and let it decide what that means.
 from `git remote get-url origin`.
 - **Identify the issue tracker and this branch's ticket id**, per "The issue tracker" above — stop
 and ask if the project declares none.
+- **Pick up the problem statement and the previous narrative** — two cheap reads that the whole
+report hangs off (see "The PR narrative"): the card's own summary/description via the tracker
+skill, if this branch has a card, and the existing PR description if a PR is already open (an
+earlier run wrote the narrative there). Skipping these is how a report ends up describing the
+run instead of the PR.
 - Detect the toolchain — **every stack present, not just Node**: package manager from the
 lockfile (`pnpm-lock.yaml`→pnpm, `yarn.lock`→yarn, else npm) and the **typecheck / lint /
 test / build** commands from `package.json` `scripts`; a .NET solution (`*.sln` /
@@ -241,13 +327,36 @@ Everything is already committed in Phase 2; this phase only pushes and opens the
 
 - Push, setting upstream if needed.
 - Ensure a **draft** PR exists: `gh pr list --head <branch> --json number,url,state,isDraft`.
-  - None → create one: write the body (`<summary>` + `Ref: <tracker-url-if-known>`) to a temp
-  file and `gh pr create --draft --base <base> --title "<summary> (<TICKET>)" --body-file <file>` (a literal `--body "...\n..."` won't expand `\n` in PowerShell — always use
-  `--body-file`).
+  - None → create one: write the body to a temp file and
+  `gh pr create --draft --base <base> --title "<summary> (<TICKET>)" --body-file <file>` (a
+  literal `--body "...\n..."` won't expand `\n` in PowerShell — always use `--body-file`). The
+  body is **the PR narrative** — problem, cause where it isn't obvious, and what the whole PR
+  changes (see "The PR narrative") — wrapped in the marker lines below, followed by
+  `Ref: <tracker-url-if-known>`.
   - Exists but is **ready-for-review** → convert it back to draft (`gh pr ready <n> --undo`):
   preflight means the work is pre-review again. Note the conversion in the report.
   - (Do NOT do the promote-to-human ceremony — that's `pr-ready-for-human`.)
 - Record PR number & URL.
+- **The PR description is the narrative's other home — keep it current, idempotently.** Preflight
+delimits the narrative with two marker lines so a later run can refresh it without touching
+anything else:
+
+  ```
+  <!-- preflight-narrative:begin -->
+  … problem / cause / fix …
+  <!-- preflight-narrative:end -->
+  ```
+
+  Rules:
+  - **Markers present** → replace only what is between them (`gh pr edit <n> --body-file -`).
+  Everything outside is other people's: a human's own notes, and `devin-review`'s "Devin review"
+  link, which it appends after a horizontal rule.
+  - **Markers absent on an existing PR** → the description is **not ours**; a human wrote or
+  rewrote it. **Leave it completely alone**, and say so in one line of the report. The report
+  still carries the current narrative, and their text is an input to it (see "Where to get it").
+  - The narrative you push here must be the **same text** the report shows. The code has settled
+  by Phase 4/5 and Devin's Overview arrives in Phase 4, so it is fine to write the best version
+  you have now and refresh it once in Phase 5 — but never let the two diverge.
 - **Link the PR on the tracker card (once).** If a ticket id was found in Phase 0, use the
 project's **tracker skill**: list the card's comments, check a PR link isn't already there
 (`grep -i "github.com.*pull"`), and only if none post a comment `PR: <PR URL>`
@@ -320,7 +429,10 @@ already ran in Phase 1; its captured outcome joins the results here.
    gathers/mirrors findings. Use **its** returned outcome ("findings posted …" / "re-review
    clean — bots quiet" / timed out) as Devin's state. Do **NOT** infer Devin's state from
    `gh` signals alone: "finished clean" and "still running" look identical over the API, so
-   reporting off a missing comment is exactly the bug to avoid.
+   reporting off a missing comment is exactly the bug to avoid. **Devin also returns its own
+   Overview** — a plain-English summary of the whole PR. Read it against your narrative and
+   adopt whatever is better (see "The PR narrative"); this is the one point in the run where the
+   narrative gets a second opinion, and it is usually a good one.
   - **Comment-posting bots:** complete when the bot has posted its review/summary for the
   **current HEAD sha** (a review/comment dated after the latest commit, **or** its check
   context in a terminal `completed` conclusion). A "reviewing…" placeholder or in-progress
@@ -339,6 +451,11 @@ Enter when: fast gate clean, **every in-scope test suite green at HEAD**, every 
 (complete or recorded timeout — the terminal-state rule), all **bot** comments resolved (fixed
 or replied), branch mergeable, and only human-decision items (if any) remain.
 
+- **Settle the PR narrative first — everything else in this phase quotes it.** Re-derive
+problem / cause / fix from the full diff at HEAD, folding in anything worth taking from Devin's
+Overview (see "The PR narrative"). Then write that one text into both homes: the PR description
+(Phase 3's marker rules — and leave a human-written description alone) and the top of the
+report. Do this before the test-ideas refresh, which is grounded in the same understanding.
 - **Refresh the QA test-ideas comment (idempotent).** If a ticket id was found in Phase 0 and the tracker is  
  reachable, invoke the **`add-test-ideas`** skill against this branch's change  
 and post the result to the card. This runs on **every** preflight, so rely on that skill's  
@@ -378,12 +495,20 @@ request a teammate's review and never mark the PR ready.
 
 ### Final summary (always)
 
-Branch/PR link & draft status; fast-gate and full-suite results; what changed this run;
-reviewer outcomes — one line per reviewer per "The reviewers" (the local review included, each
-remote one terminal: complete or "timed out after N min", how long we waited); mergeability;
-whether the QA test-ideas comment was posted/updated and the report link posted to the card (or
-skipped, with why); final board state;
-and the count of items now waiting on the user.
+**Open with the narrative, compressed to two or three sentences:** the problem (with the cause
+where it isn't obvious) and what the whole PR does about it. That is the first thing the user
+reads, on every run.
+
+Then: branch/PR link & draft status; fast-gate and full-suite results; **one line** on what this
+run changed; reviewer outcomes — one line per reviewer per "The reviewers" (the local review
+included, each remote one terminal: complete or "timed out after N min", how long we waited);
+mergeability; whether the QA test-ideas comment was posted/updated, whether the PR description's
+narrative was refreshed (or left alone as human-written), and whether the report link was posted
+to the card (or skipped, with why); final board state; and the count of items now waiting on the
+user.
+
+"What the report is for" applies here too: no recital of settled decisions, no log of the
+run's difficulties.
 
 ### Report artifact (always)
 
@@ -414,8 +539,30 @@ source, not a PR comment; the PR-thread reply above happens regardless of the ch
 Commit it with the normal conventions.
 - `**Other:` text or notes** → follow them; if they amount to a fix, treat as a chosen fix.
 
+**Then park the decision where it belongs, and stop carrying it.** Once an item is settled it
+must not reappear as prose in the next report (see "What the report is for"). Its home is one or
+more of:
+
+- the **review thread** it came from — replied to and resolved (above);
+- a **code comment** next to the code, when `Leave comment` was ticked, or whenever the reason
+would otherwise be invisible to the next person reading that code;
+- the **PR narrative**, when the decision changed what the PR does — so the next report's
+opening reflects it;
+- the **test-ideas comment** on the card, when it changed what a tester should do — including a
+deliberate non-fix, so the tester doesn't file the known behavior as a new bug. Ask
+`add-test-ideas` to refresh it.
+
+The next run's report then says nothing about the decision at all: the record is in those
+places, where the person who needs it is already looking.
+
 ## Rules
 
+- Every report and chat summary **opens with the current problem / cause / fix narrative for the
+whole PR**, maintained across runs — never replaced by notes on the latest run, and never
+omitted because "the user knows what this PR is" (someone else may pick up the card).
+- What changed *this run* is a **brief** note, not the report's substance. A settled decision or
+a difficulty we worked around belongs in the code, on the review thread, or in the test ideas —
+not recited in the report ("What the report is for").
 - Never mark the PR ready-for-review (leave it draft). Never request a teammate's review. Clean &
 quiet → the user's own final-review state (via their board skill).
 - Never run a watch-mode test command.

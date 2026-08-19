@@ -57,6 +57,11 @@ would meet the feature.
    but after that it works offline," or "this setting only takes effect after a restart." This
    section is what makes the rest make sense; spend real effort on it.
 
+   If the caller hands you a written problem/cause/fix summary for the change (`preflight` does —
+   its "PR narrative"), start from that rather than re-deriving the story from the diff: it is
+   the same understanding, already checked. Translate it into the tester's language, and drop
+   the cause unless a tester needs it to know what to try.
+
 **The middle — a menu of dimensions (include each only when the change touches it):**
 
 2. **Setup / where to find it.** What the tester needs before they can even see the feature: a
@@ -201,6 +206,25 @@ risky the things that match:
 If you're unsure how something behaves, don't guess in the write-up — either read enough of the
 code/PR to be sure, or phrase it as a question for the tester ("confirm whether …").
 
+## Known, deliberate limits — write them down so they aren't filed as bugs
+
+When a decision has been made to *not* fix something — a rough edge left alone because it wasn't
+worth the complexity, a case declared out of scope, a message that stays imperfect — the test
+notes are one of the right places for that to live. A tester who meets it with no warning files
+it as a new bug, and someone spends an hour rediscovering a decision that was already made.
+
+So include a short **"known and deliberate"** note (a couple of bullets, near the bottom, before
+or inside "watch these especially") for anything a tester will plausibly run into that we
+consciously chose to leave. Say what they'll see and that it's expected — in the user's terms,
+without the deliberation:
+
+> - If a collection name ends with a space, Bloom quietly drops the space. That's intentional;
+>   no need to report it.
+
+This is also how a refresh earns its keep: when the developer answers a preflight report with
+"leave as is" on something a tester could hit, that answer belongs here on the next update. Don't
+list decisions the tester can't observe — internal design choices are not their business.
+
 ## Where it goes
 
 - Usually a **comment on the work-tracking card.** Post it with the project's **tracker skill** —
@@ -282,6 +306,8 @@ comment when you can name what would be lost by overwriting.
   "can't-really-break" confirmations (especially "it's just a normal X now" items) — they dilute
   the tester's attention.
 - Is there a clear **"watch these especially"** for the risky/just-fixed/data-affecting parts?
+- Does it name the **known, deliberate limits** a tester will run into, so they don't file a
+  settled decision as a new bug?
 - Did you prompt them to try the relevant **conditions** (online/offline, different computers,
   first run vs. later) where they matter?
 - If you're **updating an existing comment**, did you re-derive it from the **current** diff/code

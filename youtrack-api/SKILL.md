@@ -20,7 +20,7 @@ If you only need to *read* one issue, the REST calls below are all you need.
 ## This skill is Bloom's "tracker skill"
 
 `preflight` (and `add-test-ideas`, which it calls) never name a tracker: they use whichever tracker
-skill the project's `AGENTS.md`/`CLAUDE.md` declares, and ask it for four operations. This skill is
+skill the project's `AGENTS.md`/`CLAUDE.md` declares, and ask it for five operations. This skill is
 that implementation for Bloom repos — the mapping is:
 
 | The operation preflight asks for | Here |
@@ -29,10 +29,11 @@ that implementation for Bloom repos — the mapping is:
 | Read this branch's ticket id | §3 "Find the issue id" — a `BL-XXXXX` prefix on the branch name |
 | List a card's comments | §3 "List an issue's comments" |
 | Post or update a comment | §3 "Post a comment" |
+| Read a card's title and description (the problem statement) | §3 "Read an issue" — the `summary` and `description` fields |
 | Move a card to "ready for peer review" (`pr-ready-for-human` only) | §3 "Set an issue's State" — for Bloom that state is **`Ready For Code Review`** |
 
 Auth is this skill's business alone; callers must not reason about tokens. A team adopting
-`preflight` for a different tracker writes their own skill covering those four operations, however
+`preflight` for a different tracker writes their own skill covering those five operations, however
 their tracker authenticates, and declares it in their repo's `AGENTS.md`.
 
 ## 1. Authentication — `$YOUTRACK_BOT` for everything except one field (never hard-code a token in a committed file)

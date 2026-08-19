@@ -21,7 +21,7 @@ When you're done with a fix or feature, run `/preflight`. It will:
 1. **Typecheck, lint, and run the affected tests**, fixing what's safely fixable.
 2. Do a **local code review** and loop until the only issues left need your input (but it won't ask yet). By default that's a light single-pass review; ask for a "thorough review" to get the full `/code-review` + fix loop, or "without review" to skip it.
 3. **Integrate the base branch first** — commit the work, then merge the base in so the code is tested and pushed _as it will actually merge_ (this catches breakage from base changes even when there's no git conflict). Trivial conflicts it resolves itself; semantic ones go in your report.
-4. **Push and create a draft PR** if it isn't already there.
+4. **Push and create a draft PR** if it isn't already there, with a description that says what problem the PR solves and what it changes to fix it (kept up to date on later runs).
 5. Find the related issue in the issue tracker (we use YouTrack) and add a **comment with the PR URL** if it isn't already there.
 6. **Trigger Devin** and start watching for other **review-bot feedback** and **CI** on the PR.
 7. Run the front- and back-end **full test suite**, overlapped with the wait; failures are fixed if safe, else reported.
@@ -37,8 +37,9 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 
  It has these parts:
 - **Header** — a one-line summary of the run and a row of status chips (draft PR count, mergeability, bots clean, how many items are waiting on you).
+- **What this PR is about** — the first thing on the page, on every run: the problem the PR set out to solve, the cause that was diagnosed (when that isn't obvious from the problem), and what the **whole PR** changes to fix it. Kept up to date run after run rather than replaced by notes on the latest one — so a reviewer, or a colleague who picks the card up next week, can read the report cold. The same text goes in the PR description.
 - **Quality gate** — a table of typecheck, lint, and merge-cleanliness, with **tests broken out one row per language/runner** (TS/vitest, C#/dotnet, …) so nothing looks silently skipped; each row shows pass / fail / N/A with detail.
-- **What changed this run** — each commit (linked to its GitHub page, with `file:line` deep links) plus an "also done without needing you" list of the small stuff it handled on its own.
+- **What changed this run** — deliberately brief: a few lines on what this run did to the branch (a run being one `/preflight`, usually several commits), plus links to the commits. Not a paragraph per commit.
 - **Reviewer outcomes** — one row per reviewer, **local review first** (labeled with the level that ran and what it found), then each remote bot, Devin, and CI. Every row is in a **terminal state** — "complete" with its findings, or "timed out after N min" — never "pending."
 - **Decision items** — the things that need you, each written for a reader with zero context: what the situation is, why it happens, and why it may or may not matter. Each offers ranked choices as radio buttons (recommended one pre-selected, with a fix-complexity note), an always-present `Leave as is` option with a `Leave comment` checkbox, an `Other:` free-text box, and a notes field.
 - **Copy-back** — one button that serializes every choice, note, and `Other:` answer into a plaintext block you paste straight back into the session for preflight to act on.

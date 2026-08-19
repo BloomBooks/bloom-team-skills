@@ -153,6 +153,14 @@ from the isolated-context tab:
     side, needs_investigation}`. `needs_investigation: true` = **Investigate** (post);
     `false` = **Informational** (skip, but count them in the consultation log — never report
     them as absent).
+- **`sections[]` — Devin's own write-up of the PR** (a sibling of `lifeguard_result`, not inside
+  it). Each entry is `{title, text, changes[]}`. The **first entry is titled `Overview`** and its
+  `text` is a plain-English summary of the whole PR: what it fixes, why the bug happened, and the
+  change groups that address it. The remaining sections are one per change group (`"1. Add
+  MiscUtils.GetPathAsOnDisk utility"`, …) with the same shape.
+- **`pr_metadata`** — `title`, `description` (the PR description as Devin read it), `head_sha`,
+  `base_sha`, `head_ref`, `base_ref`. Useful for confirming which description Devin was working
+  from.
 
 If the API shape ever changes, do not assume the logged-out page shows findings — it may
 render none at all; fix the endpoint usage instead (the git history of this file has the old
@@ -179,6 +187,27 @@ route is: re-run `pr-automation.yml` to trigger → poll these two endpoints →
 `gh`. Everything in Procedure §2–§3 works the same way; just swap each `evaluate_script` fetch
 for the matching `curl`, and skip the tab-pinning rules (they only exist because of the shared
 browser context).
+
+## Devin's Overview — hand it back, it is a good PR summary
+
+Devin's `sections[0]` ("Overview") is consistently one of the best short descriptions of a PR
+anyone produces: it states the problem, the mechanism behind it, and the change groups that
+address it, in plain English, in a few hundred words. Callers need it — `preflight` opens every
+report and every PR description with exactly that kind of summary (see its "The PR narrative").
+
+So **always return the Overview text verbatim to the caller** (step 8), alongside the findings.
+It is free — the same job-result fetch you already made — and it costs one extra field in the
+report. Do not paraphrase it or fold it into the findings prose; the caller compares it against
+its own summary and decides what to take.
+
+Two cautions to pass along with it:
+
+- It describes the commit its job ran against. On a re-review after fixes, an older job's
+  Overview describes superseded code — take it from the job whose `commit_sha` is the PR HEAD,
+  the same job you read findings from.
+- It is written from the diff, so it is strong on *what changed* and only as good as the PR
+  description on *why it matters to a user*. It is an input to a summary, not automatically a
+  better one.
 
 ## Write for a human reader (not a log dump)
 
@@ -316,6 +345,9 @@ Collect from `lifeguard_result`:
   review threads (low signal) — but **assess them** (occasionally one deserves a cheap fix or
   a clarifying comment) and **count them in the consultation log** (step 7). Never report
   them as absent just because they aren't mirrored.
+
+Also grab, from the top level of the same JSON (not from `lifeguard_result`), **`sections[0].text`
+— Devin's Overview of the PR**. Keep it verbatim for the step-8 report; see "Devin's Overview".
 
 If `bugs` and the Investigate subset are both empty, the review is **clean** — post nothing
 (still do step 6 for any resolved bugs, and step 7 logging).
@@ -456,6 +488,8 @@ The link text is **`Devin review`**. The URL is the results page
 
 Return a summary:
 
+- **Devin's Overview** — the `sections[0].text` of the HEAD-sha job, returned **verbatim** (see
+  "Devin's Overview"). The caller uses it as a second opinion on its own PR summary.
 - N unresolved Bugs found — N posted, N skipped (already posted), N fell back to file-level, N fell back to top-level (line not in diff)
 - N Resolved Bugs — N threads resolved, N fallback comments marked, N no-action (never posted / already resolved)
 - N Investigate flags found — N posted, N skipped

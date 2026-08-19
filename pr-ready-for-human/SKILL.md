@@ -41,6 +41,13 @@ Check all of the following. **Any failure → do not promote** (see "Not clean" 
   `devin-ai-integration` post covering HEAD, or the caller's durable marker — see the
   `personal-board` skill's Devin marker if available). Never promote without Devin having run.
 - **Mergeable** with the base branch.
+- **The PR description says what the PR is for.** Un-drafting a PR is the moment a human starts
+  reading it, and the description is the first thing they read. It should state the problem, the
+  cause where that isn't obvious, and what the whole PR changes — `preflight` writes exactly that
+  (its "PR narrative"), between `<!-- preflight-narrative:begin/end -->` markers. This is the one
+  check that does **not** bounce: if the description is missing that, or the markers are there but
+  the narrative plainly predates the current code, say so in the report and offer to refresh it —
+  don't hold the promotion for it, and never overwrite a description a human wrote.
 
 ### Not clean → bounce to preflight
 
@@ -52,10 +59,10 @@ Check all of the following. **Any failure → do not promote** (see "Not clean" 
 ## Stage 2 — The tracker: PR link + card state
 
 Use the project's **tracker skill** — whichever one its `AGENTS.md`/`CLAUDE.md` declares (see
-`preflight`'s "The issue tracker" section for how that declaration works and for the four
+`preflight`'s "The issue tracker" section for how that declaration works and for the five
 operations every tracker skill provides). This stage needs one more:
 
-5. **Move a card to the project's "ready for peer review" state.** Ask for it *semantically* —
+6. **Move a card to the project's "ready for peer review" state.** Ask for it *semantically* —
    the tracker skill owns the concrete vocabulary, since the state's name, and whether the
    tracker even has states, varies by tracker and project.
 
