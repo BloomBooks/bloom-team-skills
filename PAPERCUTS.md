@@ -400,3 +400,19 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   this breaks; that step should say what to do when the screenshot never arrives.
 - **Context:** EthnoLib `supporting-data`, building an HTML report and a dashboard tab whose whole
   point was a colour-blend diagram — the one thing that most needed a visual check.
+
+## 2026-08-19 - The auto-mode classifier blocks the write half of operating a database
+
+- **Cut:** With Supabase linked and credentials working, `npx supabase db push --dry-run` ran
+  fine and the real `npx supabase db push` was denied by the auto-mode permission classifier, so
+  the migration still had to be handed back to the developer to paste. Two other ordinary calls
+  were denied in the same session for no stated reason: `cat >> file <<'EOF'` appending a section
+  to a doc, and `git status --porcelain | sed ...`. The denial text names no pattern, so there is
+  nothing to learn from it except which exact command to stop trying.
+- **Idea:** The read/write asymmetry is the sting: a dry run proves the agent has working
+  credentials and can reach production, and then the one command that would use them is refused.
+  If a repo wants an agent to operate its database, it needs `Bash(npx supabase db push:*)` in
+  `.claude/settings.json` from the start, and that belongs in whatever guidance covers setting a
+  project up. Also: when Bash is denied for a file edit, the Edit tool is the fallback and works.
+- **Context:** EthnoLib `supporting-data`, applying two migrations after the developer asked
+  "what do we need so you can operate Supabase for me just like GitHub".
