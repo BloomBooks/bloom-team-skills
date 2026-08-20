@@ -1,6 +1,6 @@
 ---
 name: pr-ready-for-human
-description: Promote a preflighted, self-reviewed PR to human (peer) review. Step 3 of the review sequence — (1) run preflight, (2) the developer reviews the work themselves, (3) the developer runs this. Verifies the PR is genuinely clean (CI green, bots quiet, nothing newer than the last preflight), links the PR on the tracker card and moves it to the project's ready-for-peer-review state, marks the PR ready-for-review, and moves the personal board to its human-review column. If anything is not clean, it bounces back to preflight instead of fixing things itself.
+description: Promote a preflighted, self-reviewed PR to human (peer) review. Step 3 of the review sequence — (1) run preflight, (2) the developer reviews the work themselves, (3) the developer runs this. Verifies the PR is genuinely clean (CI green, bots quiet, nothing newer than the last preflight), squashes the branch to a single commit (unless the commit split genuinely helps the reviewer), links the PR on the tracker card and moves it to the project's ready-for-peer-review state, marks the PR ready-for-review, and moves the personal board to its human-review column. If anything is not clean, it bounces back to preflight instead of fixing things itself.
 argument-hint: "optional: PR number or branch name — defaults to current worktree"
 user-invocable: true
 ---
@@ -20,7 +20,8 @@ This is **step 3** of the review sequence:
    answer is "go back to step 1", not a built-in repair loop.
 
 If a new commit lands after this skill has run, the sequence restarts at step 1 —
-re-run `preflight`, re-review, then run this again.
+re-run `preflight`, re-review, then run this again. (The squash this skill itself performs
+in Stage 2 does not count as new work — it changes no content.)
 
 > The BloomBooks "PR Review Tracker" org project board (project #2) has been retired, along
 > with the CI workflows that fed it. This skill no longer touches any shared board; the only
@@ -56,7 +57,34 @@ Check all of the following. **Any failure → do not promote** (see "Not clean" 
   developer's court.
 - Tell the user to re-run `preflight`, then stop. Do **not** fix, reply, or wait here.
 
-## Stage 2 — The tracker: PR link + card state
+## Stage 2 — Squash to a single commit
+
+Human review should normally see **one commit**. Once Stage 1 passes, squash the branch's
+commits into a single commit — unless the commit split genuinely helps the reviewer, e.g. a
+mechanical refactor or a rename kept separate from the actual fix so each can be reviewed on
+its own terms. "Address bot feedback", "fix typo", "wip" commits never justify keeping the
+history; when in doubt, squash. If you keep multiple commits, say why in the final report.
+
+Mechanics (interactive rebase is not available here):
+
+1. `base=$(gh pr view <n> --json baseRefName -q .baseRefName)`; `old=$(git rev-parse HEAD)`.
+2. `git reset --soft $(git merge-base HEAD origin/$base)`, then commit with a message written
+   for the reviewer — describe the change as a whole (the PR title is usually the right
+   summary line), not the commit-by-commit history. Keep any `Co-Authored-By:` trailers.
+3. Verify nothing changed: `git diff $old HEAD` must be empty. If it isn't,
+   `git reset --hard $old` and bounce to preflight.
+4. `git push --force-with-lease`. The user invoking this skill is the explicit authorization
+   for this push.
+
+Consequences of the new SHA:
+
+- **CI re-runs.** The tree is byte-identical, so don't wait for it.
+- **Devin's pre-squash run still counts** — the diff is unchanged — so do not re-run the
+  gauntlet or treat the squash as "a new commit after preflight".
+
+If the branch is already a single commit, skip this stage silently.
+
+## Stage 3 — The tracker: PR link + card state
 
 Use the project's **tracker skill** — whichever one its `AGENTS.md`/`CLAUDE.md` declares (see
 `preflight`'s "The issue tracker" section for how that declaration works and for the five
@@ -83,7 +111,7 @@ this skill's policy.
 If the tracker isn't reachable, note it in the final report and continue — this is the
 lowest-stakes step.
 
-## Stage 3 — Promote
+## Stage 4 — Promote
 
 1. **Mark the PR ready for review**: `gh pr ready <n>`. Do **not** request a specific
    reviewer — choosing a reviewer is the developer's call, made outside this skill. If Stage 1
