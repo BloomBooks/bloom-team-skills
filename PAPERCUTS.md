@@ -416,3 +416,21 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   project up. Also: when Bash is denied for a file edit, the Edit tool is the fallback and works.
 - **Context:** EthnoLib `supporting-data`, applying two migrations after the developer asked
   "what do we need so you can operate Supabase for me just like GitHub".
+
+## 2026-08-21 - Parallel fix agents in one working tree silently wipe each other's edits
+
+- **Cut:** A bug-fix run dispatched several subagents at once, each given a different "cluster" of
+  confirmed bugs but all pointed at the same checkout of `D:/bloom-table`. Two of the clusters
+  touched `src/cell-contents.ts`. My edits to `src/formatting-commands.ts` and its test file
+  disappeared from disk twice, mid-session, with no error: another agent had written a whole-file
+  version built on a snapshot taken before my edits. Between wipes the shared file was also
+  transiently uncompilable (a variable referenced a dozen lines before the edit that declared it),
+  so a full `pnpm test` came back with 39 failures in code I had not touched and no way to tell
+  mine from theirs.
+- **Idea:** Concurrent agents editing one tree need either a worktree each or non-overlapping file
+  sets, and the dispatcher is the only party that can see the overlap — the clusters here were
+  named by theme, not by file. Failing that: re-`grep` for your own edits before you trust a test
+  run, and scope test runs to your own files, because a red full suite in a shared tree says
+  nothing about your change.
+- **Context:** bloom-table, fixing the "formatting-commands" cluster (host notification skipped
+  when an empty cell is set to the default content type) while another agent fixed cell-contents.
