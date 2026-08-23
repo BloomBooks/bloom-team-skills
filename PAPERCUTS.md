@@ -434,3 +434,27 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   nothing about your change.
 - **Context:** bloom-table, fixing the "formatting-commands" cluster (host notification skipped
   when an empty cell is set to the default content type) while another agent fixed cell-contents.
+
+## 2026-08-23 — Preflight has no path for a solo repo whose work is all on master
+
+- **Cut:** `bloom-table` is a side project with no tracker and 156 commits pushed straight to
+  `master`, so there was no branch, no PR, and nothing for Devin to review. Two of preflight's
+  entry assumptions are unmet at once, and only one of them is documented: the "this project
+  doesn't use a tracker" declaration is a clean escape hatch and worked exactly as written, but
+  nothing in preflight or `devin-review` says what to do when the code you want reviewed is
+  *already merged*. Devin reviews a diff against a base, and `master` has no base.
+- **Idea:** The shape that worked is worth naming in `preflight`: a long-lived marker branch
+  (here `reviewed`) that points at the last reviewed commit, plus a draft PR based on it, so
+  each review's diff is exactly the unread code. Advance the marker with a force push after
+  each review and close the PR unmerged. It also splits a large backlog cleanly — four slices
+  of 2000 to 4500 insertions each got real findings where one 12,000-line PR would have been
+  skimmed. Second half of the idea, and the sharper one: **do not run the local gate or apply
+  fixes on a slice branch.** It is an old tree, so a gate failure there is history and a fix
+  cannot merge forward. Review-only for the backlog; fixes land on current `master`.
+- **Also:** without BloomDesktop's `pr-automation.yml` there is nothing to trigger Devin, and
+  `devin-review` says as much, but the CI re-run it recommends as the reliable trigger does not
+  exist either. Loading the review page through `chrome-devtools` in the `devin-noauth` isolated
+  context is then the only trigger, and it worked first time on all four slices. Reading the
+  result needs no browser: both endpoints answer plain `curl --compressed`.
+- **Context:** bloom-table, getting the 2026-08-12 multi-agent review's own output reviewed by
+  Devin for the first time. Four slices, four PRs, one live bug found.
