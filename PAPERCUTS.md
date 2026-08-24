@@ -2,6 +2,23 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-24 — Two agents on one Chrome: screenshots die, javascript_tool lives
+- **Cut:** With two agents driving the same Chrome at once, every `computer:screenshot` and
+  `read_page` call on my tabs failed with `Script injection timed out after 5000ms` (and once
+  `Failed to get viewport information`), for 20 minutes, on my app page and on a static
+  `index.html` alike. The other agent's tabs worked throughout. The message blames the page
+  ("busy or mid-navigation"), which sent me hunting a render loop in my own React code that did
+  not exist. `javascript_tool` and `navigate` on the very same tab worked perfectly the whole
+  time, which is what finally proved the page was fine.
+- **Idea:** Say in the `claude-in-chrome` skill that these two tools need the tab to be the
+  active one in its window, so a parallel agent activating its own tab starves yours, and that
+  `javascript_tool` is the fallback that still works. One failed screenshot plus one successful
+  `javascript_tool` call distinguishes "my page is broken" from "my tab is in the background" in
+  seconds. Worth considering whether two agents should share one browser profile at all.
+- **Context:** bloom-budget-tracker phase 2, dashboard agent and capture agent running in
+  parallel. Cost: no screenshot comparison against the approved mockups was possible, so that
+  part of the verification had to be done by reading computed styles instead.
+
 ## 2026-08-23 — Devin repeats a whole finding set on the next commit, at lines that have moved
 - **Cut:** On BloomDesktop PR 8227 the second and third Devin rounds returned every finding of the
   round before, including three the intervening commit had fixed, and pointed at lines that no
