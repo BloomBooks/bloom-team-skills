@@ -481,3 +481,20 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   result needs no browser: both endpoints answer plain `curl --compressed`.
 - **Context:** bloom-table, getting the 2026-08-12 multi-agent review's own output reviewed by
   Devin for the first time. Four slices, four PRs, one live bug found.
+
+## 2026-08-23 — Two report files in dev-process-artifacts differ only in letter case
+
+- **Cut:** `deciders/` now holds both `BloomDesktop-BL-16741-rotate-image.html` and
+  `bloomdesktop-BL-16741-rotate-image.html`, written by two preflight runs on the same branch
+  minutes apart. Git tracks them as two paths; Windows cannot, so a Windows clone maps both to one
+  file. Staging one of them showed the other as modified, and a plain `git add` would have written
+  this run's report into the file the earlier run's URL points at as well. The stable-URL rule that
+  makes a re-run overwrite the same page only works if the name is produced the same way each time,
+  and `<sourceRepo>` in `dev-process-artifacts.md` does not say which case to use.
+- **Idea:** State the case in the naming rule: lower-case the whole file name. Meanwhile, a run that
+  finds a case-variant sibling of its target path should stage the blob by plumbing
+  (`git hash-object -w --path <target>` then `git update-index --cacheinfo`) rather than `git add`,
+  so only the path the card links to changes. The two files above want merging into one, which needs
+  a `git rm` and a check that no card links to the loser.
+- **Context:** BloomDesktop, second preflight run on BL-16741-rotate-image, republishing the report
+  to the URL already posted on the card.
