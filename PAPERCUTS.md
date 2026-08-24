@@ -498,3 +498,20 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   a `git rm` and a check that no card links to the loser.
 - **Context:** BloomDesktop, second preflight run on BL-16741-rotate-image, republishing the report
   to the URL already posted on the card.
+
+## 2026-08-24 — claude-in-chrome screenshots fail on a page a fresh build was just loaded into
+
+- **Cut:** `mcp__claude-in-chrome__computer{action:"screenshot"}` and `read_page` failed on every
+  localhost page in one session with "Script injection timed out after 5000ms — the page is busy or
+  mid-navigation", while `javascript_tool` on the *same tab* worked perfectly. `document.readyState`
+  was `complete` and every resource had finished; a brand new tab and a second origin behaved the
+  same, so it is not the page. That makes "verify it visually and compare against the mockup"
+  impossible while the rest of the browser automation still works, and the error message points at
+  the page, which is innocent.
+- **Idea:** When screenshots time out but `javascript_tool` answers, stop retrying and read the
+  interface numerically instead: `getComputedStyle` and `getBoundingClientRect` over the elements
+  whose colours, type sizes and spacing the mockup specifies. That gave an exact token-by-token
+  comparison (surface, ink, blue, radius, padding, font weight) and caught real defects a screenshot
+  would not have: a full-width text link and "1 were already in your data".
+- **Context:** bloom-budget-tracker, building the NetSuite capture panel against a stubbed `chrome`
+  in a local harness page.
