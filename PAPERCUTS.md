@@ -2,6 +2,24 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-24 — A CSS transition never runs in a background tab, so hover looks broken
+- **Cut:** Verifying a hover that grows a button, I hovered it with `computer:hover`, then read
+  the label's computed style: `opacity: 0`, `max-width: 0`. The CSS looked dead. It was not.
+  `btn.matches(':hover')` was true, `document.querySelectorAll('.reveal-label:hover .label')`
+  matched, and the rule was in `document.styleSheets`. The tab was simply not the foreground
+  one: `document.visibilityState` was `"hidden"`, and Chrome does not tick transitions or
+  animations in a hidden tab, so every transitioned property stays at its start value forever.
+  Every signal pointed at a specificity or selector bug that did not exist.
+- **Idea:** When an agent checks a hover, a focus state, or any animation through
+  `javascript_tool`, it must set `element.style.transition = 'none'` before reading the
+  computed style, and restore it afterwards. Worth a line in the `claude-in-chrome` skill,
+  next to the existing note about screenshots needing the active tab: check
+  `document.visibilityState` first, because a hidden tab silently changes what the page does.
+- **Context:** bloom-budget-tracker phase 2a, dashboard agent, verifying an icon-only button
+  that reveals its label on hover and on `:focus-visible`. Cost: a few minutes and one wrong
+  diagnosis. The same trick proved the state was right: with the transition off, the button
+  measured 48 pixels at rest and 166 pixels under the pointer.
+
 ## 2026-08-24 — Two agents on one Chrome: screenshots die, javascript_tool lives
 - **Cut:** With two agents driving the same Chrome at once, every `computer:screenshot` and
   `read_page` call on my tabs failed with `Script injection timed out after 5000ms` (and once
