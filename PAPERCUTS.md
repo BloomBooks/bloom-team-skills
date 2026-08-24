@@ -28,6 +28,14 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   `focusout` at the root, so the dispatched event runs the handler and the value saved. So:
   check `document.hasFocus()` alongside `document.visibilityState`, and test a blur handler by
   dispatching `focusout` rather than by calling `blur()`.
+- **seen again 2026-08-24:** two more things a background tab will not do.
+  `navigator.clipboard.writeText` rejects with `Document is not focused`, so a copy-to-clipboard
+  button cannot be exercised for real, and `window.focus()` does not lift it. Stub only the write
+  (`Object.defineProperty(navigator, 'clipboard', …)` capturing the text) so the rest of the
+  component still runs, then check the captured text. Timers are throttled too, so the life of a
+  "Copied!" pill cannot be timed there: a 2000 ms `setTimeout` measured as gone before 1650 ms,
+  and a probe that slept fourteen times in a row hit the 45 s CDP timeout on a page that was
+  alive and answering immediately afterwards. Assert that such a pill clears, never when.
 
 ## 2026-08-24 — Two agents on one Chrome: screenshots die, javascript_tool lives
 - **Cut:** With two agents driving the same Chrome at once, every `computer:screenshot` and
