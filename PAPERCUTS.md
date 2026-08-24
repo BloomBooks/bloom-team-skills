@@ -2,6 +2,29 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-23 — Devin repeats a whole finding set on the next commit, at lines that have moved
+- **Cut:** On BloomDesktop PR 8227 the second and third Devin rounds returned every finding of the
+  round before, including three the intervening commit had fixed, and pointed at lines that no
+  longer held that code (a table it reported at `CanvasElementSelectionUi.ts:267` had moved to
+  another file). The job's `head_sha` was the new commit, so the freshness check the
+  `devin-review` skill prescribes passed and told me nothing.
+- **Idea:** Add a step to `devin-review`: before mirroring a finding from round two or later,
+  diff the finding set against the previous round's, and for anything that repeats, check that the
+  file and line it names still hold the code it describes. A repeat that names a moved line is
+  stale and should be recorded as such rather than posted again. `head_sha` is not enough.
+- **Context:** https://github.com/BloomBooks/BloomDesktop/pull/8227, branch BL-16741-rotate-image.
+  Round two did also find one real new bug, so the repeats cannot simply be ignored wholesale.
+
+## 2026-08-23 — Headless Chrome writes `--screenshot` beside chrome.exe, and calls it access denied
+- **Cut:** `chrome --headless=new --screenshot=shot.png file:///...` failed with
+  `Failed to write file shot.png: Access is denied.` The relative path is resolved against Chrome's
+  own install directory, not the shell's working directory, so it tried to write into
+  `C:\Program Files\Google\Chrome\Application`. The message names a permission problem, which
+  sends you looking at the file and the directory you meant.
+- **Idea:** Say in the screenshot-local-HTML guidance that `--screenshot`, `--user-data-dir` and the
+  `file:///` URL all take an absolute Windows path with backslashes. Two failed attempts here.
+- **Context:** Rendering a preflight report at two widths before publishing it.
+
 ## 2026-08-14 — Preflight's review sub-agent edited the live tree it was reviewing
 
 - **Cut:** The light local review in `preflight` Phase 1 is dispatched as a general-purpose
