@@ -281,6 +281,11 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   setter plus an `input` event. That was enough to catch a real bug (a filter left over from the
   previously selected region), so DOM-reading is a workable substitute for anything but pure
   appearance.
+- **seen again 2026-08-24:** same failure for a whole session on Google Sheets, a localhost Vite
+  dev page, and every other tab: `computer screenshot` and `get_page_text` timed out on every
+  attempt, while `navigate`, `read_console_messages` and `tabs_*` worked. The `chrome-devtools-cli`
+  fallback again worked first try (new_page, take_snapshot, click, take_screenshot), and it was
+  enough to verify the bloom-budget-tracker dashboard visually and drive its review-queue flow.
 
 ## 2026-08-13 — The Edit tool cannot touch a line containing a zero-width character
 - **Cut:** ESLint's `no-irregular-whitespace` flagged a literal U+200B in a spec assertion
