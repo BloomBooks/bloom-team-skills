@@ -19,6 +19,15 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   that reveals its label on hover and on `:focus-visible`. Cost: a few minutes and one wrong
   diagnosis. The same trick proved the state was right: with the transition off, the button
   measured 48 pixels at rest and 166 pixels under the pointer.
+- **seen again 2026-08-24:** the same hidden tab breaks focus as well. A text box that saves
+  its value on blur never saved: `element.focus()` did nothing, `element.blur()` fired neither
+  `blur` nor `focusout`, not even to a native listener, because `document.hasFocus()` is false
+  in a background tab and nothing can hold focus there. Pressing Enter worked, which made the
+  blur handler look broken. The wiring was right, and dispatching
+  `new FocusEvent('focusout', { bubbles: true })` proved it: React's `onBlur` listens for
+  `focusout` at the root, so the dispatched event runs the handler and the value saved. So:
+  check `document.hasFocus()` alongside `document.visibilityState`, and test a blur handler by
+  dispatching `focusout` rather than by calling `blur()`.
 
 ## 2026-08-24 — Two agents on one Chrome: screenshots die, javascript_tool lives
 - **Cut:** With two agents driving the same Chrome at once, every `computer:screenshot` and
