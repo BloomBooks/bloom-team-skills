@@ -181,6 +181,14 @@ curl -s --compressed "https://app.devin.ai/api/pr-review/job-result/<job_id>/<ve
 ⚠️ **`--compressed` is not optional** — without it the response comes back gzipped and parses as
 binary garbage.
 
+⚠️ **Parse the curl responses with a real JSON parser (python/jq), never grep/regex.** The job
+objects contain *nested* objects (`versions:[{…}]`), so a brace-matching regex like
+`\{[^{}]*<sha>[^{}]*\}` can never match the job that carries your sha — a PR #8231 poll loop
+matched nothing for the entire wait while the review had been `completed` for minutes. And when
+you write the poll loop, make **every** exit path print a state line ("TERMINAL: …" /
+"TIMED OUT after N min"): a loop whose timeout exits silently with empty output is
+indistinguishable from one that never found the job, and nobody notices Devin finished.
+
 What curl **cannot** do is *trigger* a review: only loading the review page does that (or the CI
 re-run in "Triggering a review", which is the better trigger anyway). So the fully browser-free
 route is: re-run `pr-automation.yml` to trigger → poll these two endpoints → mirror findings with
