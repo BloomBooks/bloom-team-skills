@@ -2,6 +2,18 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-26 — No procedure for diagnosing a frozen (Not Responding) Bloom.exe
+- **Cut:** Bloom froze mid-session and no skill said how to find out why. Had to hand-assemble
+  the tool chain live: `dotnet tool install -g dotnet-stack` for managed stacks, `winget install
+  Microsoft.WinDbg` for `cdbX64.exe -pv` native stacks with Microsoft symbols, a per-thread
+  `TotalProcessorTime` diff to find the spinning thread, and a raw CDP websocket
+  (`Runtime.enable` replays the backlog) to read the WebView2 console after the fact.
+- **Idea:** A small `diagnose-frozen-bloom` skill (or a section in bloom-automation) with those
+  four steps, so the next hang is a five-minute capture instead of tool assembly while the
+  evidence decays. The hang self-resolved partway through this one.
+- **Context:** BloomDesktop branch BL-16744-placeholder-edit-with-ai, 2026-08-26; UI thread was
+  stuck in WebView2's AcceleratorKeyPressed dispatch (CoWaitForMultipleHandles).
+
 ## 2026-08-25 — Devin's review never finishes on a large PR
 
 - **Cut:** On BloomDesktop PR #8229 (74 files, ~15,000 insertions) the jobs API reports the job
