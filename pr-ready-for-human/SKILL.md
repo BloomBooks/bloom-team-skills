@@ -49,6 +49,11 @@ Check all of the following. **Any failure → do not promote** (see "Not clean" 
   check that does **not** bounce: if the description is missing that, or the markers are there but
   the narrative plainly predates the current code, say so in the report and offer to refresh it —
   don't hold the promotion for it, and never overwrite a description a human wrote.
+- **The commit message(s) and the PR description are accurate for the code as it now stands.** Both
+  go stale when work continues after they were written, so check them against
+  `git diff origin/<base>...HEAD` rather than trusting them — a stale count ("adds 5 tests" when
+  there are now 9), or a description of an approach since reworked, misleads a reviewer more than
+  saying nothing would. Like the bullet above, this does not bounce: fix it, or offer to.
 
 ### Not clean → bounce to preflight
 
@@ -70,7 +75,8 @@ Mechanics (interactive rebase is not available here):
 1. `base=$(gh pr view <n> --json baseRefName -q .baseRefName)`; `old=$(git rev-parse HEAD)`.
 2. `git reset --soft $(git merge-base HEAD origin/$base)`, then commit with a message written
    for the reviewer — describe the change as a whole (the PR title is usually the right
-   summary line), not the commit-by-commit history. Keep any `Co-Authored-By:` trailers.
+   summary line), not the commit-by-commit history, and accurate for the squashed diff rather
+   than inherited from whichever commit came first. Keep any `Co-Authored-By:` trailers.
 3. Verify nothing changed: `git diff $old HEAD` must be empty. If it isn't,
    `git reset --hard $old` and bounce to preflight.
 4. `git push --force-with-lease`. The user invoking this skill is the explicit authorization
