@@ -2,6 +2,23 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-08-27 — GitHub Pages on dev-process-artifacts wedges, so the preflight report has no Pages URL
+
+- **Cut:** During BL-16768's preflight, every `pages build and deployment` run failed with
+  `Deployment request failed ... due to in progress deployment. Please cancel <sha> first or wait
+  for it to complete.` A run queued at 17:57 sat in `building` indefinitely and blocked the two
+  after it; the Pages URL stayed 404 for ~15 minutes of polling and never came up. The stuck run
+  was already `completed` from `gh run cancel`'s point of view, so it couldn't be cancelled, and
+  `gh run rerun` refused with "This workflow is already running". githack served the same file 200
+  immediately, so the report went out on the githack URL with a note.
+- **Idea:** `dev-process-artifacts.md` currently frames githack as the flaky one and Pages as the
+  dependable default; this was the reverse. Give the publish step a bounded Pages wait (~2 min)
+  and an automatic, silent fall back to githack rather than 15 minutes of polling — and say in the
+  doc how to clear a wedged Pages deployment (the API-level cancel, since `gh run cancel` can't
+  touch it).
+- **Context:** BloomDesktop PR #8250 / BL-16768, 2026-08-27. Report published at
+  `deciders/BloomDesktop-BL-16768.html`.
+
 ## 2026-08-25 — Devin's review never finishes on a large PR
 
 - **Cut:** On BloomDesktop PR #8229 (74 files, ~15,000 insertions) the jobs API reports the job
