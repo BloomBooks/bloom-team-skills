@@ -606,3 +606,18 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   would not have: a full-width text link and "1 were already in your data".
 - **Context:** bloom-budget-tracker, building the NetSuite capture panel against a stubbed `chrome`
   in a local harness page.
+
+## 2026-08-27 — the working tree changed branch under a running agent, and a gate ran against the wrong code
+
+- **Cut:** Mid-preflight, `git rev-parse --abbrev-ref HEAD` answered `V3`, and six commands later it
+  answered `master`. Something outside the session had run a checkout; the reflog says
+  `checkout: moving from V3 to master`, next to a `discard:` entry, so a git GUI on the same clone.
+  Nothing in the session announced it. The typecheck I had just run, and reported as a clean gate
+  row, had in fact run against `master`. The tell was accidental: `git diff --name-only
+  origin/master...HEAD` printed nothing on a branch that is 29 files ahead.
+- **Idea:** In a long run, re-read the branch and HEAD sha before each gate, not once at the start,
+  and refuse to report a gate row whose sha does not match the sha the phase began with. Cheap
+  version: capture `git rev-parse HEAD` next to every gate command and print both. A skill that
+  spends 30+ minutes waiting on reviewers cannot assume the tree it verified is the tree it is
+  still standing in.
+- **Context:** lameta, preflight on branch V3, with the repo open in a git GUI at the same time.
