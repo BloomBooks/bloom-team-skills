@@ -2,6 +2,24 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-09-01 — Backslash escapes in generated code are mangled when the script is written via a bash heredoc
+
+- **Cut:** Writing a code-editing script with `cat > x.mjs <<'EOF'` — a *quoted* heredoc, which
+  should be literal — still turned backslash-n, backslash-r-backslash-n and backslash-quote inside
+  the script into real newlines and quotes. Generated code therefore arrived broken: a C# `Split`
+  on a newline became a char literal containing an actual line break; a two-paragraph message
+  became a three-line unterminated string; a test fixture built from `"...\r\n"` pieces became
+  dozens of unterminated literals. It bit four times in one session, and twice the file was
+  committed before a build caught it. The last time, it broke the very script that was being
+  written to record this papercut.
+- **Idea:** Prefer the `Write` tool for any file whose content contains backslash escapes — it
+  writes bytes verbatim. Where a heredoc is unavoidable, construct the characters rather than
+  escaping them (`String.fromCharCode(10)`), or choose a language form with no escapes at all —
+  C# raw string literals (`"""` … `"""`) worked well for multi-line test fixtures. Worth a line in
+  the team agent instructions, because the failure presents as a compiler complaint about code you
+  are certain you wrote correctly, which sends you looking in the wrong place.
+- **Context:** BL-16719 preflight, 2026-09-01.
+
 ## 2026-08-27 — GitHub Pages on dev-process-artifacts wedges, so the preflight report has no Pages URL
 
 - **Cut:** During BL-16768's preflight, every `pages build and deployment` run failed with
@@ -35,6 +53,13 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   job, and may be the better default above some diff size.
 - **Context:** BL-16719, PR #8229, 2026-08-25. Related to the 2026-08-23 entry below about Devin
   repeating stale findings; different failure, same tool.
+- **seen again: 2026-09-01** — same PR, two more triggers (the push, and a deliberate
+  `gh run rerun` of `pr-automation`; both reported success), and this time no job for the HEAD sha
+  ever appeared at all. Six occurrences now, over six days and many commits, so this PR has never
+  had a single third-party bot review. An earlier note in this repo said the failures were
+  transient rather than size-related, on the strength of one job completing — that reading is
+  now hard to sustain. This run capped the wait at ~25 minutes and recorded the timeout, which is
+  what the Idea above asks for; worth making the skill do it rather than the operator.
 
 ## 2026-08-24 — A CSS transition never runs in a background tab, so hover looks broken
 - **Cut:** Verifying a hover that grows a button, I hovered it with `computer:hover`, then read
