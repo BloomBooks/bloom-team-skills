@@ -44,7 +44,15 @@ becomes unrunnable.
 
 ## 3. Host the artifact on dev.bloomlibrary.org
 
-This is our place to keep test books. It costs the tester one download and no setup.
+This is our place to keep test books today. It costs the tester one download and no setup.
+
+**Where this is going:** the repo of test books and collections now exists,
+https://github.com/BloomBooks/bloom-testing-inputs, pinned by `build/testing-inputs.pin` in
+BloomDesktop. A repo versions the book with the test, needs no upload account, and gives an
+automated test a fixture folder to copy instead of a download. Its own rule, though, is that a
+test builds its own collection unless the fixture is too expensive to build at run time, such as
+a collection of 200 books. So prefer a card whose setup a test can perform, and do not build
+anything that assumes dev.bloomlibrary.org is permanent.
 
 - **Upload through Bloom itself** (Publish → Web), not by putting files on S3. Only the Bloom
 upload writes the database record that the site and the download need. Bloom uploads to the
@@ -115,6 +123,25 @@ a multipart `POST /v1/file_uploads/{id}/send`. The block is
 is good for one block**, so upload again if you rebuild the page.
 - Afterwards, read the children back and check that the image blocks came back with a
 `file.url`. That is the only cheap proof the pictures actually landed.
+
+## 7. Keep the card easy to automate later
+
+Most of a card like this can become a Playwright test against the real `Bloom.exe`, so do not
+write steps that fight that.
+
+- **Assert state, not pixels.** The screenshots are for the human reader. An automated version
+  reads the control's own text and its `checked` and `disabled` state, and needs no image
+  comparison.
+- **Setup is the part to automate away.** A fixture collection copied to a temp folder replaces
+  the download and the "make a book using this source" step. The download itself is also
+  scriptable if you want it covered.
+- **Collection settings have no API.** `collectionSettings/changeLanguage` only feeds the open
+  WinForms dialog, whose only listener is `CollectionSettingsDialog`. To change the collection
+  languages, quit Bloom, write the `.bloomCollection`, and start Bloom. `bloomApp.restart` in
+  `src/BloomE2E` does exactly that, and costs about six seconds, so a step that changes a
+  collection language is automatable. It does lose whatever the editor had not yet saved.
+- **Name the state you depend on.** Say which setting a test needs at its start, so an
+  automated version can reach that state directly instead of replaying the tests before it.
 
 ## Quality bar before you hand it over
 
