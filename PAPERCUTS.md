@@ -631,3 +631,25 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   would not have: a full-width text link and "1 were already in your data".
 - **Context:** bloom-budget-tracker, building the NetSuite capture panel against a stubbed `chrome`
   in a local harness page.
+
+## 2026-09-01 — Two agents in one worktree silently overwrote each other's files
+
+- **Cut:** Two agents in the same session were assigned work in `D:/nightly-testing-inputs`. I
+  checked out a new branch there, `vr-deterministic-text`, off `origin/master`, not knowing another
+  agent was mid-task on `bloom-testing-inputs-wiring` in that same worktree. For half an hour the
+  other agent's edits landed on my branch, and mine on their work. It surfaced twice, both times as
+  something else: first as four visual-regression tests failing with `ECONNRESET` on
+  `/bloom/api/e2e/makeBloomPubPreview` plus a `launchDedicatedBloom` timeout, because two Bloom
+  instances from one `output/` folder contend; then as `build/testing-inputs.pin` changing under me
+  to a SHA that was not on `bloom-testing-inputs` `origin/main` and that I had not written. I nearly
+  committed the other agent's pin value into my PR. Nothing in `git status` says "another agent is
+  also here", and the failures all read as flaky infrastructure.
+- **Idea:** A worktree wants a single owner for the length of a task. Cheapest version: before
+  `git checkout -b` in a worktree you did not create, check whether the current branch is somebody's
+  work in progress (an uncommitted diff plus a branch name that is not yours is enough of a signal)
+  and ask the team lead before switching. A lead handing out a worktree should say whether it is
+  exclusive. Worth a check in the team rules next to the existing "never `cd` in a shell tool" note,
+  since both are about shared state that looks private.
+- **Context:** BloomDesktop, making the visual-regression suite's text rendering machine-independent
+  (PR https://github.com/BloomBooks/BloomDesktop/pull/8273) while another agent wired up a
+  `page-copy` collection in `bloom-testing-inputs`.
