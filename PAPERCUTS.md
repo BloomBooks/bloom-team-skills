@@ -653,3 +653,24 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** BloomDesktop, making the visual-regression suite's text rendering machine-independent
   (PR https://github.com/BloomBooks/BloomDesktop/pull/8273) while another agent wired up a
   `page-copy` collection in `bloom-testing-inputs`.
+
+## A `py -c` script inside a Bash heredoc silently broke a 29-minute poll loop
+
+- **Cut:** In `devin-review` I wrote the job-status poll loop as a Bash `for` loop that shelled out
+  to `py -c "..."` to parse the JSON, and passed the file path through
+  `'...'.replace('/c/','C:/').replace('/','\')`. Bash ate one backslash, Python saw a lone `\`
+  before the closing quote, and every single iteration died with
+  `SyntaxError: unterminated string literal`. The loop ran 55 times over about 23 minutes,
+  never once reading the status, while the Devin review had in fact finished. Nothing looked
+  wrong: the loop was backgrounded, and I only found it because the developer asked how it was
+  going. The `devin-review` skill already warns that a poll loop must print a state line on every
+  exit path; mine printed the Python error on every iteration instead, which is the same failure
+  wearing a different coat.
+- **Idea:** In the skill's "Reading it with plain `curl`" section, say to parse with **`jq`**, not
+  `py`. `jq` reads the file with a plain path and needs no escaping, and one `jq -r` line replaced
+  the whole broken snippet. More generally: a Windows path built inside a Bash heredoc that is then
+  handed to a second language is two layers of escaping and is not worth attempting. Also worth
+  saying that a poll loop should treat a parse failure as an error and stop, rather than sleeping
+  and retrying, since a loop that cannot parse will never succeed.
+- **Context:** BloomDesktop, running `devin-review` on
+  https://github.com/BloomBooks/BloomDesktop/pull/8274 after merging master into the branch.
