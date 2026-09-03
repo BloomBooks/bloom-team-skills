@@ -709,3 +709,26 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** BloomDesktop, splitting the BL-16799 automation-debt PR into
   https://github.com/BloomBooks/BloomDesktop/pull/8290 through
   https://github.com/BloomBooks/BloomDesktop/pull/8300.
+
+## A Devin re-review can re-report findings the reviewed commit demonstrably fixes
+
+- **Cut:** After pushing fixes for Devin's first round on the eleven-PR BL-16799 stack, the
+  re-review's job for the new head sha still listed six findings whose fix is in that very
+  commit: "Short help can still kill Bloom" and "Directory-wide claim remains incomplete"
+  (#8290), both timeout-approval flags (#8292), "Invalid port settings stall every test"
+  (#8293), and "Unknown page requests report success" (#8299). Each was checked against the
+  reviewed head with `git show <head>:<file>`, and the fix was there. On one of them Devin
+  contradicted itself inside one result: #8299 carried both "Fixed wait needs explicit
+  approval" and a fresh analysis saying "The recorded approval satisfies the repository's
+  timeout rule". Every result in that round had
+  `incremental: {"detected": false, "reason": "change_too_large"}`, so nothing was diffed
+  against the previous review.
+- **Idea:** The `devin-review` skill should say that a re-review's findings are not
+  self-certifying: before mirroring a finding whose title matches one already mirrored and
+  fixed, check the reviewed head sha for the fix (`git show <head_sha>:<path>`) and drop it if
+  the fix is there. Cheap, and it stops the same thread being posted twice. Worth saying too
+  that `lifeguard_result.incremental.detected == false` is the sign that the whole diff was
+  re-reviewed from scratch, which is when this happens.
+- **Context:** BloomDesktop, second `devin-review` round over
+  https://github.com/BloomBooks/BloomDesktop/pull/8290 through
+  https://github.com/BloomBooks/BloomDesktop/pull/8300.
