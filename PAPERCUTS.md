@@ -2,6 +2,20 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-09-02 — The worktree git guard fires on the string "github.com" in a URL
+
+- **Cut:** In a worktree-isolated session, three commands were refused with "this command names
+  git in a form too complex to verify that it stays inside the worktree" — none of them invoked
+  git at all. The trigger was the literal substring `git` inside `github.com` in a `curl` URL
+  (Devin's `?pr_path=github.com%2FBloomBooks%2F…`) and in a `gh api` body containing an Actions
+  run link. It also fired on a `gh api … --input file.json` line with a `$(cat …)` in it.
+- **Idea:** Have the guard recognise `gh`/`curl`/`github.com` as not-git before deciding a command
+  is an unverifiable git invocation; at minimum, don't match `git` inside a longer token.
+  Workaround: put the payload in a scratchpad file with the Write tool and pass its path, and
+  build JSON payloads with a small script file rather than inline.
+- **Context:** BloomDesktop PR #8280 preflight, 2026-09-02. Cost ~5 extra turns across the Devin
+  poll loop and mirroring a finding.
+
 ## 2026-09-01 — Backslash escapes in generated code are mangled when the script is written via a bash heredoc
 
 - **Cut:** Writing a code-editing script with `cat > x.mjs <<'EOF'` — a *quoted* heredoc, which
