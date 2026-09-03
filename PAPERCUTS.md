@@ -688,3 +688,24 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   and retrying, since a loop that cannot parse will never succeed.
 - **Context:** BloomDesktop, running `devin-review` on
   https://github.com/BloomBooks/BloomDesktop/pull/8274 after merging master into the branch.
+
+## Splitting one large PR into a stack: three mechanics that each cost a retry
+
+- **Cut:** Decomposing PR https://github.com/BloomBooks/BloomDesktop/pull/8276 (38 files) into
+  eleven stacked branches went fine as a plan and badly as shell work. Three separate stumbles,
+  each of which looked like a code problem rather than a tooling one. `git worktree add` into the
+  agent scratchpad path died with `Filename too long`, because that path is already ~120
+  characters before the repo's own deep paths. `sed -i` over a small node script silently ate the
+  `\r` and `\n` escapes inside it, so the next run failed with
+  `SyntaxError: Invalid or unexpected token` in a script I had just written and believed. And
+  `node -e '...'` containing conflict markers was parsed by something as a shell redirection:
+  `<< was unexpected at this time`, from Git Bash.
+- **Idea:** Worth a line in the team rules. Put a worktree for this kind of job at a short path
+  (`D:/bl-master`), not under the scratchpad. Write throwaway scripts with a quoted heredoc
+  (`cat > /tmp/x.mjs <<'SCRIPT'`) and edit them by rewriting the whole file, never with `sed -i`;
+  build a conflict marker by concatenation (`"<" + "<<<<<< ours"`) rather than typing it. Also
+  worth knowing: `git apply -3` stages what it applies, so a following `git diff` looks empty and
+  `git diff --cached` is the one to read.
+- **Context:** BloomDesktop, splitting the BL-16799 automation-debt PR into
+  https://github.com/BloomBooks/BloomDesktop/pull/8290 through
+  https://github.com/BloomBooks/BloomDesktop/pull/8300.
