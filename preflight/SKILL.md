@@ -547,8 +547,10 @@ request a teammate's review and never mark the PR ready.
 where it isn't obvious) and what the whole PR does about it. That is the first thing the user
 reads, on every run.
 
-Then: branch/PR link & its PR state (read it live — `gh pr view <n> --json isDraft` — never assumed
-from what this run did to it); fast-gate and full-suite results; **one line** on what this
+Then: the branch, and the **PR URL as a bare plain-text URL on its own line** (never a markdown
+link — the terminal hides the address, and the user's most common next move from either the
+summary or the report is to open the PR) with its PR state (read it live — `gh pr view <n> --json
+isDraft` — never assumed from what this run did to it); fast-gate and full-suite results; **one line** on what this
 run changed; reviewer outcomes — one line per reviewer per "The reviewers" (the local review
 included, each remote one terminal: complete or "timed out after N min", how long we waited);
 mergeability; whether the QA test-ideas comment was posted/updated, whether the PR description's
@@ -565,8 +567,10 @@ In addition to the chat summary, **always** render the report as a standalone HT
 publish it **once** — never through two targets, which yields two links and two browser tabs.
 **Read `references/report-artifact.md` (in this skill's folder) now and follow it exactly** — it
 defines the publish target and steps (including the single URL to open in the browser and
-printing a bare URL), the visual style, the content blocks, the decision-item controls
-(`Leave as is` / `Leave comment` / `Other:` conventions), and the copy-back button.
+printing a bare URL), the visual style, the content blocks — including the **header links row,
+led by a link to the PR's own page**, which the render check and a pre-publish grep both verify —
+the decision-item controls (`Leave as is` / `Leave comment` / `Other:` conventions), and the
+copy-back button.
 
 ## Processing the user's decisions (after the run)
 
@@ -606,6 +610,9 @@ places, where the person who needs it is already looking.
 
 ## Rules
 
+- Every report links to the PR's own page from its header, and every chat summary prints the PR
+URL bare on its own line. A PR number in plain text, or a link only to the files view or a commit,
+is not that link (`references/report-artifact.md`, block 0 and the render check).
 - Every report and chat summary **opens with the current problem / cause / fix narrative for the
 whole PR**, maintained across runs — never replaced by notes on the latest run, and never
 omitted because "the user knows what this PR is" (someone else may pick up the card).

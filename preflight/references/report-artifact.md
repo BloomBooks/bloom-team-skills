@@ -13,29 +13,44 @@ to the Anthropic Artifact tool, not here.)
 
 You are writing a page you never look at, which is how a report with the decisions column pushed
 off-screen gets published and linked on a card. **Open the local file and check it before
-publishing** — the whole check is four assertions and takes one round-trip:
+publishing** — the whole check is five assertions and takes one round-trip:
 
 ```bash
 chrome-devtools new_page "file:///<path>/preflight-report.html"
 chrome-devtools resize_page 1440 1000
-chrome-devtools evaluate_script "() => ({ overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth })"
+chrome-devtools evaluate_script "() => ({ overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth, prLink: !!document.querySelector('a[href=\"https://github.com/<owner>/<repo>/pull/<n>\"]') })"
 chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   # then Read it
 ```
 
-1. **No horizontal overflow** — `scrollWidth > clientWidth` must be `false`, at a wide width
+1. **The PR link is there** — `prLink` must be `true`: an `<a>` whose `href` is exactly the PR's
+   own GitHub page (not `/files`, not `/commits`, not a comment anchor — and not Devin's review
+   page, whose URL also ends in `/pull/<n>`, which is why the selector matches the whole URL).
+   `false` means the header links row is missing or the PR number is sitting there as plain text.
+   This is the most-used link on the page and the one most often shipped missing; fix it before
+   looking at anything else. No browser available? The grep in Publishing is the fallback.
+2. **No horizontal overflow** — `scrollWidth > clientWidth` must be `false`, at a wide width
    (~1440) *and* a narrow one (~620, where it collapses to one column). Sideways scroll almost
    always means a grid item that cannot shrink; see the Visual style rules.
-2. **Look at the screenshot.** The "what this PR is about" card is the first thing on the page,
-   both columns are present, the decisions are visible, no prose set in monospace, no text
-   running under or past a neighbour.
-3. **The copy-back actually serializes.** Read `#payload`, then flip a couple of controls and read
+3. **Look at the screenshot.** The "what this PR is about" card is the first thing on the page,
+   the header links row (PR first) is visible, both columns are present, the decisions are
+   visible, no prose set in monospace, no text running under or past a neighbour.
+4. **The copy-back actually serializes.** Read `#payload`, then flip a couple of controls and read
    it again — confirm a selection changes the text, a `Leave comment` tick adds its line, an
    untouched `Leave comment` adds nothing, and `Other:` picks up its typed value.
-4. **Only then publish.** If you find a defect after publishing, fix and republish to the *same*
+5. **Only then publish.** If you find a defect after publishing, fix and republish to the *same*
    path so the card's link stays valid.
 
 ## Publishing
 
+- **Before the file leaves the machine, grep for the PR link** — whichever target you publish to,
+  and whether or not the browser check above ran:
+
+  ```bash
+  grep -c 'href="https://github.com/<owner>/<repo>/pull/<n>"' preflight-report.html   # must be ≥ 1
+  ```
+
+  `0` means the report cannot take its reader to the PR. Add the header links row (block 0) and
+  re-check; do not publish a report that fails this.
 - **Publish once, to exactly one target.** Do not publish the same report through both the
   public repo and the Anthropic Artifact tool — that produces two links and opens two browser
   tabs.
@@ -106,10 +121,28 @@ right column is the decision items and the copy-back.
 (The numbers below are this spec's ordering, not heading text — the page's headings stay plain,
 per Visual style.)
 
-### 0. Header — the run summary and the status chips
+### 0. Header — the run summary, the status chips, and the links row
 
-A one-line summary of the run plus a row of status chips: **PR state**, mergeability, bots quiet,
-and how many items are waiting on the user.
+A one-line summary of the run, a row of status chips — **PR state**, mergeability, bots quiet,
+and how many items are waiting on the user — and then a **links row**.
+
+**The links row is required, and the PR link leads it.** Going from the report straight to the
+PR is the single most common thing a reader does with this page, and it has shipped missing more
+than once: a report with `#8305` as plain text in the state chip, links to the files view and to a
+commit, and no way to reach the PR itself. So the PR link has a fixed home, not a mention in
+passing: the **first chip of the links row**, labeled `PR #<n>`, whose `href` is the PR's own page
+— `https://github.com/<owner>/<repo>/pull/<n>`, not `/files`, not `/commits`, not a comment
+anchor. After it, in this order: `Files changed` (`/pull/<n>/files`), `Commits`
+(`/pull/<n>/commits`), the tracker card when there is one (label `BL-<id>`, linked to its YouTrack
+page), and each remote reviewer's page (Devin: `https://devinreview.com/<owner>/<repo>/pull/<n>`).
+Every entry is an `<a>` with a visible label. A PR number or card id in plain text is not a link
+and does not satisfy this; neither does a link to the files view or a commit "because the PR is
+one click from there". The sample screenshot (`preflight-report-sample.png`) shows the row — the
+chips after "Board". The render check and the pre-publish grep both look for this link.
+
+The state chip may additionally wrap its label in an `<a>` to the same PR URL (an anchor inside
+the span keeps the markers' shape and survives `pr-ready-for-human`'s patch, which only swaps the
+attribute and the label text) — but that is optional; the links row is what is checked.
 
 **The PR-state chip is read live, never assumed.** This report outlives the run: it sits at a
 stable URL linked on the tracker card, and afterwards `pr-ready-for-human` — or the human author
@@ -212,7 +245,9 @@ padded one.
 
 ### Links everywhere they exist
 
-PR, Files-changed, Commits; each commit page; each reviewer's summary/review and every
+PR, Files-changed, Commits (these three have their fixed home in the header links row, block 0 —
+repeat them elsewhere freely, but never rely on a deep link somewhere in the body to stand in for
+the header's PR link); each commit page; each reviewer's summary/review and every
 resolved/open thread (fetch the real comment/thread ids via `gh`) — for Devin, link its review
 page `https://devinreview.com/<owner>/<repo>/pull/<n>`; and **precise `file:line` deep links**
 into the code — build blob URLs at the HEAD sha (`.../blob/<sha>/<path>#L<line>`) and **verify
