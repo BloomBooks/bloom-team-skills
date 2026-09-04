@@ -16,68 +16,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Context:** BloomDesktop PR #8280 preflight, 2026-09-02. Cost ~5 extra turns across the Devin
   poll loop and mirroring a finding.
 
-## 2026-08-24 — A CSS transition never runs in a background tab, so hover looks broken
-- **Cut:** Verifying a hover that grows a button, I hovered it with `computer:hover`, then read
-  the label's computed style: `opacity: 0`, `max-width: 0`. The CSS looked dead. It was not.
-  `btn.matches(':hover')` was true, `document.querySelectorAll('.reveal-label:hover .label')`
-  matched, and the rule was in `document.styleSheets`. The tab was simply not the foreground
-  one: `document.visibilityState` was `"hidden"`, and Chrome does not tick transitions or
-  animations in a hidden tab, so every transitioned property stays at its start value forever.
-  Every signal pointed at a specificity or selector bug that did not exist.
-- **Idea:** When an agent checks a hover, a focus state, or any animation through
-  `javascript_tool`, it must set `element.style.transition = 'none'` before reading the
-  computed style, and restore it afterwards. Worth a line in the `claude-in-chrome` skill,
-  next to the existing note about screenshots needing the active tab: check
-  `document.visibilityState` first, because a hidden tab silently changes what the page does.
-- **Context:** bloom-budget-tracker phase 2a, dashboard agent, verifying an icon-only button
-  that reveals its label on hover and on `:focus-visible`. Cost: a few minutes and one wrong
-  diagnosis. The same trick proved the state was right: with the transition off, the button
-  measured 48 pixels at rest and 166 pixels under the pointer.
-- **seen again 2026-08-24:** the same hidden tab breaks focus as well. A text box that saves
-  its value on blur never saved: `element.focus()` did nothing, `element.blur()` fired neither
-  `blur` nor `focusout`, not even to a native listener, because `document.hasFocus()` is false
-  in a background tab and nothing can hold focus there. Pressing Enter worked, which made the
-  blur handler look broken. The wiring was right, and dispatching
-  `new FocusEvent('focusout', { bubbles: true })` proved it: React's `onBlur` listens for
-  `focusout` at the root, so the dispatched event runs the handler and the value saved. So:
-  check `document.hasFocus()` alongside `document.visibilityState`, and test a blur handler by
-  dispatching `focusout` rather than by calling `blur()`.
-- **seen again 2026-08-24:** two more things a background tab will not do.
-  `navigator.clipboard.writeText` rejects with `Document is not focused`, so a copy-to-clipboard
-  button cannot be exercised for real, and `window.focus()` does not lift it. Stub only the write
-  (`Object.defineProperty(navigator, 'clipboard', …)` capturing the text) so the rest of the
-  component still runs, then check the captured text. Timers are throttled too, so the life of a
-  "Copied!" pill cannot be timed there: a 2000 ms `setTimeout` measured as gone before 1650 ms,
-  and a probe that slept fourteen times in a row hit the 45 s CDP timeout on a page that was
-  alive and answering immediately afterwards. Assert that such a pill clears, never when.
-
-## 2026-08-24 — Two agents on one Chrome: screenshots die, javascript_tool lives
-- **Cut:** With two agents driving the same Chrome at once, every `computer:screenshot` and
-  `read_page` call on my tabs failed with `Script injection timed out after 5000ms` (and once
-  `Failed to get viewport information`), for 20 minutes, on my app page and on a static
-  `index.html` alike. The other agent's tabs worked throughout. The message blames the page
-  ("busy or mid-navigation"), which sent me hunting a render loop in my own React code that did
-  not exist. `javascript_tool` and `navigate` on the very same tab worked perfectly the whole
-  time, which is what finally proved the page was fine.
-- **Idea:** Say in the `claude-in-chrome` skill that these two tools need the tab to be the
-  active one in its window, so a parallel agent activating its own tab starves yours, and that
-  `javascript_tool` is the fallback that still works. One failed screenshot plus one successful
-  `javascript_tool` call distinguishes "my page is broken" from "my tab is in the background" in
-  seconds. Worth considering whether two agents should share one browser profile at all.
-- **Context:** bloom-budget-tracker phase 2, dashboard agent and capture agent running in
-  parallel. Cost: no screenshot comparison against the approved mockups was possible, so that
-  part of the verification had to be done by reading computed styles instead.
-
-## 2026-08-23 — Headless Chrome writes `--screenshot` beside chrome.exe, and calls it access denied
-- **Cut:** `chrome --headless=new --screenshot=shot.png file:///...` failed with
-  `Failed to write file shot.png: Access is denied.` The relative path is resolved against Chrome's
-  own install directory, not the shell's working directory, so it tried to write into
-  `C:\Program Files\Google\Chrome\Application`. The message names a permission problem, which
-  sends you looking at the file and the directory you meant.
-- **Idea:** Say in the screenshot-local-HTML guidance that `--screenshot`, `--user-data-dir` and the
-  `file:///` URL all take an absolute Windows path with backslashes. Two failed attempts here.
-- **Context:** Rendering a preflight report at two widths before publishing it.
-
 ## 2026-08-12 — In multi-agent sessions, Write silently clobbers a sibling agent's new file
 
 - **Cut:** Two Opus subagents working the same package each created `src/alphabet.spec.ts`;
@@ -277,58 +215,6 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** the SLDR alphabet provider's spec, asserting that a language's auxiliary exemplar
   set (which for Thai is a lone zero-width space) stays out of the alphabet.
 
-## 2026-08-16 — Chrome screenshots time out on a busy page, and `find` goes with them
-- **Cut:** On the font-chooser demo, every `mcp__claude-in-chrome__computer` screenshot failed with
-  "Script injection timed out after 5000ms" and `find` with "Page still loading (executeScript
-  waited 45000ms for document_idle)" — for ten minutes, on a page that was rendering perfectly and
-  responding to input. The page never reaches `document_idle` because the demo keeps fetching
-  (sample text, Fontsource, font files), and the two tools that need script injection at idle are
-  the two an agent reaches for first. The messages both blame loading or navigation, so the obvious
-  reading is "the app is broken", and I nearly went diagnosing an app that was fine.
-- **Idea:** `javascript_tool` does not wait for idle and kept working throughout. On a page with
-  ongoing network activity, drive it with `javascript_tool`: `document.body.innerText` in place of a
-  screenshot, `element.click()` and a native-setter `input` dispatch in place of clicks and typing.
-  For verifying *rendering* — the thing a screenshot is actually for — `canvas.measureText` with
-  and without a font in the stack proves which font drew a character, which is stronger evidence
-  than looking at a picture anyway.
-- **Context:** verifying an "Add font from URL" dialog and a tofu-fallback font in the EthnoLib font
-  chooser demo.
-
-## 2026-08-17 — Previewing a locally generated HTML file: neither obvious route works
-- **Cut:** I generated a static dashboard page and wanted to look at it. The Chrome extension
-  refuses `file://` outright ("Can't interact with browser-internal or unparseable URLs"), so the
-  next move is to serve it. But a `node -e "...createServer(...).listen(8757)"` started through the
-  **Bash tool exits instantly with code 0 and no output** — the sandbox blocks listening sockets,
-  and it reports that as a clean exit, which reads as "my one-liner is wrong", not "sockets are
-  denied". With `dangerouslyDisableSandbox: true` the server came up and answered `curl` with 200,
-  and then the extension's `computer screenshot` still timed out three times with "Script injection
-  timed out after 5000ms" on a page that is one `<style>` block and no scripts.
-- **Idea:** Skip the extension for static pages. Headless Chrome takes the screenshot directly:
-  `"/c/Program Files/Google/Chrome/Application/chrome.exe" --headless --disable-gpu
-  --hide-scrollbars --no-first-run --user-data-dir="<scratch>/profile"
-  --window-size=1100,2400 --screenshot="<scratch>/shot.png" http://localhost:8757/`, run with
-  `dangerouslyDisableSandbox`. Two traps: `--screenshot` must be an **absolute** path or it dies
-  with "Failed to write file: Access is denied", and it needs its own `--user-data-dir` (delete it
-  afterwards). Add `--force-dark-mode` for the dark-mode pass. Still needs a server, since headless
-  Chrome inherits the same `file://` awkwardness under the sandbox.
-- **Context:** building `supporting-data/dashboard` in EthnoLib, a generated static coverage page.
-
-## 2026-08-19 — Chrome extension screenshots time out, so a page cannot be looked at
-
-- **Cut:** Every `mcp__claude-in-chrome__computer` screenshot in a session failed with `Script
-  injection timed out after 5000ms — the page is busy or mid-navigation`, on four different pages
-  (a published artifact, a hand-rolled `http.createServer` page, and `vite preview` twice). The
-  message blames the page, so the first two failures read as "claude.ai is heavy, try a lighter
-  page" and cost a detour building a local server to serve the file. It was the extension.
-- **Idea:** Two failures on two *different* pages means the extension, not the page — stop and say
-  the page is unverified rather than hunting for a lighter one. Also worth knowing: `navigate`
-  refuses `file://` URLs, so looking at a generated HTML file needs a local server at all (and
-  `vite preview` binds `localhost` only, not `127.0.0.1` — the other spelling gives an error page).
-  Both dataviz and artifact-design end with "render it and look at it", which is unreachable when
-  this breaks; that step should say what to do when the screenshot never arrives.
-- **Context:** EthnoLib `supporting-data`, building an HTML report and a dashboard tab whose whole
-  point was a colour-blend diagram — the one thing that most needed a visual check.
-
 ## 2026-08-19 - The auto-mode classifier blocks the write half of operating a database
 
 - **Cut:** With Supabase linked and credentials working, `npx supabase db push --dry-run` ran
@@ -362,23 +248,6 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   nothing about your change.
 - **Context:** bloom-table, fixing the "formatting-commands" cluster (host notification skipped
   when an empty cell is set to the default content type) while another agent fixed cell-contents.
-
-## 2026-08-24 — claude-in-chrome screenshots fail on a page a fresh build was just loaded into
-
-- **Cut:** `mcp__claude-in-chrome__computer{action:"screenshot"}` and `read_page` failed on every
-  localhost page in one session with "Script injection timed out after 5000ms — the page is busy or
-  mid-navigation", while `javascript_tool` on the *same tab* worked perfectly. `document.readyState`
-  was `complete` and every resource had finished; a brand new tab and a second origin behaved the
-  same, so it is not the page. That makes "verify it visually and compare against the mockup"
-  impossible while the rest of the browser automation still works, and the error message points at
-  the page, which is innocent.
-- **Idea:** When screenshots time out but `javascript_tool` answers, stop retrying and read the
-  interface numerically instead: `getComputedStyle` and `getBoundingClientRect` over the elements
-  whose colours, type sizes and spacing the mockup specifies. That gave an exact token-by-token
-  comparison (surface, ink, blue, radius, padding, font weight) and caught real defects a screenshot
-  would not have: a full-width text link and "1 were already in your data".
-- **Context:** bloom-budget-tracker, building the NetSuite capture panel against a stubbed `chrome`
-  in a local harness page.
 
 ## 2026-09-01 — Two agents in one worktree silently overwrote each other's files
 

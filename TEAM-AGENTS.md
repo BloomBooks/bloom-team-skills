@@ -206,6 +206,66 @@ bad. Eyeball non-ASCII JSON through `node -e`, or set `PYTHONIOENCODING=utf-8` a
 through a second path. (Relatedly, Python's `urllib` gets a bare 403 from endpoints that answer
 node's `fetch` fine — probably the missing User-Agent; use node for API probing.)
 
+## Looking at a page in the browser: when the tools fail, and what to use instead
+
+Browser verification fails often, and **every failure message blames the page**, which is almost
+never at fault. Seven separate cuts, hours of misdirected diagnosis, one shared lesson.
+
+**"Script injection timed out after 5000ms — the page is busy or mid-navigation" is not about your
+page.** `computer` screenshots and `read_page` need script injection at `document_idle` in the
+**active** tab. They fail when another agent's tab is activated in the same Chrome, when the page
+keeps fetching and so never reaches idle, and sometimes for a whole session on every page including
+a static one-`<style>` file. `find` fails the same way ("waited 45000ms for document_idle").
+
+- **One failed screenshot plus one successful `javascript_tool` call on the same tab** tells you in
+  seconds whether the page is broken or the tooling is. `javascript_tool` and `navigate` keep
+  working throughout — they don't wait for idle.
+- **Two failures on two *different* pages means the tooling.** Stop retrying, stop hunting for a
+  lighter page, and say the page is unverified.
+- Two agents should not share one Chrome profile if either needs screenshots.
+
+**Verify numerically instead — it is often better evidence than a picture.** `getComputedStyle` and
+`getBoundingClientRect` over the elements a mockup specifies give a token-by-token comparison
+(surface, ink, radius, padding, font weight) and have caught real defects a screenshot would have
+missed. `document.body.innerText` replaces a screenshot for content; `element.click()` and a
+native-setter `input` dispatch replace clicking and typing; `canvas.measureText` with and without a
+font in the stack proves which font actually drew a character.
+
+**A background tab silently changes what the page does** — check `document.visibilityState` and
+`document.hasFocus()` *before* believing any of this:
+
+- **Transitions and animations do not tick**, so every transitioned property sits at its start
+  value forever and the CSS looks dead. Set `element.style.transition = 'none'` before reading a
+  computed style, and restore it.
+- **Nothing can hold focus**, so `element.focus()` does nothing and `element.blur()` fires neither
+  `blur` nor `focusout` — a blur handler looks broken when it is fine. Test it by dispatching
+  `new FocusEvent('focusout', { bubbles: true })` (React listens for `focusout` at the root).
+- **`navigator.clipboard.writeText` rejects** with `Document is not focused`, and `window.focus()`
+  won't lift it. Stub only the write, capturing the text, so the rest of the component still runs.
+- **Timers are throttled.** A 2000 ms `setTimeout` measured as gone before 1650 ms, and a probe
+  that slept repeatedly hit a 45 s CDP timeout on a live page. Assert that a transient element
+  clears — never *when*.
+
+**Looking at a static file you just generated.** `navigate` refuses `file://` outright, so it needs
+a local server — which the Bash sandbox blocks (see the Windows section: a listening socket exits 0
+with no output; use `dangerouslyDisableSandbox: true`). `vite preview` binds `localhost` only, not
+`127.0.0.1`. The reliable route skips the extension entirely:
+
+```bash
+"/c/Program Files/Google/Chrome/Application/chrome.exe" --headless --disable-gpu \
+  --hide-scrollbars --no-first-run --user-data-dir="<abs scratch>/profile" \
+  --window-size=1100,2400 --screenshot="<abs scratch>/shot.png" http://localhost:8757/
+```
+
+Every path there must be **absolute**: Chrome resolves a relative `--screenshot` against its own
+install directory and fails with `Access is denied`, which reads as a permission problem on the
+directory you meant. It needs its own `--user-data-dir` (delete it afterwards), and
+`--force-dark-mode` gives the dark pass.
+
+**When a skill ends with "render it and look at it"** — `dataviz` and `artifact-design` both do —
+and the screenshot never arrives, that step is unreachable. Say the output is unverified rather
+than quietly treating it as checked.
+
 ## Papercuts
 
 When you hit tooling/process friction, have to work around something, or learn something the
