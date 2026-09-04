@@ -2,6 +2,17 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-09-04 — A redirected `py` print died on an en space and blanked a PR description
+- **Cut:** During preflight on BloomDesktop PR 8312, a `py` script rebuilt the PR body and printed
+  it to stdout redirected into a file. On this machine redirected stdout is cp1252, so it raised
+  `UnicodeEncodeError: 'charmap' codec` on an en space (U+2002) that pr-automation had appended,
+  wrote an empty file, and the following `gh pr edit --body-file` blanked the PR description.
+- **Idea:** In the preflight skill's PR-description step, say: run `py` with `PYTHONUTF8=1` (or
+  `sys.stdout.reconfigure(encoding="utf-8")`) whenever its output is redirected, and refuse to run
+  `gh pr edit --body-file` on an empty file. Better still, have the script write the file itself
+  with `encoding="utf-8"` rather than go through stdout.
+- **Context:** BloomDesktop, https://github.com/BloomBooks/BloomDesktop/pull/8312, Hatton's machine.
+
 ## 2026-09-02 — The worktree git guard fires on the string "github.com" in a URL
 
 - **Cut:** In a worktree-isolated session, three commands were refused with "this command names
