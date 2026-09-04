@@ -147,6 +147,65 @@ a second language is escaped three times, and the diagnosis always points at the
 Write the file verbatim rather than editing it in place, and construct troublesome characters
 rather than typing them.
 
+## Running scripts and tools on Windows: the ways they lie to you
+
+Every item here presents as a bug in your code or the project. They are not — and the wasted time
+goes into diagnosing the innocent layer, so check these first.
+
+**Silence is not success.**
+
+- **`node -e` can print nothing and exit 0** with a multi-line double-quoted script — the identical
+  logic on one line prints fine. Never read an empty `node -e` as "the check passed": have it write
+  results to a file and `cat` that.
+- **The Bash sandbox denies listening sockets and reports it as a clean exit.** A one-liner HTTP
+  server exits instantly, code 0, no output, which reads as "my one-liner is wrong". It needs
+  `dangerouslyDisableSandbox: true`.
+- **A backgrounded command piped to `Select-Object -Last N` writes nothing until it exits** —
+  `-Last`, like `Sort-Object`, must see the whole stream before it can emit. Five minutes of an
+  empty output file looked exactly like a hung nx daemon; the run had actually succeeded. Let a
+  long command write raw and read the tail of the file afterwards; `-First`/`Where-Object` stream
+  and are safe. An empty background output file proves nothing about whether the process is alive.
+
+**Escapes through a heredoc.** A backslash escape inside a shell heredoc reaches the file as the
+character it names, *even in a quoted (`<<'EOF'`) heredoc that the shell is not supposed to touch*.
+`\n` and `\r\n` become real line breaks and `\"` becomes a quote, so generated code arrives with
+unterminated string literals — it bit four times in one session, twice reaching a commit before a
+build caught it, and once broke the very script that was being written to record it. Use the
+**`Write` tool** for any file whose content contains backslash escapes; it writes bytes verbatim.
+Where a heredoc is unavoidable, construct the character instead of escaping it (`chr(92)`,
+`String.fromCharCode(10)`), or pick a form with no escapes at all — C# raw
+string literals (triple double-quotes) work well for multi-line fixtures. The failure presents as a compiler complaint
+about code you are certain you wrote correctly, which sends you looking in the wrong place.
+
+**Paths and module resolution.**
+
+- **A throwaway node script resolves modules from its own directory, not cwd**, so a `.cjs` in the
+  scratchpad gets `MODULE_NOT_FOUND` for the project's deps. Write it *inside the package
+  directory*, run it, delete it.
+- **A bare Windows absolute path is not a valid ESM specifier** — Node parses `D:` as a URL scheme
+  and throws `ERR_UNSUPPORTED_ESM_URL_SCHEME`. Import `file:///D:/repo/tools/x.mjs`, or build it
+  with `pathToFileURL(path).href`. The trap catches agents precisely because "always use absolute
+  paths" is the rule everywhere else.
+- **`-C`/`--prefix` is not a `cd`.** `npm -C <pkg> exec -- vite` sets *npm's* prefix, so vite
+  resolved its config from the repo root, found none, and served the monorepo root — printing a
+  perfectly healthy "ready in 144 ms" banner while every request 404'd. Point the tool at its
+  config by absolute path (`--config D:/<repo>/<pkg>/vite.config.ts`) instead.
+
+**Spawning a `.cmd` shim (npm, pnpm, npx, tsc) from Node on Windows.** You cannot have both a
+shell-free spawn and a `.cmd`: without `shell: true` Node refuses with `spawnSync npx.cmd EINVAL`
+(the argument-injection fix in 18.20/20.12), and with it the shell re-parses your arguments. Keep
+`shell: true` and make sure **no argument needs quoting** — write SQL or any multi-line payload to
+a file and pass `-f <file>`, and quote path arguments yourself. A CLI that answers by printing its
+own help is usually telling you its arguments were re-parsed, not that you used the wrong flags.
+
+**Don't trust a formatter's rendering of non-ASCII.** `py -m json.tool` re-encodes with
+`ensure_ascii=True` and mangles UTF-8 on the way through the pipe, so clean data prints as textbook
+mojibake (`Ã¢`) and you go hunting for corruption that isn't there — zero rows were actually
+bad. Eyeball non-ASCII JSON through `node -e`, or set `PYTHONIOENCODING=utf-8` and print with
+`ensure_ascii=False`. Before believing any encoding bug seen through a formatter, check one record
+through a second path. (Relatedly, Python's `urllib` gets a bare 403 from endpoints that answer
+node's `fetch` fine — probably the missing User-Agent; use node for API probing.)
+
 ## Papercuts
 
 When you hit tooling/process friction, have to work around something, or learn something the

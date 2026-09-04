@@ -16,24 +16,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Context:** BloomDesktop PR #8280 preflight, 2026-09-02. Cost ~5 extra turns across the Devin
   poll loop and mirroring a finding.
 
-## 2026-09-01 — Backslash escapes in generated code are mangled when the script is written via a bash heredoc
-
-- **Cut:** Writing a code-editing script with `cat > x.mjs <<'EOF'` — a *quoted* heredoc, which
-  should be literal — still turned backslash-n, backslash-r-backslash-n and backslash-quote inside
-  the script into real newlines and quotes. Generated code therefore arrived broken: a C# `Split`
-  on a newline became a char literal containing an actual line break; a two-paragraph message
-  became a three-line unterminated string; a test fixture built from `"...\r\n"` pieces became
-  dozens of unterminated literals. It bit four times in one session, and twice the file was
-  committed before a build caught it. The last time, it broke the very script that was being
-  written to record this papercut.
-- **Idea:** Prefer the `Write` tool for any file whose content contains backslash escapes — it
-  writes bytes verbatim. Where a heredoc is unavoidable, construct the characters rather than
-  escaping them (`String.fromCharCode(10)`), or choose a language form with no escapes at all —
-  C# raw string literals (`"""` … `"""`) worked well for multi-line test fixtures. Worth a line in
-  the team agent instructions, because the failure presents as a compiler complaint about code you
-  are certain you wrote correctly, which sends you looking in the wrong place.
-- **Context:** BL-16719 preflight, 2026-09-01.
-
 ## 2026-08-24 — A CSS transition never runs in a background tab, so hover looks broken
 - **Cut:** Verifying a hover that grows a button, I hovered it with `computer:hover`, then read
   the label's computed style: `opacity: 0`, `max-width: 0`. The CSS looked dead. It was not.
@@ -245,21 +227,6 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** investigating a BloomBridge origami/overflow bug; reading `HtmlGenerator.pagePx` and
   `origamiPaneRect`.
 
-## 2026-08-04 — `node -e` from the Bash tool: output can vanish, and module resolution follows the script, not cwd
-- **Cut:** Wanted a quick "does this LESS still compile" check. `node -e "…"` with a multi-line
-  double-quoted script returned *no output at all* twice (exit 0, empty), so the check looked like
-  it had silently succeeded when it had not run; the identical logic in a single-line form printed
-  fine. Then, moving the script to a `.cjs` file in the scratchpad, `require("less")` failed with
-  MODULE_NOT_FOUND — node resolves from the *script's* directory, and the scratchpad has no
-  `node_modules`. Also worth knowing: `npx prettier` dies on this repo with `EBADDEVENGINES`
-  (devEngines pins node 24.13.0, machine has 24.15.0); `pnpm exec prettier` works.
-- **Idea:** For any throwaway node script that needs the project's deps, write the `.cjs` **inside
-  the package directory** (`src/BloomBrowserUI/`), run it, and delete it — don't use the scratchpad,
-  and don't trust a silent `node -e`. Have it write results to a file and `cat` that, so "no output"
-  can't be mistaken for "passed". And reach for `pnpm exec`, never `npx`, in this repo.
-- **Context:** verifying that a new `inlineImages.less` partial compiled into basePage.css,
-  basePage-legacy-5-6.css, baseEPUB.css and editMode.css during the inline-images work.
-
 ## 2026-08-06 — Chrome MCP `computer` screenshots dead in this session; `chrome-devtools-cli` covered for it
 - **Cut:** Every `mcp__claude-in-chrome__computer` action with `action: screenshot` failed with
   "Script injection timed out after 5000ms — the page is busy or mid-navigation", including on a
@@ -310,37 +277,6 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** the SLDR alphabet provider's spec, asserting that a language's auxiliary exemplar
   set (which for Thai is a lone zero-width space) stays out of the alphabet.
 
-## 2026-08-13 — `npm -C <pkg> exec -- vite` starts vite with the *repo root* as cwd
-- **Cut:** To run a package's dev server on a fixed port I used
-  `npm -C components/fonts/react/font-chooser-react-mui exec -- vite --port 5390 --strictPort`.
-  Vite started and printed a normal "ready in 144 ms / Local: http://localhost:5390/" banner, but
-  every request to `/` came back 404. `-C` sets npm's own prefix, not the child process's working
-  directory, so vite resolved its config relative to the repo root, found none, and served the
-  monorepo root as a static site — where there is no `index.html`. The banner gives no hint: it
-  looks exactly like a healthy server, and the 404 reads as a routing or build problem in the app.
-- **Idea:** Point vite at the config by absolute path instead — `npx vite --config
-  D:/<repo>/<pkg>/vite.config.ts --port <n> --strictPort` — which works because these configs set
-  `root: __dirname`. Same shape for any tool that discovers config from cwd; `-C`/`--prefix` is not
-  a `cd`, and the team rule against `cd` in shell tools means the flag is the fix, not a directory
-  change.
-- **Context:** browser-verifying the font chooser's sample-text provenance work.
-
-## 2026-08-13 — A backgrounded PowerShell command looks hung when its output is piped to `Select-Object -Last`
-- **Cut:** I ran `npm run testonce 2>&1 | Select-Object -Last 30` to keep a noisy nx/vitest run
-  short. It exceeded the 300s tool timeout, moved to the background, and its output file stayed
-  completely empty for another five minutes. Everything pointed at a hang — an nx daemon waiting on
-  stdin, a prompt nobody could answer — and I killed it and started diagnosing the wrong problem.
-  Nothing was wrong: `Select-Object -Last N` cannot know which lines are the last ones until the
-  stream ends, so it buffers the whole run and emits nothing until the command exits. The run had
-  in fact finished successfully at the moment I killed it.
-- **Idea:** Never pipe a long-running command through `Select-Object -Last` (or `Sort-Object`, or
-  anything else that must see the whole stream) when the command might be backgrounded. Let it
-  write raw and read the tail of the output file afterwards, or use `Select-Object -First`/
-  `Where-Object`, which stream. Corollary for reading the result: an empty background output file
-  proves nothing about whether the process is alive.
-- **Context:** running the font packages' vitest suites while implementing the chooser's
-  auto-download work.
-
 ## 2026-08-16 — Chrome screenshots time out on a busy page, and `find` goes with them
 - **Cut:** On the font-chooser demo, every `mcp__claude-in-chrome__computer` screenshot failed with
   "Script injection timed out after 5000ms" and `find` with "Page still loading (executeScript
@@ -357,20 +293,6 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   than looking at a picture anyway.
 - **Context:** verifying an "Add font from URL" dialog and a tofu-fallback font in the EthnoLib font
   chooser demo.
-
-## 2026-08-17 — Spawning `npx` from a Node script on Windows: both obvious ways fail
-- **Cut:** A skill script needed to run `npx supabase db query ... "<sql>"`. `execFileSync("npx",
-  [...], {shell: true})` let the shell re-parse the SQL argument, so its quotes and newlines came
-  back as garbage flags and the CLI answered by printing its own help — which reads as "you called
-  it with the wrong flags", not as a quoting problem, and sent me looking at the wrong thing.
-  Dropping the shell and calling `npx.cmd` directly then failed with `spawnSync npx.cmd EINVAL`,
-  because Node (since the Windows argument-injection fix in 18.20/20.12) refuses to spawn `.cmd`
-  without `shell: true`. So on Windows you cannot have both a shell-free spawn and a `.cmd` shim.
-- **Idea:** Keep `shell: true` and make sure no argument needs quoting: write SQL (or any
-  multi-line/quoted payload) to a file and pass `-f <file>`, and wrap every path argument in
-  double quotes yourself. Same shape applies to any `.cmd`/`.ps1` shim — npm, pnpm, vercel, tsc.
-- **Context:** building the `feedback-from-font-chooser` skill, which dumps the font chooser demo's
-  Supabase feedback rows verbatim.
 
 ## 2026-08-17 — Previewing a locally generated HTML file: neither obvious route works
 - **Cut:** I generated a static dashboard page and wanted to look at it. The Chrome extension
@@ -390,50 +312,6 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   afterwards). Add `--force-dark-mode` for the dark-mode pass. Still needs a server, since headless
   Chrome inherits the same `file://` awkwardness under the sandbox.
 - **Context:** building `supporting-data/dashboard` in EthnoLib, a generated static coverage page.
-
-## 2026-08-18 — `py -m json.tool` makes clean UTF-8 look double-encoded
-- **Cut:** Inspecting Supabase rows with `curl ... | py -m json.tool` printed
-  `"exemplars [a {Ã¢} b ...]"`. `Ã¢` is `Ã¢`, the textbook signature of UTF-8
-  read as Latin-1, so it reads as real mojibake in the database — and I went off and wrote a scan
-  script to find out how many rows were corrupted. Zero were. `json.tool` re-encodes with
-  `ensure_ascii=True` and the bytes get mangled on the way through the pipe on this machine, so
-  correct data is displayed as its own double-encoding.
-- **Idea:** Don't use `py -m json.tool` to eyeball non-ASCII JSON. Either pipe to `node -e` (its
-  `fetch`/`JSON.parse` round-trip is clean), or run `py` with `PYTHONIOENCODING=utf-8` and
-  `sys.stdout.reconfigure(encoding='utf-8')` and print with `ensure_ascii=False`. Corollary: before
-  believing an encoding bug seen through a formatter, check one row through a second path.
-- **Also:** Python's `urllib` got a bare 403 from `server.bloomlibrary.org/parse` for a request
-  node's `fetch` answered 200 (same URL, same app-id header) — probably the missing User-Agent.
-  Use node for Parse API probing.
-- **Context:** EthnoLib `supporting-data`, checking imported SLDR alphabets for corruption.
-
-## 2026-08-18 — ESM import of a repo module by Windows absolute path fails
-- **Cut:** A scratch ESM script doing `import ... from "D:\repo\tools\lib\x.mjs"` (or the
-  forward-slash form) dies with `ERR_UNSUPPORTED_ESM_URL_SCHEME`: Node parses `D:` as a URL
-  scheme, so a bare Windows absolute path is never a valid ESM specifier.
-- **Idea:** Import by `file:///D:/repo/tools/lib/x.mjs`, or build it with
-  `pathToFileURL(path).href` from `node:url`. Relative specifiers (`./lib/x.mjs`) are also fine —
-  the trap is only the bare drive-letter absolute path, which agents reach for because "always
-  use absolute paths" is the rule everywhere else.
-- **Context:** EthnoLib `supporting-data`, a subagent's scratch script importing
-  `tools/lib/langdata.mjs` while building the BloomLibrary walker.
-
----
-
-## 2026-08-19 — A backslash escape inside a Bash heredoc reaches the file as a real newline
-
-- **Cut:** Patching a JS file through `py - <<'PY'` with a Python string holding `\\n` — the
-  normal way to write a literal `\n` into generated source — produced an actual line break in the
-  output file instead, giving `console.log("` followed by a newline and a `SyntaxError: Invalid or
-  unexpected token`. The heredoc is single-quoted, so the shell is not supposed to touch it; the
-  mangling happens before Python sees the script. It cost three round-trips, and the first one
-  looked like a Python quoting mistake rather than anything to do with the tool.
-- **Idea:** Never put a backslash escape in a string that goes through a shell heredoc. Build the
-  escape from `chr(92)` (or `chr(92) + "n"`), or match on a substring that has no backslash in it
-  at all, which is what finally worked. Worth a line in whatever guidance covers writing scratch
-  scripts — it sits right next to the existing "use the Write tool for scratch scripts" cut.
-- **Context:** EthnoLib `supporting-data`, adding a `--compare-sldr` mode to
-  `tools/importBloomBooks.mjs`.
 
 ## 2026-08-19 — Chrome extension screenshots time out, so a page cannot be looked at
 
