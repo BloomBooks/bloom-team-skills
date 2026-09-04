@@ -628,6 +628,15 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   a `git rm` and a check that no card links to the loser.
 - **Context:** BloomDesktop, second preflight run on BL-16741-rotate-image, republishing the report
   to the URL already posted on the card.
+- **seen again 2026-09-03 (BL-16808):** it now blocks the publish flow outright, not just staging. A
+  fresh `--depth 1` clone on Windows comes out dirty on the losing path, and nothing settles it:
+  `git checkout -- <path>` leaves it modified, and `git pull --rebase` refuses with "cannot rebase:
+  You have unstaged changes" — `--autostash` too, because the file re-dirties as soon as the stash
+  is applied. So the clone/commit/push route in `dev-process-artifacts.md` cannot republish at all
+  while those two files coexist. Worked around by writing the file with the GitHub contents API
+  (`gh api -X PUT repos/.../contents/<path>` with the existing blob sha), which needs no working
+  tree and is immune to the collision. That may be the better default for a one-file republish
+  regardless.
 
 ## 2026-08-24 — claude-in-chrome screenshots fail on a page a fresh build was just loaded into
 
