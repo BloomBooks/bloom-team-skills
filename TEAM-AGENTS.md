@@ -74,6 +74,44 @@ later, rename it (`git branch -m <old> <new>`) while that's still free — befor
 before a PR or an Orca worktree is pointing at the old name. The 1–3 words are for humans; don't
 paste the card's whole summary in.
 
+## Two agents in one tree overwrite each other, and it never looks like that
+
+This has cost real work three times, and **not once did it present as a conflict**. Nothing in
+`git status` says "another agent is also here", no error is raised, and the damage surfaces later
+disguised as something else — a green suite, a flaky test, a file that reverts itself.
+
+What it looked like each time:
+
+- Two subagents each created `src/alphabet.spec.ts`; the second used `Write` without checking, and
+  six uncommitted tests vanished unrecoverably. The suite stayed **green** — 72 passing reads as
+  "9 added to 63", not "9 replaced 6".
+- Two agents fixing different bug "clusters" in one checkout: edits disappeared from disk twice,
+  mid-session, because the other agent wrote a whole-file version built on a pre-edit snapshot.
+  Between wipes the shared file was transiently uncompilable, so a full suite came back with 39
+  failures in code neither of them had touched.
+- Two agents in one worktree, one checking out a new branch not knowing the other was mid-task:
+  for half an hour each one's edits landed on the other's branch. It surfaced as `ECONNRESET` in
+  visual-regression tests (two app instances contending over one `output/`) and as a pin file
+  changing to a SHA nobody had written — which nearly got committed.
+
+The rules:
+
+- **A worktree has one owner for the length of a task.** Before `git checkout -b` in a worktree you
+  did not create, look for someone else's work in progress — an uncommitted diff plus a branch name
+  that is not yours is signal enough — and ask before switching. A lead handing out a worktree
+  should say whether it is exclusive.
+- **Concurrent agents need a worktree each, or provably non-overlapping file sets.** Only the
+  dispatcher can see the overlap, and it is invisible when the work is split by *theme* rather than
+  by file, which is the natural way to split it. Assign files, or assign worktrees.
+- **Read or Glob before you `Write` a new file** — a `Write` to a path a sibling just created
+  destroys it silently.
+- **In a shared tree, a red full suite says nothing about your change, and a green one proves
+  nothing either.** Re-`grep` for your own edits before trusting any test run, and scope the run to
+  your own files. An orchestrator running parallel agents should keep a total-test-count ledger;
+  the arithmetic mismatch is what catches a clobbered spec file immediately.
+
+This is the same class of trap as the shared cwd below: **shared state that looks private.**
+
 ## Never `cd` in a shell tool — the Bash and PowerShell tools share one cwd
 
 They look like independent shells; they are not. A throwaway `cd <somewhere> && grep …` in a

@@ -16,18 +16,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Context:** BloomDesktop PR #8280 preflight, 2026-09-02. Cost ~5 extra turns across the Devin
   poll loop and mirroring a finding.
 
-## 2026-08-12 — In multi-agent sessions, Write silently clobbers a sibling agent's new file
-
-- **Cut:** Two Opus subagents working the same package each created `src/alphabet.spec.ts`;
-  the second used Write without checking the path existed and silently replaced the first
-  agent's 6 uncommitted tests. Nothing caught it: the suite still went green (72 passing read
-  as "9 added to 63", not "9 replaced 6"), and the file was unrecoverable from git.
-- **Idea:** When orchestrating concurrent agents in one package, tell each agent to Read (or
-  Glob) before Writing any new file, or pre-assign distinct spec filenames. A total-test-count
-  ledger kept by the orchestrator catches the arithmetic mismatch immediately.
-- **Context:** EthnoLib `CharacterVariants` branch on Hatton's machine, FontChooserScreen
-  build-out with parallel polish/cv-extend agents.
-
 ## 2026-08-06 — The Remove-Item safety hook mis-parses a quoted path containing a space
 
 - **Cut:** `Remove-Item "C:\Screenshot History\some file.png" -Force` was refused with
@@ -230,43 +218,3 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   project up. Also: when Bash is denied for a file edit, the Edit tool is the fallback and works.
 - **Context:** EthnoLib `supporting-data`, applying two migrations after the developer asked
   "what do we need so you can operate Supabase for me just like GitHub".
-
-## 2026-08-21 - Parallel fix agents in one working tree silently wipe each other's edits
-
-- **Cut:** A bug-fix run dispatched several subagents at once, each given a different "cluster" of
-  confirmed bugs but all pointed at the same checkout of `D:/bloom-table`. Two of the clusters
-  touched `src/cell-contents.ts`. My edits to `src/formatting-commands.ts` and its test file
-  disappeared from disk twice, mid-session, with no error: another agent had written a whole-file
-  version built on a snapshot taken before my edits. Between wipes the shared file was also
-  transiently uncompilable (a variable referenced a dozen lines before the edit that declared it),
-  so a full `pnpm test` came back with 39 failures in code I had not touched and no way to tell
-  mine from theirs.
-- **Idea:** Concurrent agents editing one tree need either a worktree each or non-overlapping file
-  sets, and the dispatcher is the only party that can see the overlap — the clusters here were
-  named by theme, not by file. Failing that: re-`grep` for your own edits before you trust a test
-  run, and scope test runs to your own files, because a red full suite in a shared tree says
-  nothing about your change.
-- **Context:** bloom-table, fixing the "formatting-commands" cluster (host notification skipped
-  when an empty cell is set to the default content type) while another agent fixed cell-contents.
-
-## 2026-09-01 — Two agents in one worktree silently overwrote each other's files
-
-- **Cut:** Two agents in the same session were assigned work in `D:/nightly-testing-inputs`. I
-  checked out a new branch there, `vr-deterministic-text`, off `origin/master`, not knowing another
-  agent was mid-task on `bloom-testing-inputs-wiring` in that same worktree. For half an hour the
-  other agent's edits landed on my branch, and mine on their work. It surfaced twice, both times as
-  something else: first as four visual-regression tests failing with `ECONNRESET` on
-  `/bloom/api/e2e/makeBloomPubPreview` plus a `launchDedicatedBloom` timeout, because two Bloom
-  instances from one `output/` folder contend; then as `build/testing-inputs.pin` changing under me
-  to a SHA that was not on `bloom-testing-inputs` `origin/main` and that I had not written. I nearly
-  committed the other agent's pin value into my PR. Nothing in `git status` says "another agent is
-  also here", and the failures all read as flaky infrastructure.
-- **Idea:** A worktree wants a single owner for the length of a task. Cheapest version: before
-  `git checkout -b` in a worktree you did not create, check whether the current branch is somebody's
-  work in progress (an uncommitted diff plus a branch name that is not yours is enough of a signal)
-  and ask the team lead before switching. A lead handing out a worktree should say whether it is
-  exclusive. Worth a check in the team rules next to the existing "never `cd` in a shell tool" note,
-  since both are about shared state that looks private.
-- **Context:** BloomDesktop, making the visual-regression suite's text rendering machine-independent
-  (PR https://github.com/BloomBooks/BloomDesktop/pull/8273) while another agent wired up a
-  `page-copy` collection in `bloom-testing-inputs`.
