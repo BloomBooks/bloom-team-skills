@@ -181,13 +181,30 @@ curl -s --compressed "https://app.devin.ai/api/pr-review/job-result/<job_id>/<ve
 ⚠️ **`--compressed` is not optional** — without it the response comes back gzipped and parses as
 binary garbage.
 
-⚠️ **Parse the curl responses with a real JSON parser (python/jq), never grep/regex.** The job
-objects contain *nested* objects (`versions:[{…}]`), so a brace-matching regex like
-`\{[^{}]*<sha>[^{}]*\}` can never match the job that carries your sha — a PR #8231 poll loop
-matched nothing for the entire wait while the review had been `completed` for minutes. And when
-you write the poll loop, make **every** exit path print a state line ("TERMINAL: …" /
-"TIMED OUT after N min"): a loop whose timeout exits silently with empty output is
-indistinguishable from one that never found the job, and nobody notices Devin finished.
+⚠️ **Parse the responses with `jq`, never grep/regex — and never `py -c` inside a
+heredoc.** The job objects contain *nested* objects (`versions:[{...}]`), so a brace-matching
+regex can never match the job that carries your sha — a PR #8231 poll loop matched nothing for
+the entire wait while the review had been `completed` for minutes. `jq` is the right tool here:
+it takes a plain file path and needs no escaping.
+
+```bash
+jq -r '.jobs[] | select(.commit_sha=="'"$HEAD_SHA"'") | "\(.job_id) \(.status) \(.versions[-1].id)"' jobs.json
+```
+
+A `py -c "..."` snippet inside a Bash heredoc is the trap to avoid: a path fix-up that turned
+forward slashes into backslashes lost one of them to Bash, Python then saw an unterminated string
+literal, and **every one of 55 iterations died** over 23 minutes while the review had long since
+finished. A Windows path built inside a heredoc and handed to a second language is two layers of
+escaping and is not worth attempting.
+
+Two rules for the poll loop itself:
+
+- **A parse failure is fatal — stop, don't sleep and retry.** A loop that cannot parse the
+  response will never succeed, so retrying only hides it. Exit with the error.
+- **Every exit path prints a state line** ("TERMINAL: ..." / "TIMED OUT after N min"). A loop
+  whose timeout exits silently with empty output is indistinguishable from one that never found
+  the job, and nobody notices Devin finished. A loop printing the *same* error every iteration is
+  the same failure wearing a different coat, which is what the rule above catches.
 
 What curl **cannot** do is *trigger* a review: only loading the review page does that (or the CI
 re-run in "Triggering a review", which is the better trigger anyway). So the fully browser-free

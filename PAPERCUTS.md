@@ -34,23 +34,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   are certain you wrote correctly, which sends you looking in the wrong place.
 - **Context:** BL-16719 preflight, 2026-09-01.
 
-## 2026-08-27 — GitHub Pages on dev-process-artifacts wedges, so the preflight report has no Pages URL
-
-- **Cut:** During BL-16768's preflight, every `pages build and deployment` run failed with
-  `Deployment request failed ... due to in progress deployment. Please cancel <sha> first or wait
-  for it to complete.` A run queued at 17:57 sat in `building` indefinitely and blocked the two
-  after it; the Pages URL stayed 404 for ~15 minutes of polling and never came up. The stuck run
-  was already `completed` from `gh run cancel`'s point of view, so it couldn't be cancelled, and
-  `gh run rerun` refused with "This workflow is already running". githack served the same file 200
-  immediately, so the report went out on the githack URL with a note.
-- **Idea:** `dev-process-artifacts.md` currently frames githack as the flaky one and Pages as the
-  dependable default; this was the reverse. Give the publish step a bounded Pages wait (~2 min)
-  and an automatic, silent fall back to githack rather than 15 minutes of polling — and say in the
-  doc how to clear a wedged Pages deployment (the API-level cancel, since `gh run cancel` can't
-  touch it).
-- **Context:** BloomDesktop PR #8250 / BL-16768, 2026-08-27. Report published at
-  `deciders/BloomDesktop-BL-16768.html`.
-
 ## 2026-08-25 — Devin's review never finishes on a large PR
 
 - **Cut:** On BloomDesktop PR #8229 (74 files, ~15,000 insertions) the jobs API reports the job
@@ -564,32 +547,6 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** bloom-table, getting the 2026-08-12 multi-agent review's own output reviewed by
   Devin for the first time. Four slices, four PRs, one live bug found.
 
-## 2026-08-23 — Two report files in dev-process-artifacts differ only in letter case
-
-- **Cut:** `deciders/` now holds both `BloomDesktop-BL-16741-rotate-image.html` and
-  `bloomdesktop-BL-16741-rotate-image.html`, written by two preflight runs on the same branch
-  minutes apart. Git tracks them as two paths; Windows cannot, so a Windows clone maps both to one
-  file. Staging one of them showed the other as modified, and a plain `git add` would have written
-  this run's report into the file the earlier run's URL points at as well. The stable-URL rule that
-  makes a re-run overwrite the same page only works if the name is produced the same way each time,
-  and `<sourceRepo>` in `dev-process-artifacts.md` does not say which case to use.
-- **Idea:** State the case in the naming rule: lower-case the whole file name. Meanwhile, a run that
-  finds a case-variant sibling of its target path should stage the blob by plumbing
-  (`git hash-object -w --path <target>` then `git update-index --cacheinfo`) rather than `git add`,
-  so only the path the card links to changes. The two files above want merging into one, which needs
-  a `git rm` and a check that no card links to the loser.
-- **Context:** BloomDesktop, second preflight run on BL-16741-rotate-image, republishing the report
-  to the URL already posted on the card.
-- **seen again 2026-09-03 (BL-16808):** it now blocks the publish flow outright, not just staging. A
-  fresh `--depth 1` clone on Windows comes out dirty on the losing path, and nothing settles it:
-  `git checkout -- <path>` leaves it modified, and `git pull --rebase` refuses with "cannot rebase:
-  You have unstaged changes" — `--autostash` too, because the file re-dirties as soon as the stash
-  is applied. So the clone/commit/push route in `dev-process-artifacts.md` cannot republish at all
-  while those two files coexist. Worked around by writing the file with the GitHub contents API
-  (`gh api -X PUT repos/.../contents/<path>` with the existing blob sha), which needs no working
-  tree and is immune to the collision. That may be the better default for a one-file republish
-  regardless.
-
 ## 2026-08-24 — claude-in-chrome screenshots fail on a page a fresh build was just loaded into
 
 - **Cut:** `mcp__claude-in-chrome__computer{action:"screenshot"}` and `read_page` failed on every
@@ -628,27 +585,6 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** BloomDesktop, making the visual-regression suite's text rendering machine-independent
   (PR https://github.com/BloomBooks/BloomDesktop/pull/8273) while another agent wired up a
   `page-copy` collection in `bloom-testing-inputs`.
-
-## A `py -c` script inside a Bash heredoc silently broke a 29-minute poll loop
-
-- **Cut:** In `devin-review` I wrote the job-status poll loop as a Bash `for` loop that shelled out
-  to `py -c "..."` to parse the JSON, and passed the file path through
-  `'...'.replace('/c/','C:/').replace('/','\')`. Bash ate one backslash, Python saw a lone `\`
-  before the closing quote, and every single iteration died with
-  `SyntaxError: unterminated string literal`. The loop ran 55 times over about 23 minutes,
-  never once reading the status, while the Devin review had in fact finished. Nothing looked
-  wrong: the loop was backgrounded, and I only found it because the developer asked how it was
-  going. The `devin-review` skill already warns that a poll loop must print a state line on every
-  exit path; mine printed the Python error on every iteration instead, which is the same failure
-  wearing a different coat.
-- **Idea:** In the skill's "Reading it with plain `curl`" section, say to parse with **`jq`**, not
-  `py`. `jq` reads the file with a plain path and needs no escaping, and one `jq -r` line replaced
-  the whole broken snippet. More generally: a Windows path built inside a Bash heredoc that is then
-  handed to a second language is two layers of escaping and is not worth attempting. Also worth
-  saying that a poll loop should treat a parse failure as an error and stop, rather than sleeping
-  and retrying, since a loop that cannot parse will never succeed.
-- **Context:** BloomDesktop, running `devin-review` on
-  https://github.com/BloomBooks/BloomDesktop/pull/8274 after merging master into the branch.
 
 ## Splitting one large PR into a stack: three mechanics that each cost a retry
 

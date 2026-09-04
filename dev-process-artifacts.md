@@ -50,6 +50,25 @@ curl -s -o /dev/null -w '%{http_code}\n' "<the url you are about to post>"   # w
 A non-200 on Pages usually just means the deploy hasn't landed — wait ~30 s and re-check. A
 non-200 on githack means use the Pages URL instead.
 
+**Bound the Pages wait to ~2 minutes, then fall back to githack automatically.** Pages is the
+default because it is first-party, not because it is more reliable: on 2026-08-27 a run queued at
+17:57 sat in `building` indefinitely and every following deploy failed with `Deployment request
+failed ... due to in progress deployment. Please cancel <sha> first or wait for it to complete.`
+The URL 404'd for ~15 minutes of polling and never came up, while githack served the same file
+200 immediately. Do not keep polling: post the githack URL with a one-line note that Pages is
+wedged, and carry on.
+
+A wedged Pages deploy cannot be cleared with the obvious commands — `gh run cancel` reports the
+run as already `completed`, and `gh run rerun` refuses with "This workflow is already running".
+Cancel the *deployment* through the API instead:
+
+```bash
+gh api "repos/BloomBooks/dev-process-artifacts/pages/deployments" --jq '.[0].id'   # the stuck one
+gh api -X POST "repos/BloomBooks/dev-process-artifacts/pages/deployments/<id>/cancel"
+```
+
+That is cleanup, not part of publishing — never block a report on it.
+
 Layout (create subfolders as needed):
 
 ```
@@ -75,6 +94,21 @@ so files from different products never clash:
   `deciders/BL-<id>-<yyyymmdd-hhmm>.html` when you want a distinct URL per run.
 - PR screenshot: `pr-screenshots/<sourceRepo>-<pr#>-<slug>.png`.
 
+**Lower-case the whole file name** — every path segment, `<sourceRepo>` included
+(`deciders/bloomdesktop-bl-16741-rotate-image.html`, not `BloomDesktop-BL-…`). The stable-URL
+rule only works if two runs on the same branch produce byte-identical names, and case is the one
+part nobody agrees on: two preflight runs minutes apart wrote both `BloomDesktop-BL-16741-…` and
+`bloomdesktop-BL-16741-…`. Git tracks those as two paths; **Windows cannot**, so both map to one
+file and the repo can no longer be checked out cleanly.
+
+**If a case-variant sibling of your target path already exists, do not try to fix it with a
+working tree.** A fresh `--depth 1` clone comes out dirty on the losing path on Windows and
+nothing settles it — `git checkout -- <path>` leaves it modified, and `git pull --rebase` refuses
+with "cannot rebase: You have unstaged changes" (`--autostash` too, because the file re-dirties
+the moment the stash is applied). Publish with the contents API instead (next section), which
+needs no working tree at all. Merging the pair into one file is a separate cleanup: `git rm` the
+loser after checking no card links to it.
+
 ## Publishing (the agent already has `git` + `gh`)
 
 Both URLs are **deterministic** — you pick the path — so unlike the Anthropic Artifact flow
@@ -98,6 +132,21 @@ URL="https://bloombooks.github.io/dev-process-artifacts/deciders/<name>.html"
 curl -s -o /dev/null -w '%{http_code}\n' "$URL"   # must be 200 before this link goes anywhere
 ```
 
+### Republishing one file: use the contents API, not a clone
+
+For the common case — one HTML file going to a path you already know — skip the clone entirely
+and `PUT` it through the GitHub contents API. No working tree means no case-collision dirt, no
+`pull --ff-only` conflict, and no chance of a stray `git add` writing this run's report over a
+sibling path a card already links to:
+
+```bash
+SHA=$(gh api "repos/BloomBooks/dev-process-artifacts/contents/deciders/<name>.html"         --jq .sha 2>/dev/null)                       # empty on a first publish
+gh api -X PUT "repos/BloomBooks/dev-process-artifacts/contents/deciders/<name>.html"   -f message="Publish <name> report for <sourceRepo> <branch/PR>"   -f content="$(base64 -w0 "<local-report>.html")"   ${SHA:+-f sha="$SHA"}                              # sha is required to overwrite, omitted to create
+```
+
+Use the clone route above when you are pushing several files at once (a report plus its
+screenshots), or when you want the commit-pinned githack URL and therefore need the local sha.
+
 Notes:
 - **Pages deploy delay:** the first request after a push can 404 for up to a minute or two while
   the Pages build runs. That is the one thing githack buys you — so if you need the link *now*,
@@ -118,8 +167,9 @@ Notes:
 - **Pages URL on `dev-process-artifacts` (default)** — whenever the link will be read by
   anyone outside this session: posted to a YouTrack card, dropped in a PR, or handed to a
   teammate/another agent. This includes every `process-sentry-issues` escalation. Use the
-  githack URL instead only when you need the link live immediately and can't wait out the Pages
-  deploy — and verify it returns 200 first, either way.
+  githack URL instead when you need the link live immediately and can't wait out the Pages
+  deploy, or when Pages hasn't come up inside the ~2 minute bound above — and verify it returns
+  200 first, either way. A verified githack link beats a Pages link that isn't serving yet.
 - **Anthropic Artifact tool** — fine when only the in-session developer needs to see it and a
   subscriber-only link is acceptable (a quick interactive decider you'll act on immediately).
 
