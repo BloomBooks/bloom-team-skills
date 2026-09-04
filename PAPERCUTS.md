@@ -65,8 +65,8 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   been seen twice on the same PR. Better still, let `preflight` substitute a different-model
   sub-agent review when Devin yields nothing — a Fable-model reviewer stood in here and did the
   job, and may be the better default above some diff size.
-- **Context:** BL-16719, PR #8229, 2026-08-25. Related to the 2026-08-23 entry below about Devin
-  repeating stale findings; different failure, same tool.
+- **Context:** BL-16719, PR #8229, 2026-08-25. (Was related to a since-fixed entry about Devin
+  repeating stale findings; different failure, same tool.)
 - **seen again: 2026-09-01** — same PR, two more triggers (the push, and a deliberate
   `gh run rerun` of `pr-automation`; both reported success), and this time no job for the HEAD sha
   ever appeared at all. Six occurrences now, over six days and many commits, so this PR has never
@@ -127,19 +127,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   parallel. Cost: no screenshot comparison against the approved mockups was possible, so that
   part of the verification had to be done by reading computed styles instead.
 
-## 2026-08-23 — Devin repeats a whole finding set on the next commit, at lines that have moved
-- **Cut:** On BloomDesktop PR 8227 the second and third Devin rounds returned every finding of the
-  round before, including three the intervening commit had fixed, and pointed at lines that no
-  longer held that code (a table it reported at `CanvasElementSelectionUi.ts:267` had moved to
-  another file). The job's `head_sha` was the new commit, so the freshness check the
-  `devin-review` skill prescribes passed and told me nothing.
-- **Idea:** Add a step to `devin-review`: before mirroring a finding from round two or later,
-  diff the finding set against the previous round's, and for anything that repeats, check that the
-  file and line it names still hold the code it describes. A repeat that names a moved line is
-  stale and should be recorded as such rather than posted again. `head_sha` is not enough.
-- **Context:** https://github.com/BloomBooks/BloomDesktop/pull/8227, branch BL-16741-rotate-image.
-  Round two did also find one real new bug, so the repeats cannot simply be ignored wholesale.
-
 ## 2026-08-23 — Headless Chrome writes `--screenshot` beside chrome.exe, and calls it access denied
 - **Cut:** `chrome --headless=new --screenshot=shot.png file:///...` failed with
   `Failed to write file shot.png: Access is denied.` The relative path is resolved against Chrome's
@@ -149,22 +136,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Idea:** Say in the screenshot-local-HTML guidance that `--screenshot`, `--user-data-dir` and the
   `file:///` URL all take an absolute Windows path with backslashes. Two failed attempts here.
 - **Context:** Rendering a preflight report at two widths before publishing it.
-
-## 2026-08-14 — Preflight's review sub-agent edited the live tree it was reviewing
-
-- **Cut:** The light local review in `preflight` Phase 1 is dispatched as a general-purpose
-  sub-agent, which gets write tools. Asked to review a fix that added a lock, it proved the
-  point by editing the code under review — replacing `lock (GetFileLock(fullPath))` with
-  `if (true) // TEMP-REVIEW-NO-LOCK` — while the session's full C# suite was running against
-  that same tree. The suite came back "1 failed", which cost a re-run and a few minutes of
-  suspicion aimed at the wrong thing (a base merge). It restored the line when told, but only
-  after being told.
-- **Idea:** Have `preflight` dispatch the light review with a read-only tool set (the `Explore`
-  agent type, or general-purpose minus Edit/Write/NotebookEdit), and say in the prompt that the
-  tree is live and shared. Worth stating in the skill even if the tool set can't be constrained:
-  "do not modify any file; if you want to know whether a test is load-bearing, say so and let the
-  caller check."
-- **Context:** BloomDesktop PR 8207 (BL-16702), preflight run 2026-08-14.
 
 ## 2026-08-12 — In multi-agent sessions, Write silently clobbers a sibling agent's new file
 
@@ -328,25 +299,6 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   edit built on the mangled text would corrupt a file that was fine.
 - **Context:** investigating a BloomBridge origami/overflow bug; reading `HtmlGenerator.pagePx` and
   `origamiPaneRect`.
-
-## 2026-07-29 — The YouTrack Bot account cannot set Assignee at all, and no skill says so
-- **Cut:** Asked to file a card "assigned to me", I created it fine (Type, Kanban Board, State all
-  set via `$YOUTRACK_BOT`) but every attempt at Assignee returned
-  `400 {"error_description":"Assignee expected: <whatever I passed>"}`. Not a syntax problem: the
-  Bot has no read access to the user directory, so it cannot *resolve* any assignee. Evidence —
-  `GET /api/users` returns only `Bot` itself; the Assignee values on existing issues all come back
-  as `anonymized-6104`, `anonymized-8057`, …; `commands/assist` on `"Assignee "` offers no user
-  completions at all; and even `Assignee Bot` fails. I burned a round of guesses on plausible
-  logins (`JohnHatton`, `jhatton`, `john_hatton`, `hatton`, `John.Hatton`, the email) before
-  testing `Bot` and realising the account is the limitation, not the value.
-- **Idea:** `youtrack-create-issue` should say up front that **Assignee is not settable by the Bot**
-  — set Type/board/State, then hand the user the link and ask them to assign (one click), rather
-  than letting an agent discover it by trial and error. Same for `youtrack-api` §fields. If we do
-  want agents to assign, that needs a token with user-directory read, and the skill should name it.
-  Worth also noting the anonymization, since it makes *any* "who is on this card" question
-  unanswerable through the Bot.
-- **Context:** filing BL-16627 (Bloom auto-fit origami splits) with State=In Progress, requested
-  "assigned to me".
 
 ## 2026-08-04 — `node -e` from the Bash tool: output can vanish, and module resolution follows the script, not cwd
 - **Cut:** Wanted a quick "does this LESS still compile" check. `node -e "…"` with a multi-line
@@ -716,28 +668,5 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   worth knowing: `git apply -3` stages what it applies, so a following `git diff` looks empty and
   `git diff --cached` is the one to read.
 - **Context:** BloomDesktop, splitting the BL-16799 automation-debt PR into
-  https://github.com/BloomBooks/BloomDesktop/pull/8290 through
-  https://github.com/BloomBooks/BloomDesktop/pull/8300.
-
-## A Devin re-review can re-report findings the reviewed commit demonstrably fixes
-
-- **Cut:** After pushing fixes for Devin's first round on the eleven-PR BL-16799 stack, the
-  re-review's job for the new head sha still listed six findings whose fix is in that very
-  commit: "Short help can still kill Bloom" and "Directory-wide claim remains incomplete"
-  (#8290), both timeout-approval flags (#8292), "Invalid port settings stall every test"
-  (#8293), and "Unknown page requests report success" (#8299). Each was checked against the
-  reviewed head with `git show <head>:<file>`, and the fix was there. On one of them Devin
-  contradicted itself inside one result: #8299 carried both "Fixed wait needs explicit
-  approval" and a fresh analysis saying "The recorded approval satisfies the repository's
-  timeout rule". Every result in that round had
-  `incremental: {"detected": false, "reason": "change_too_large"}`, so nothing was diffed
-  against the previous review.
-- **Idea:** The `devin-review` skill should say that a re-review's findings are not
-  self-certifying: before mirroring a finding whose title matches one already mirrored and
-  fixed, check the reviewed head sha for the fix (`git show <head_sha>:<path>`) and drop it if
-  the fix is there. Cheap, and it stops the same thread being posted twice. Worth saying too
-  that `lifeguard_result.incremental.detected == false` is the sign that the whole diff was
-  re-reviewed from scratch, which is when this happens.
-- **Context:** BloomDesktop, second `devin-review` round over
   https://github.com/BloomBooks/BloomDesktop/pull/8290 through
   https://github.com/BloomBooks/BloomDesktop/pull/8300.

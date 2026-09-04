@@ -268,7 +268,14 @@ pipeline.
 The local review runs at one of three levels — the full `/code-review` + fix loop chews up a
 lot of tokens, so it is opt-in:
 
-- **Light (the DEFAULT):** dispatch ONE general-purpose subagent over the working diff.
+- **Light (the DEFAULT):** dispatch ONE **read-only** subagent over the working diff — use the
+`Explore` agent type, or any agent whose tool set excludes Edit/Write/NotebookEdit. The tree is
+live and shared (the gate, and possibly other agents, are working in it), and a reviewer with
+write tools *will* eventually edit the code it is reviewing: one did exactly that mid-run,
+replacing a `lock (...)` with `if (true) // TEMP-REVIEW-NO-LOCK` while the C# suite was running,
+which cost a re-run and a wrong-headed hunt for the cause of the failure. Say so in the prompt
+too, in case the tool set can't be constrained: *"the tree is live and shared — do not modify any
+file; if you need to know whether something is load-bearing, say so and let the caller check."*
 Prompt it to: read the diff plus just enough surrounding code to judge it; report only
 **clear, high-confidence correctness problems** (bugs, broken edge cases, misused APIs,
 unintended behavior changes) — no style points, no nits, no refactor ideas, no "consider…";

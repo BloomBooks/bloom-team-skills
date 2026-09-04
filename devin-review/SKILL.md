@@ -360,6 +360,34 @@ Also grab, from the top level of the same JSON (not from `lifeguard_result`), **
 If `bugs` and the Investigate subset are both empty, the review is **clean** — post nothing
 (still do step 6 for any resolved bugs, and step 7 logging).
 
+### 3b. On a re-review, screen the findings against the commit you already fixed
+
+A re-review's findings are **not self-certifying**. A fresh job on a new head sha routinely
+re-reports findings that the very commit it reviewed already fixes, and points at lines that have
+since moved. The `head_sha` freshness check in §2 does not catch this — the sha is correct; the
+finding is stale. On one BL-16799 re-review six of the findings were fixed in the reviewed commit,
+and on one PR Devin contradicted itself inside a single result (flagging a missing approval while
+its own analysis said the approval satisfied the rule).
+
+The tell is `lifeguard_result.incremental` — when it reads
+`{"detected": false, "reason": "change_too_large"}` (or is otherwise not `detected`), Devin
+re-reviewed the whole diff from scratch instead of diffing against the previous round, which is
+exactly when repeats appear.
+
+So, for every round after the first, before posting a finding in step 5:
+
+1. Compare the finding set against the previous round's (the prior job's result is still in the
+   jobs list). Anything whose title matches one you already mirrored is a **repeat**, not a new
+   find.
+2. For each repeat, check the reviewed head for the fix:
+   `git show <head_sha>:<path>` — read the code the finding describes. If the fix is there, the
+   finding is stale: **do not post it**, and reconcile it in step 6 as already fixed.
+3. Also check the line it names still holds the code it describes. A repeat pointing at a line
+   whose code has moved or changed is stale for the same reason.
+
+Repeats cannot be dismissed wholesale — the same rounds that repeat six stale findings also turn
+up real new bugs — so screen them one at a time, not as a batch.
+
 ### 4. Full Descriptions
 
 No extra extraction step: the JSON already carries the full text — `analysis` on each flag,

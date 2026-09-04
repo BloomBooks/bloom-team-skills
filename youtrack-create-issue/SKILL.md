@@ -70,9 +70,19 @@ Recommended sequence:
 4. **State**: `POST /api/commands` with
    `{"query":"State <Chosen State>","issues":[{"idReadable":"<idReadable>"}]}`
    (e.g. `State Ready For Work`). If you set State to `Incoming`, step 3 isn't strictly required.
-5. **Verify**:
+5. **Assignee** (only if the requester asked for one, e.g. "assigned to me"): this is the **one
+   field `$YOUTRACK_BOT` cannot set** — the Bot has no read access to the user directory, so it
+   rejects every login with `400 {"error_description":"Assignee expected: ..."}` and cannot look a
+   login up either. Do not burn guesses on plausible logins; use the personal token `$YOUTRACK`
+   and follow `youtrack-api` §3 "Set an issue's Assignee" (look the login up first — it is not
+   derivable from a name or email). Everything else on the card stays on `$YOUTRACK_BOT`. If
+   `$YOUTRACK` isn't available, leave Assignee unset and ask the user to assign it themselves
+   from the link you give them in §4 — one click.
+6. **Verify**:
    `GET /api/issues/<idReadable>?fields=idReadable,summary,customFields(name,value(name))`
-   and confirm Type, Kanban Board, and State are what was requested.
+   and confirm Type, Kanban Board, and State are what was requested. To read back an Assignee,
+   use `$YOUTRACK` — the Bot sees other users anonymized (`anonymized-6104`) and cannot tell you
+   who the card landed on.
 
 ## 4. Report back
 
