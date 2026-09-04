@@ -125,6 +125,28 @@ never against the book that motivated it, a fact its own sign-off mentioned in a
 Corollary, since that's the failure it exposes: **when a feature is built for a specific
 artifact, running it against that artifact is part of the work**, not a nice-to-have.
 
+## Throwaway scripts, worktrees, and other shell mechanics that look like code bugs
+
+Each of these presents as a problem with the code or the repo, which is why they cost a retry
+every time. Splitting one 38-file PR into an eleven-branch stack hit three of them in a row.
+
+- **Put a scratch worktree at a short path.** `git worktree add` under the agent scratchpad dies
+  with `Filename too long` — that path is ~120 characters before the repo's own deep paths start.
+  Use something like `D:/bl-master`.
+- **Never `sed -i` a script.** It silently eats backslash escapes, so the next run fails with
+  `SyntaxError: Invalid or unexpected token` in a file you just wrote and believe. Rewrite the
+  whole file instead — with the `Write` tool, or a quoted heredoc (`cat > /tmp/x.mjs <<'SCRIPT'`).
+- **Don't type a conflict marker into a script or a command.** Seven angle brackets in `node -e`
+  are parsed as a shell redirection (`<< was unexpected at this time`, from Git Bash). Build the
+  marker by concatenation: `"<" + "<<<<<< ours"`.
+- **`git apply -3` stages what it applies**, so the following `git diff` looks empty and tells you
+  nothing happened. `git diff --cached` is the one to read.
+
+The general rule behind the middle two: a string that passes through a heredoc, a shell, and then
+a second language is escaped three times, and the diagnosis always points at the innermost layer.
+Write the file verbatim rather than editing it in place, and construct troublesome characters
+rather than typing them.
+
 ## Papercuts
 
 When you hit tooling/process friction, have to work around something, or learn something the
