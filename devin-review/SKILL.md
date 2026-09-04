@@ -322,6 +322,23 @@ done
 - `status: completed` → proceed to §3, using the captured `job_id` and (latest) `version_id`.
 - Still `running` at the **30 min** cap → record the timeout (the caller reports it verbatim).
 
+**c. The large-PR failure: `completed` but never `complete`.** A distinct outcome, not a slow
+review — the job reaches `status: "completed"` while the job-result's `lifeguard_status` stays
+`"pending"` forever, so there are no findings and no Overview, ever. Seen six times over six days
+on BloomDesktop PR #8229 (74 files, ~15,000 insertions, a 2.5 MB job-result), across four head
+shas and 23 jobs, with not one review produced; sometimes no job appears for the head sha at all.
+Size is the suspected cause and it is not transient, so waiting longer does not help.
+
+Handle it as its own named outcome, **`devin-unavailable (large PR)`**, not as a plain timeout:
+
+- Once the job is `completed`, give `lifeguard_status` about **10 minutes** to reach `complete`.
+  If it hasn't, stop.
+- **Once this has happened twice on the same PR, cap every later wait on that PR at ~10 minutes
+  total** rather than 30 — including after a re-trigger. Re-triggering a PR with this problem
+  costs the whole wait again and has never yet produced findings.
+- Report the outcome explicitly, with the PR size and the number of shas tried, so the caller can
+  substitute a different reviewer (see `preflight`) rather than believing the bots were quiet.
+
 Notes that keep this loop honest, all learned the hard way:
 
 - ⚠️ **Never string-compare the CLI's whole output.** `chrome-devtools evaluate_script` prints

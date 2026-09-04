@@ -452,6 +452,15 @@ already ran in Phase 1; its captured outcome joins the results here.
   queued/in-progress. Failures → treat like any finding (fix if safe; else decision report).
   - **On timeout:** record "timed out after N min" (for Devin, re-trigger once as you give
   up). Late results get folded in on a re-run.
+  - **When Devin never produces a review at all** — `devin-review` returns
+  `devin-unavailable (large PR)`, or two runs on this PR have now ended without findings —
+  **stop re-triggering and substitute a reviewer instead.** Each re-trigger costs another full
+  wait, and on a big PR it has never yet produced findings (one PR burned 23 jobs over six days
+  and got none). Dispatch a **read-only sub-agent on a different model** (a Fable-model reviewer
+  stood in for exactly this and did the job) over the same diff, prompted like the light local
+  review in Phase 1. Record it in the reviewer row as "Devin unavailable (PR too large) —
+  substituted <model> sub-agent review", never as "bots quiet": a PR that no third-party reviewer
+  ever looked at is a fact the human reviewer needs.
 6. New findings fixed → re-cycle from step 3 (bounded; note if capped). Otherwise, with every
  reviewer terminal and every in-scope suite green, proceed to Phase 5.
 

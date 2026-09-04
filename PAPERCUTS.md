@@ -34,30 +34,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   are certain you wrote correctly, which sends you looking in the wrong place.
 - **Context:** BL-16719 preflight, 2026-09-01.
 
-## 2026-08-25 — Devin's review never finishes on a large PR
-
-- **Cut:** On BloomDesktop PR #8229 (74 files, ~15,000 insertions) the jobs API reports the job
-  `status: "completed"` while `lifeguard_status` never leaves `"pending"`, so there are no findings
-  and no Overview. Seen four times in one day across four HEAD shas (961d42566, de80a1056,
-  1d3f89e69, 726926841) — 23 jobs on the PR in total, not one producing findings. Waited 35 minutes
-  on three and 10 on the last. Suspected cause is size (its job-result JSON is 2.5 MB) but
-  unconfirmed. The cost is not only the wait: `preflight` re-triggers Devin on every push, so each
-  fix-and-push cycle resets a clock that was never going to ring.
-- **Idea:** Have `devin-review` treat "job completed but lifeguard still pending past N minutes" as
-  its own outcome rather than a plain timeout, and cap the wait far below 30 minutes once it has
-  been seen twice on the same PR. Better still, let `preflight` substitute a different-model
-  sub-agent review when Devin yields nothing — a Fable-model reviewer stood in here and did the
-  job, and may be the better default above some diff size.
-- **Context:** BL-16719, PR #8229, 2026-08-25. (Was related to a since-fixed entry about Devin
-  repeating stale findings; different failure, same tool.)
-- **seen again: 2026-09-01** — same PR, two more triggers (the push, and a deliberate
-  `gh run rerun` of `pr-automation`; both reported success), and this time no job for the HEAD sha
-  ever appeared at all. Six occurrences now, over six days and many commits, so this PR has never
-  had a single third-party bot review. An earlier note in this repo said the failures were
-  transient rather than size-related, on the strength of one job completing — that reading is
-  now hard to sustain. This run capped the wait at ~25 minutes and recorded the timeout, which is
-  what the Idea above asks for; worth making the skill do it rather than the operator.
-
 ## 2026-08-24 — A CSS transition never runs in a background tab, so hover looks broken
 - **Cut:** Verifying a hover that grows a button, I hovered it with `computer:hover`, then read
   the label's computed style: `opacity: 0`, `max-width: 0`. The CSS looked dead. It was not.
