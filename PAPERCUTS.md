@@ -2,6 +2,16 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-09-05 — A worktree named `*-tests` made vitest coverage exclude the whole tree
+- **Cut:** In bloom-table, `coverage.exclude: ["tests/**"]` in `vite.config.ts` reported 0 of 0
+  files with no warning. The pattern is matched against the absolute path, and the worktree was
+  `D:/more-e2e-tests`, whose own directory name ends in `tests`, so every file was excluded.
+  Anchoring the pattern as `./tests/**` did not help.
+- **Idea:** Name what to measure, not what to skip: `coverage.include: ["src/**"]`. Worth a line
+  in the worktree-naming guidance in TEAM-AGENTS.md, because Orca worktree names are free text and
+  `tests`, `dist` or `src` at the end of one silently changes what such globs match.
+- **Context:** bloom-table branch `more-e2e-tests`, Phase 0 of `plans/005-test-coverage-for-shipping.md`.
+
 ## 2026-09-04 — A redirected `py` print died on an en space and blanked a PR description
 - **Cut:** During preflight on BloomDesktop PR 8312, a `py` script rebuilt the PR body and printed
   it to stdout redirected into a file. On this machine redirected stdout is cp1252, so it raised
