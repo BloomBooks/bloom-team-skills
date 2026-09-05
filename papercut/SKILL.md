@@ -79,3 +79,9 @@ Triggered by "trim the papercuts", "triage the papercuts", "work on papercuts".
    - **Drop it** as stale, saying why.
 4. Whatever the outcome, **delete the entry** from the log as part of the same change, so the
    log only ever contains open cuts.
+5. **Put nothing in its place.** A cut that is gone is gone: no "resolved" or "fixed on
+   <date>" section, no list of what the deleted entries used to say, no line reporting that
+   the log is now empty or that N cuts were closed. A log with every entry deleted is just
+   its header block. The same holds in the code you touched: a comment may state a live
+   constraint a reader is about to break, but never narrate the old behaviour or the fix.
+   The commit message carries the story, and it is the only place that should.

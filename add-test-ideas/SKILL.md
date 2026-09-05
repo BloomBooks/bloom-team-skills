@@ -100,6 +100,18 @@ would meet the feature.
    lower tier sees vs. a higher one, gated features, and what happens right at the boundary (a
    book using a feature the current tier doesn't include).
 
+   When the change adds or alters a gated feature, this dimension is **mandatory and detailed**,
+   not one bullet. Subscribers make books; the people who reuse them, above all to translate them
+   into their own languages, very often have no subscription, and the Bloom project treats any
+   obstacle to that reuse as a high-priority bug. So spell out, for a tester working *without* the
+   subscription: make a derivative of a subscriber's book that uses the feature and confirm every
+   text can be translated, pictures replaced, audio recorded and the book published; list exactly
+   which affordances are frozen (add, delete, restructure, duplicate, the palette icon, Add Page
+   entries) and that each is absent or shows the subscription dialog; confirm the original book's
+   Publish tab shows the block and the derivative's does not. The expected behaviour for each of
+   these is a product decision: if the code or the card does not say what a non-subscriber should
+   be able to do, ask the developer before writing it down, and never infer it.
+
 10. **Performance and scale.** Large collections and books, many pages / images / languages,
     responsiveness under load — Bloom shouldn't freeze, hang, or balloon in memory. Give a
     concrete "big" case to try.

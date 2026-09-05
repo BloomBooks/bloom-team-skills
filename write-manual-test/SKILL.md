@@ -31,6 +31,16 @@ time" and "you may also want to".
  from memory. Tooltips, dropdown values, and button captions are what the tester matches
  against.
 
+4. If the feature is behind a subscription tier, learn what a person **without** that
+ subscription can do with books that used it, and write those rules down too. Subscribers make
+ books; the people who reuse them, above all to translate them, often have no subscription, and
+ the Bloom project treats any obstacle to that reuse as a high-priority bug. The card must test
+ a derivative made below the tier: every text translatable, pictures replaceable, audio
+ recordable, the book publishable; the feature's own add/restructure affordances absent or
+ showing the subscription dialog; the original's Publish tab blocked and the derivative's not.
+ What is expected here is a product decision: ask the developer rather than reading it off the
+ code.
+
 ## 2. Build one artifact that exercises every rule
 
 One book, chosen so each rule fires somewhere in it. For the Text Languages list, one book

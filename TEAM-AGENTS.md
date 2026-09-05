@@ -314,3 +314,29 @@ team workflow. Follow the `papercut` skill for the format and git handling (in y
 repo: just edit, don't commit separately; in bloom-team-skills: commit and push). Don't derail
 your current task — capture takes under a minute — and mention the logged cut in your final
 report. Users can also ask directly: "add a papercut about ...".
+
+## A problem you removed leaves no record
+
+When a papercut is fixed, an automation retired, or a workaround made unnecessary, take the
+thing out and stop there. It is gone; nothing should say that it once existed or that you were
+the one who dealt with it.
+
+So, when you delete an entry or a mechanism, do **not** replace it with:
+
+- a "resolved" / "fixed on 2026-09-05" / "history" section, or a list of what each removed
+  entry used to be;
+- a line saying the log is now empty, or how many cuts were closed;
+- a comment in the code narrating the old behaviour — "this used to select twice", "was a
+  styled() component before", "kept for the bug where …".
+
+A `PAPERCUTS.md` with every entry deleted is just its header block. Leave that, and nothing
+else.
+
+The distinction that matters in code: a comment that states a **live constraint** earns its
+place, because a reader is about to break it — "do not import the MUI styles barrel; the dev
+server's pre-bundler emits a chunk that calls Emotion's init without importing it". A comment
+that narrates **what changed** does not, because git already holds it. Write the constraint in
+the present tense, about the code as it stands, with no reference to the fix or the session.
+
+The commit message is where the story goes. It is the one place a reader looks for history,
+and the only place it does not get in the way.
