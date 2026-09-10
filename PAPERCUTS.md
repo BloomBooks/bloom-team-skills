@@ -2,6 +2,17 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-09-10 — devin-review step 7b flattens the PR description under PowerShell
+- **Cut:** The skill's snippet reads the body with `gh pr view --json body --jq .body` and
+  interpolates it into a new string for `gh pr edit --body-file -`. In PowerShell 5.1 that
+  capture is an array of lines, so interpolation joins them with single spaces: every newline
+  in the preflight narrative is lost and the description becomes one paragraph. Seen twice;
+  latest BloomDesktop PR #8343. Reviewable's bot also appends its own Devin link, so the
+  description ended up with two.
+- **Idea:** Give step 7b a PowerShell-native variant: `gh pr view ... > file`, read it back with
+  `Get-Content -Raw` or `[IO.File]::ReadAllText`, write with `WriteAllText` (no BOM). Also treat
+  a Reviewable-appended `devinreview.com` link as "already present".
+
 ## 2026-09-05 — A worktree named `*-tests` made vitest coverage exclude the whole tree
 - **Cut:** In bloom-table, `coverage.exclude: ["tests/**"]` in `vite.config.ts` reported 0 of 0
   files with no warning. The pattern is matched against the absolute path, and the worktree was
