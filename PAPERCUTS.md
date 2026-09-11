@@ -2,6 +2,32 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-09-11 — Greptile reviews a BloomDesktop PR once and never again, so preflight waits 30 min for nothing
+
+- **Cut:** On BloomDesktop PR #8283 Greptile posted one summary at the PR's opening commit
+  (2026-09-02, no findings) and has not re-run on any of the **six** pushes since — including two
+  in the preflight run itself. It has no check context either, so `gh pr checks` shows nothing to
+  wait on. The "Re-trigger Greptile" link in its own comment
+  (`app.greptile.com/api/retrigger?id=...`) returned HTTP 200 and still produced nothing in 17
+  minutes. Preflight's terminal-state rule therefore burns its full ~30-minute wait on a reviewer
+  that is not coming, and the honest row is "has not seen the current code", not "bots quiet".
+- **Idea:** Have preflight detect this shape cheaply — if the bot's newest post predates the PR's
+  *previous* push, treat it as not-auto-triggering and record it immediately instead of waiting out
+  the cap. Worth a line in the preflight skill's reviewer section: a comment-posting bot that has
+  skipped several pushes is absent, and a PR nothing re-reviewed should say so.
+
+## 2026-09-11 — devin-review's jq-based parsing assumes a jq that isn't installed
+
+- **Cut:** The skill's "Reading it with plain curl" section insists on `jq` ("never grep/regex"),
+  but `jq` is not on PATH on this Windows machine, so every snippet in that section fails at the
+  first pipe. The skill's own warning against `py -c` inside a heredoc rules out the obvious
+  substitute too, which leaves no documented way to parse the two endpoints.
+- **Idea:** Give the section a jq-free variant that satisfies the same "don't regex nested JSON"
+  rule: write the response to a file and parse it with a **python script file** (not `py -c`), which
+  is what actually worked here. Or note that `gh` ships its own jq engine (`gh api --jq`) for the
+  GitHub calls, and say plainly that `jq` may be absent.
+
+
 ## 2026-09-10 — devin-review step 7b flattens the PR description under PowerShell
 - **Cut:** The skill's snippet reads the body with `gh pr view --json body --jq .body` and
   interpolates it into a new string for `gh pr edit --body-file -`. In PowerShell 5.1 that
@@ -203,6 +229,14 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   ')'"), so collapse the script to one line before passing it. Remember `chrome-devtools stop` at
   the end; `new_page` also holds the terminal until the daemon is stopped, so run it backgrounded.
 - **Context:** verifying the config-r prototyper's three-pane layout (Phase 0 + 1) in the browser.
+- **seen again 2026-09-11:** two more `evaluate_script` traps, both from its argument splitting.
+  It splits the script on spaces, so any selector containing a space — `[data-q="Q2 leave-comment"]`
+  — is torn into separate args and comes back as `Element uid "..." not found`; `--args` does not
+  help, as those are read as element UIDs, not strings. Worse, the split fragments are then
+  interpreted by the shell, which silently created three junk files in the repo working tree
+  (`1+1`, `document.documentElement.clientWidth`, ...) that would have been committed unnoticed.
+  Workaround: keep the whole script space-free outside string literals, or select without spaces
+  and compare attributes in JS. Check `git status` after driving the CLI.
 - **seen again 2026-08-19:** same failure across a whole session, on a local Vite dev server and
   its `vite preview` build alike, in a fresh tab. `javascript_tool`, `navigate`,
   `read_console_messages` and `tabs_close_mcp` all worked on that tab throughout. Verified a new
