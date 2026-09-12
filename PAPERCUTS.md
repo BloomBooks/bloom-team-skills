@@ -38,6 +38,17 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Idea:** Give step 7b a PowerShell-native variant: `gh pr view ... > file`, read it back with
   `Get-Content -Raw` or `[IO.File]::ReadAllText`, write with `WriteAllText` (no BOM). Also treat
   a Reviewable-appended `devinreview.com` link as "already present".
+## 2026-09-12 — devin-review's fallback ladder posted every finding twice
+- **Cut:** The mirror step's ladder is `gh api ... --jq '.id + " line-anchored " + .path' || gh api ... file-level`.
+  `.id` is a **number**, so jq dies with `cannot add: number and string` and the first call exits
+  non-zero *after* GitHub has already created the comment. The `||` then fires and posts a second,
+  file-level copy. On PR 8354 all five Devin findings landed twice and had to be deleted by id.
+  The line-anchored post had actually succeeded every time.
+- **Idea:** In `devin-review`'s step 5, make the jq safe (`--jq '"\(.id) \(.path)"'`, or just
+  `--jq .id`) so the ladder falls through only on a real HTTP failure. More generally: a `--jq`
+  expression is part of the exit status, so never put one that can fail on the left of a `||` that
+  performs another write.
+- **Context:** BloomDesktop PR 8354 (flowText), preflight, 2026-09-12.
 
 ## 2026-09-05 — A worktree named `*-tests` made vitest coverage exclude the whole tree
 - **Cut:** In bloom-table, `coverage.exclude: ["tests/**"]` in `vite.config.ts` reported 0 of 0
