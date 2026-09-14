@@ -295,3 +295,16 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   project up. Also: when Bash is denied for a file edit, the Edit tool is the fallback and works.
 - **Context:** EthnoLib `supporting-data`, applying two migrations after the developer asked
   "what do we need so you can operate Supabase for me just like GitHub".
+
+## 2026-09-14 — the documented one-file publish to dev-process-artifacts fails on any real report
+
+- **Cut:** `dev-process-artifacts.md`'s "Republishing one file: use the contents API" snippet passes
+  the base64 payload as a command-line argument (`-f content="$(base64 -w0 ...)"`). A 25 KB preflight
+  report becomes a ~33 KB argument and Git Bash rejects the whole call with
+  `/c/Program Files/GitHub CLI/gh: Argument list too long`. Every report the skills actually produce
+  is well past that, so the documented route fails on the normal case rather than an extreme one, and
+  the error names `gh` rather than the argument, which reads as a broken CLI.
+- **Idea:** Change the snippet to build a JSON body in a file and pass `--input <file>`, which has no
+  length limit: write `{"message":..., "content":<base64>, "sha":<sha>}` and call
+  `gh api -X PUT <path> --input body.json`. Worth stating the reason inline so nobody "simplifies" it
+  back to an inline argument.
