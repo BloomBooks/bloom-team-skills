@@ -2,6 +2,20 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-09-16 — A `| tail` inside an `&&` chain hides the failure, and the next command runs anyway
+
+- **Cut:** `git checkout Version6.5 2>&1 | tail -2 && git merge --ff-only origin/Version6.5 2>&1 | tail -2`
+  — the checkout failed ("already checked out at D:/bl-65"), but a pipeline's exit status is the
+  *last* command's, so `tail` returned 0 and the `&&` let the merge run on the branch I was still
+  on. It fast-forwarded a feature branch onto Version6.5 silently; nothing in the output said the
+  first half had failed. Piping a git command through `tail`/`head`/`grep` to keep the output
+  short is exactly when this bites.
+- **Idea:** in a guarded chain, never pipe the guard. Run the command bare, or `set -o pipefail`
+  first, or split it into separate tool calls and read the result. Possibly a line in the shell
+  section of TEAM-AGENTS.md next to the "never `cd`" rule.
+- **Context:** D:\bloom, moving the AI image editor pin to dist-v0.2.3; caught and reset within
+  the same turn, no push happened.
+
 ## 2026-09-11 — Greptile reviews a BloomDesktop PR once and never again, so preflight waits 30 min for nothing
 
 - **Cut:** On BloomDesktop PR #8283 Greptile posted one summary at the PR's opening commit
