@@ -12,8 +12,9 @@ For authentication, the base URL, and request conventions (headers, `fields=`), 
 
 ## 1. Choose the initial state — ASK
 
-Unless the requester already named a state, use the **askQuestions tool** to choose where the
-new issue should start. Offer exactly these options (header e.g. "Initial state"):
+Unless the requester already named a state, **ask the user** (with your tool for asking
+questions, e.g. `AskUserQuestion`) where the new issue should start. Offer exactly these options
+(header e.g. "Initial state"):
 
 - **Ready For Work** — *(Recommended / default)* triaged and ready to be picked up.
 - **Incoming** — not yet triaged.

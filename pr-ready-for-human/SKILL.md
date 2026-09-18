@@ -22,10 +22,6 @@ If a new commit lands after this skill has run, the sequence restarts at step 1 
 re-run `preflight`, re-review, then run this again. (The squash this skill itself performs
 in Stage 2 does not count as new work — it changes no content.)
 
-> The BloomBooks "PR Review Tracker" org project board (project #2) has been retired, along
-> with the CI workflows that fed it. This skill no longer touches any shared board; the only
-> board it moves is the developer's personal one, via the `personal-board` skill.
-
 ## Stage 1 — Verify the PR is actually clean
 
 Check all of the following. **Any failure → do not promote** (see "Not clean" below).

@@ -35,13 +35,14 @@ assuming any particular product.
 - **YouTrack**: project **Bloom** (`BL`), tracker `https://issues.bloomlibrary.org/youtrack`
   (bugs for the various Bloom products all live here). Mechanics live in the `youtrack-api` and
   `youtrack-create-issue` skills.
-- **Kanban Board sprint**: the **current release board** (as of 2026-07: `Bloom 6.5`). If
-  unsure which is current, ask the user once at the start of the run.
+- **Kanban Board sprint**: the **current release board** (the sprint named for the release in
+  development, e.g. `Bloom 6.5`). If unsure which is current, ask the user once at the start of
+  the run.
 
 ## Authorization
 
-Invoking this skill is the user's standing authorization (given 2026-07-18) for the whole
-pipeline, without stopping to re-confirm each write:
+Invoking this skill is the user's standing authorization for the whole pipeline, without
+stopping to re-confirm each write:
 - create YouTrack issues and set their Type/board/State (up to and including **Ready For
   Work** — never further; this skill does not promote cards into code review);
 - post notes on Sentry issues and **archive** issues judged pure noise (never mark anything
@@ -131,7 +132,7 @@ archive; say in the note that it should be un-archived if it recurs).
    checkout; use the base branch you resolved in Step 1's Constants):
    ```bash
    git fetch origin
-   git worktree add D:/orca-worktrees/bloom/<branch> -b BL-<n>-sentry-<slug> origin/<baseBranch>
+   git worktree add <your worktrees folder>/<branch> -b BL-<n>-sentry-<slug> origin/<baseBranch>
    ```
 2. Read that worktree's `AGENTS.md` (and any repo-specific skills) and honor them — build/test
    quirks, package-manager rules, forbidden commands, and dependency-bootstrap steps vary by
@@ -177,7 +178,7 @@ any earlier card that has only one of the two — backfill the missing link).
    a zero-context agent in a fresh session** — its header must name: the repo (`owner/name`),
    the branch, the PR URL, the YouTrack id, the public artifact URL, and explicit resume
    instructions, e.g. "In a clone of `<owner/name>`, create a worktree for branch `<branch>`
-   (`git fetch origin && git worktree add D:/orca-worktrees/bloom/<branch> <branch>`), read
+   (`git fetch origin && git worktree add <your worktrees folder>/<branch> <branch>`), read
    PR #<n> and BL-<n>, then apply the decisions below." If the artifact's block lacks any of
    that, regenerate/patch it.
 2. YouTrack: comment (attributed) with the public artifact URL and a one-line "what's blocked
