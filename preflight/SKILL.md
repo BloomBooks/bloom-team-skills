@@ -389,6 +389,11 @@ anything else:
   - **Markers present** → replace only what is between them (`gh pr edit <n> --body-file -`).
   Everything outside is other people's: a human's own notes, and `devin-review`'s "Devin review"
   link, which it appends after a horizontal rule.
+  - **Never run `gh pr edit --body-file` on an empty file**, and build the body with a script that
+  writes the file itself with `encoding="utf-8"` rather than printing to a redirected stdout: on
+  Windows a redirected `py` stdout is cp1252, and one non-ASCII character (an en space
+  `pr-automation` had appended) raised `UnicodeEncodeError`, wrote an empty file, and the next
+  command blanked the PR description. If output must go through stdout, set `PYTHONUTF8=1`.
   - **Markers absent on an existing PR** → the description is **not ours**; a human wrote or
   rewrote it. **Leave it completely alone**, and say so in one line of the report. The report
   still carries the current narrative, and their text is an input to it (see "Where to get it").
@@ -475,7 +480,10 @@ already ran in Phase 1; its captured outcome joins the results here.
   **current HEAD sha** (a review/comment dated after the latest commit, **or** its check
   context in a terminal `completed` conclusion). A "reviewing…" placeholder or in-progress
   check means keep waiting. Once complete, fold its findings into step 2's
-  evaluate/fix/reply logic.
+  evaluate/fix/reply logic. **A bot that has skipped several pushes is absent, not pending:**
+  if its newest post predates the PR's *previous* push and it has no check context, it is not
+  re-triggering on this PR (Greptile has done this). Record it at once as "has not reviewed the
+  current code" rather than waiting out the cap; a PR nothing re-reviewed should say so.
   - **CI:** complete when every required check is terminal (success/failure), not
   queued/in-progress. Failures → treat like any finding (fix if safe; else decision report).
   - **On timeout:** record "timed out after N min" (for Devin, re-trigger once as you give

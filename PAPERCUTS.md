@@ -16,54 +16,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Context:** D:\bloom, moving the AI image editor pin to dist-v0.2.3; caught and reset within
   the same turn, no push happened.
 
-## 2026-09-11 — Greptile reviews a BloomDesktop PR once and never again, so preflight waits 30 min for nothing
-
-- **Cut:** On BloomDesktop PR #8283 Greptile posted one summary at the PR's opening commit
-  (2026-09-02, no findings) and has not re-run on any of the **six** pushes since — including two
-  in the preflight run itself. It has no check context either, so `gh pr checks` shows nothing to
-  wait on. The "Re-trigger Greptile" link in its own comment
-  (`app.greptile.com/api/retrigger?id=...`) returned HTTP 200 and still produced nothing in 17
-  minutes. Preflight's terminal-state rule therefore burns its full ~30-minute wait on a reviewer
-  that is not coming, and the honest row is "has not seen the current code", not "bots quiet".
-- **Idea:** Have preflight detect this shape cheaply — if the bot's newest post predates the PR's
-  *previous* push, treat it as not-auto-triggering and record it immediately instead of waiting out
-  the cap. Worth a line in the preflight skill's reviewer section: a comment-posting bot that has
-  skipped several pushes is absent, and a PR nothing re-reviewed should say so.
-
-## 2026-09-11 — devin-review's jq-based parsing assumes a jq that isn't installed
-
-- **Cut:** The skill's "Reading it with plain curl" section insists on `jq` ("never grep/regex"),
-  but `jq` is not on PATH on this Windows machine, so every snippet in that section fails at the
-  first pipe. The skill's own warning against `py -c` inside a heredoc rules out the obvious
-  substitute too, which leaves no documented way to parse the two endpoints.
-- **Idea:** Give the section a jq-free variant that satisfies the same "don't regex nested JSON"
-  rule: write the response to a file and parse it with a **python script file** (not `py -c`), which
-  is what actually worked here. Or note that `gh` ships its own jq engine (`gh api --jq`) for the
-  GitHub calls, and say plainly that `jq` may be absent.
-
-
-## 2026-09-10 — devin-review step 7b flattens the PR description under PowerShell
-- **Cut:** The skill's snippet reads the body with `gh pr view --json body --jq .body` and
-  interpolates it into a new string for `gh pr edit --body-file -`. In PowerShell 5.1 that
-  capture is an array of lines, so interpolation joins them with single spaces: every newline
-  in the preflight narrative is lost and the description becomes one paragraph. Seen twice;
-  latest BloomDesktop PR #8343. Reviewable's bot also appends its own Devin link, so the
-  description ended up with two.
-- **Idea:** Give step 7b a PowerShell-native variant: `gh pr view ... > file`, read it back with
-  `Get-Content -Raw` or `[IO.File]::ReadAllText`, write with `WriteAllText` (no BOM). Also treat
-  a Reviewable-appended `devinreview.com` link as "already present".
-## 2026-09-12 — devin-review's fallback ladder posted every finding twice
-- **Cut:** The mirror step's ladder is `gh api ... --jq '.id + " line-anchored " + .path' || gh api ... file-level`.
-  `.id` is a **number**, so jq dies with `cannot add: number and string` and the first call exits
-  non-zero *after* GitHub has already created the comment. The `||` then fires and posts a second,
-  file-level copy. On PR 8354 all five Devin findings landed twice and had to be deleted by id.
-  The line-anchored post had actually succeeded every time.
-- **Idea:** In `devin-review`'s step 5, make the jq safe (`--jq '"\(.id) \(.path)"'`, or just
-  `--jq .id`) so the ladder falls through only on a real HTTP failure. More generally: a `--jq`
-  expression is part of the exit status, so never put one that can fail on the left of a `||` that
-  performs another write.
-- **Context:** BloomDesktop PR 8354 (flowText), preflight, 2026-09-12.
-
 ## 2026-09-05 — A worktree named `*-tests` made vitest coverage exclude the whole tree
 - **Cut:** In bloom-table, `coverage.exclude: ["tests/**"]` in `vite.config.ts` reported 0 of 0
   files with no warning. The pattern is matched against the absolute path, and the worktree was
@@ -73,17 +25,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
   in the worktree-naming guidance in TEAM-AGENTS.md, because Orca worktree names are free text and
   `tests`, `dist` or `src` at the end of one silently changes what such globs match.
 - **Context:** bloom-table branch `more-e2e-tests`, Phase 0 of `plans/005-test-coverage-for-shipping.md`.
-
-## 2026-09-04 — A redirected `py` print died on an en space and blanked a PR description
-- **Cut:** During preflight on BloomDesktop PR 8312, a `py` script rebuilt the PR body and printed
-  it to stdout redirected into a file. On this machine redirected stdout is cp1252, so it raised
-  `UnicodeEncodeError: 'charmap' codec` on an en space (U+2002) that pr-automation had appended,
-  wrote an empty file, and the following `gh pr edit --body-file` blanked the PR description.
-- **Idea:** In the preflight skill's PR-description step, say: run `py` with `PYTHONUTF8=1` (or
-  `sys.stdout.reconfigure(encoding="utf-8")`) whenever its output is redirected, and refuse to run
-  `gh pr edit --body-file` on an empty file. Better still, have the script write the file itself
-  with `encoding="utf-8"` rather than go through stdout.
-- **Context:** BloomDesktop, https://github.com/BloomBooks/BloomDesktop/pull/8312, Hatton's machine.
 
 ## 2026-09-02 — The worktree git guard fires on the string "github.com" in a URL
 
@@ -310,15 +251,3 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** EthnoLib `supporting-data`, applying two migrations after the developer asked
   "what do we need so you can operate Supabase for me just like GitHub".
 
-## 2026-09-14 — the documented one-file publish to dev-process-artifacts fails on any real report
-
-- **Cut:** `dev-process-artifacts.md`'s "Republishing one file: use the contents API" snippet passes
-  the base64 payload as a command-line argument (`-f content="$(base64 -w0 ...)"`). A 25 KB preflight
-  report becomes a ~33 KB argument and Git Bash rejects the whole call with
-  `/c/Program Files/GitHub CLI/gh: Argument list too long`. Every report the skills actually produce
-  is well past that, so the documented route fails on the normal case rather than an extreme one, and
-  the error names `gh` rather than the argument, which reads as a broken CLI.
-- **Idea:** Change the snippet to build a JSON body in a file and pass `--input <file>`, which has no
-  length limit: write `{"message":..., "content":<base64>, "sha":<sha>}` and call
-  `gh api -X PUT <path> --input body.json`. Worth stating the reason inline so nobody "simplifies" it
-  back to an inline argument.

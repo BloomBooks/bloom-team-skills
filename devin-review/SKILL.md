@@ -190,6 +190,11 @@ it takes a plain file path and needs no escaping.
 jq -r '.jobs[] | select(.commit_sha=="'"$HEAD_SHA"'") | "\(.job_id) \(.status) \(.versions[-1].id)"' jobs.json
 ```
 
+**`jq` may not be installed** (it is not on every Windows machine). Do not fall back to grep:
+write the response to a file and parse it with a small script **file** — Node (`node parse.mjs
+jobs.json`) or Python (`py parse.py jobs.json`) — never an inline `node -e` / `py -c` snippet.
+For the GitHub calls, `gh api --jq` has its own jq engine and needs nothing installed.
+
 A `py -c "..."` snippet inside a Bash heredoc is the trap to avoid: a path fix-up that turned
 forward slashes into backslashes lost one of them to Bash, Python then saw an unterminated string
 literal, and **every one of 55 iterations died** over 23 minutes while the review had long since
@@ -497,6 +502,12 @@ gh pr comment <number> --repo <owner>/<repo> --body "[Devin] **Bug**: <Title> (\
 
 Record which findings fell through to rung 3 (top-level) — those cannot be natively resolved later; step 6 edits them instead.
 
+**Keep the left side of each `||` free of anything that can fail after the write succeeds.** A
+`--jq` expression is part of `gh api`'s exit status: `--jq '.id + " line-anchored "'` dies with
+`cannot add: number and string` *after* GitHub has created the comment, the `||` fires, and the
+finding is posted a second time at file level (five duplicates on one PR, deleted by id). Post
+with no `--jq`, capture the JSON, and read the ids from it afterwards.
+
 ### 6. Reconcile Outcomes
 
 Two kinds of findings get their thread replied-to and resolved in this step: bugs **Devin** now
@@ -551,7 +562,15 @@ echo "$BODY" | grep -qiE 'devinreview\.com|app\.devin\.ai/review|\[Devin review\
 ```
 
 The link text is **`Devin review`**. The URL is the results page
-(`https://app.devin.ai/review/<owner>/<repo>/pull/<number>`, per "URLs").
+(`https://app.devin.ai/review/<owner>/<repo>/pull/<number>`, per "URLs"). A `devinreview.com`
+link that Reviewable's bot or `pr-automation.yml` already appended counts as present.
+
+**Run that snippet in Bash, not Windows PowerShell.** In PowerShell 5.1 the `$(gh pr view …)`
+capture is an array of lines, and interpolating it joins them with single spaces, so every
+newline in the description is lost and the narrative becomes one paragraph. If you must use
+PowerShell: `gh pr view … --json body --jq .body > body.md`, read it back with
+`[IO.File]::ReadAllText`, append the link, and write with `[IO.File]::WriteAllText` (no BOM)
+before `gh pr edit --body-file body.md`.
 
 ### 8. Report
 

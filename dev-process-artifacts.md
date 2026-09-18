@@ -140,8 +140,18 @@ and `PUT` it through the GitHub contents API. No working tree means no case-coll
 sibling path a card already links to:
 
 ```bash
-SHA=$(gh api "repos/BloomBooks/dev-process-artifacts/contents/deciders/<name>.html"         --jq .sha 2>/dev/null)                       # empty on a first publish
-gh api -X PUT "repos/BloomBooks/dev-process-artifacts/contents/deciders/<name>.html"   -f message="Publish <name> report for <sourceRepo> <branch/PR>"   -f content="$(base64 -w0 "<local-report>.html")"   ${SHA:+-f sha="$SHA"}                              # sha is required to overwrite, omitted to create
+P="repos/BloomBooks/dev-process-artifacts/contents/deciders/<name>.html"
+SHA=$(gh api "$P" --jq .sha 2>/dev/null)          # empty on a first publish
+# Build the request body in a FILE and pass it with --input. Passing the base64 as a
+# command-line argument (-f content="$(base64 ...)") fails on any real report: a 25 KB page
+# is a ~33 KB argument and Git Bash rejects the call with "gh: Argument list too long".
+node -e '
+const fs=require("fs");const [,,html,msg,sha]=process.argv;
+const body={message:msg,content:fs.readFileSync(html).toString("base64")};
+if(sha) body.sha=sha;                              # sha is required to overwrite, omitted to create
+fs.writeFileSync("body.json",JSON.stringify(body));
+' "<local-report>.html" "Publish <name> report for <sourceRepo> <branch/PR>" "$SHA"
+gh api -X PUT "$P" --input body.json
 ```
 
 Use the clone route above when you are pushing several files at once (a report plus its
