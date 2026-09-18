@@ -1,27 +1,30 @@
 ---
 name: youtrack-fix
 description: Fix a bug or task tracked on a YouTrack card. Use when the user gives a card id or URL like "BL-1234" and wants it fixed — read the card, plan, branch, implement, then hand off to preflight.
+argument-hint: "the card id (BL-xxxxx) or its URL"
 ---
 
-You will be given a url or an issue number starting with "BL". If you have just the issue number, then the URL is https://issues.bloomlibrary.org/youtrack/issue/<issue-number>.
+# Fix a YouTrack card
 
-To read the issue's summary, description, and attachments, use the **`youtrack-api`** skill (the web URL above is a SPA and returns blank to a plain fetch — use the REST API). For *creating* a new issue see `youtrack-create-issue`; for *querying/reporting* across issues see `bloom-youtrack-reporting`.
+You will be given a card id starting with `BL-`, or its URL
+(`https://issues.bloomlibrary.org/youtrack/issue/<id>`). For *creating* a card see
+`youtrack-create-issue`; for *querying* across cards see `bloom-youtrack-reporting`.
 
-Begin by making a plan: read the code base as needed. If you want clarification from me, use the askQuestions tool. Once you have a plan, print it out and then use the askQuestions tool to ask me if you can proceed.
+1. **Read the card** — summary, description, comments and attachments — through the
+   `youtrack-api` skill (the web URL is a SPA and returns blank to a plain fetch).
+2. **Plan.** Read the code as needed and write a short plan. Ask the user for anything you need
+   clarified, then present the plan and ask whether to proceed.
+3. **Branch.** The project's `AGENTS.md` names the target branch (and a `[6.X]` prefix on the
+   card's summary overrides it — see the repo's issue-tracker section; confirm with the user if
+   they disagree). Branch off that target as `BL-<n>-<one to three words>` (the id first is
+   load-bearing: `preflight` reads the card id off the branch name). If you are in a worktree
+   that already carries someone's uncommitted work on another branch, stop and ask before
+   switching.
+4. **Implement** the plan, following the repo's `AGENTS.md`, its skills, and its testing rules.
+   Keep the change to this card only; other agents may be working in parallel.
+5. **Hand off to `preflight`** to commit, push, open the draft PR, run the bots and link the card.
+   Do not commit or push outside it unless the user asks.
 
-If the current branch is not "master", "main", or "VersionX.Y" (e.g. "Version6.3"), then this means another agent is already working on an issue. Use the askQuestions tool to tell me that and ask me if I am ready for you to proceed. At this point ensure that the current branch is "master", "main", or "VersionX.Y" (e.g. "Version6.3"). If it isn't, ask me if I can fix the situation.
-
-Then create a new branch that is named "<issue-number>-<a-few-words>". Then do everything in the plan.
-
-# Committing
-
-Run Prettier on every changed file (from the repo root run `<pm> prettier --write path/to/changed-file`, where `<pm>` is the package manager detected from the lockfile: `pnpm-lock.yaml`→pnpm, `yarn.lock`→yarn, else npm) and make sure your editor has saved everything. Stage all code changes, commit with a message Then make a commit that begins with "Fix <issue-number> <card summary>". Add the URL of the youtrack issue to the commit description. Explicitly say if you ran tests and what the results were. Add a summary of the change to the description. Do not push.
-
-ABSOLUTELY NEVER run destructive git operations (e.g., git reset --hard, rm, git checkout/git restore to an older commit) unless the user gives an explicit, written instruction in this conversation. Treat these commands as catastrophic; if you are even slightly unsure, stop and ask before touching them. (When working within Cursor or Codex Web, these git limitations do not apply; use the tooling's capabilities as needed.)
-Never use git restore (or similar commands) to revert files you didn't author—coordinate with other agents instead so their in-progress work stays intact.
-
-Always double-check git status before any commit. Make sure you ran prettier on every changed file.
-
-Make sure that the commit has only the changes for this card, because there are other agents working on issues at the same time.
-
-Do not push unless I direct you to make a PR. If you make a PR, add a comment saying "<your name> submitted <URL of the PR>".
+Never run destructive git operations (`git reset --hard`, `git checkout`/`git restore` to an
+older commit, deleting files you did not author) without an explicit written instruction in this
+conversation; if in doubt, stop and ask.
