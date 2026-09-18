@@ -129,11 +129,10 @@ gh pr view <n> --json state,mergedAt,commits,reviews,comments,statusCheckRollup
 
 ⚠️ **Do not scrape the page DOM or text for findings.** The unauthenticated review page no
 longer renders findings sections at all — no Info tab, no "View results" gate, no Bugs/Flags
-blocks — so DOM/text greps read **"0 findings" even when findings exist** (this missed all 4
-informational flags on bloom-player #438, 2026-07-17, and the consultation log had to be
-corrected). Navigating the page is still how a review gets *triggered* (Procedure §1), but all
-review *state* is read from the page's own same-origin JSON API, fetched via `evaluate_script`
-from the isolated-context tab:
+blocks — so DOM/text greps read **"0 findings" even when findings exist**
+(`references/lessons.md`). Navigating the page is still how a review gets *triggered*
+(Procedure §1), but all review *state* is read from the page's own same-origin JSON API, fetched
+via `evaluate_script` from the isolated-context tab:
 
 - **Jobs list** — which reviews exist and whether they're done:
   `GET /api/pr-review/jobs?pr_path=github.com%2F<owner>%2F<repo>%2Fpull%2F<n>`
@@ -162,8 +161,7 @@ from the isolated-context tab:
   from.
 
 If the API shape ever changes, do not assume the logged-out page shows findings — it may
-render none at all; fix the endpoint usage instead (the git history of this file has the old
-DOM-scraping procedure, which worked on the pre-2026-07 page layout).
+render none at all; fix the endpoint usage instead.
 
 ### Reading it with plain `curl` (no browser needed)
 
@@ -182,9 +180,8 @@ binary garbage.
 
 ⚠️ **Parse the responses with `jq`, never grep/regex — and never `py -c` inside a
 heredoc.** The job objects contain *nested* objects (`versions:[{...}]`), so a brace-matching
-regex can never match the job that carries your sha — a PR #8231 poll loop matched nothing for
-the entire wait while the review had been `completed` for minutes. `jq` is the right tool here:
-it takes a plain file path and needs no escaping.
+regex can never match the job that carries your sha. `jq` takes a plain file path and needs no
+escaping.
 
 ```bash
 jq -r '.jobs[] | select(.commit_sha=="'"$HEAD_SHA"'") | "\(.job_id) \(.status) \(.versions[-1].id)"' jobs.json
@@ -195,11 +192,8 @@ write the response to a file and parse it with a small script **file** — Node 
 jobs.json`) or Python (`py parse.py jobs.json`) — never an inline `node -e` / `py -c` snippet.
 For the GitHub calls, `gh api --jq` has its own jq engine and needs nothing installed.
 
-A `py -c "..."` snippet inside a Bash heredoc is the trap to avoid: a path fix-up that turned
-forward slashes into backslashes lost one of them to Bash, Python then saw an unterminated string
-literal, and **every one of 55 iterations died** over 23 minutes while the review had long since
-finished. A Windows path built inside a heredoc and handed to a second language is two layers of
-escaping and is not worth attempting.
+A `py -c "..."` snippet inside a Bash heredoc is two layers of escaping; one lost backslash killed
+every iteration of a 23-minute poll loop (`references/lessons.md`).
 
 Two rules for the poll loop itself:
 
@@ -241,8 +235,7 @@ Two cautions to pass along with it:
 ## Write for a human reader (not a log dump)
 
 Everything this skill posts to GitHub is read by an engineer skimming the PR, so write it in
-plain English for a normal engineer — not a dense status line. (John's words for a bad one:
-"might as well be assembly code.")
+plain English for a normal engineer — not a dense status line that reads like assembly code.
 
 - **One finding per thread, shaped as a post + a reply.** The **post** says, in plain terms,
   what Devin flagged and why it might matter. The **reply** says what we decided —
@@ -261,7 +254,7 @@ plain English for a normal engineer — not a dense status line. (John's words f
 
 ## Procedure
 
-> ⚠️ **Do NOT post `@devin review` (or any `@devin` mention) to GitHub.** That is *not* how this skill triggers Devin, and this repo has no Devin GitHub app to respond to it — the mention goes nowhere and no review runs. Devin is triggered **only** by navigating to the `app.devin.ai` results page via chrome-devtools (step 1). If all you have done is post a `@devin review` comment, you have **not** run this skill. (This exact mistake left PR #613 with a `@devin review` comment but no findings, no consultation log, and no idea whether Devin was satisfied.)
+> ⚠️ **Do NOT post `@devin review` (or any `@devin` mention) to GitHub.** That is *not* how this skill triggers Devin, and this repo has no Devin GitHub app to respond to it — the mention goes nowhere and no review runs. Devin is triggered **only** by loading the `app.devin.ai` results page (step 1, or the CI re-run). If all you have done is post a `@devin review` comment, you have **not** run this skill.
 
 ### 1. Navigate to the Review Page
 
@@ -328,10 +321,9 @@ done
 
 **c. The large-PR failure: `completed` but never `complete`.** A distinct outcome, not a slow
 review — the job reaches `status: "completed"` while the job-result's `lifeguard_status` stays
-`"pending"` forever, so there are no findings and no Overview, ever. Seen six times over six days
-on BloomDesktop PR #8229 (74 files, ~15,000 insertions, a 2.5 MB job-result), across four head
-shas and 23 jobs, with not one review produced; sometimes no job appears for the head sha at all.
-Size is the suspected cause and it is not transient, so waiting longer does not help.
+`"pending"` forever, so there are no findings and no Overview, ever; sometimes no job appears for
+the head sha at all. PR size is the suspected cause and it is not transient, so waiting longer
+does not help (`references/lessons.md`).
 
 Handle it as its own named outcome, **`devin-unavailable (large PR)`**, not as a plain timeout:
 
@@ -343,27 +335,18 @@ Handle it as its own named outcome, **`devin-unavailable (large PR)`**, not as a
 - Report the outcome explicitly, with the PR size and the number of shas tried, so the caller can
   substitute a different reviewer (see `preflight`) rather than believing the bots were quiet.
 
-Notes that keep this loop honest, all learned the hard way:
+Rules that keep this loop honest (the incidents behind each are in `references/lessons.md`):
 
-- ⚠️ **Never string-compare the CLI's whole output.** `chrome-devtools evaluate_script` prints
-  an update-nag banner and a fenced ` ```json ` block around the value, so
-  `[ "$(chrome-devtools …)" = "true" ]` can never match and the loop spins forever (stalled a
-  bloom-player #430 run). Extract the value with a pattern match, as above.
+- ⚠️ **Never string-compare the CLI's whole output** — `evaluate_script` wraps the value in a
+  banner and a fenced block. Extract it with a pattern match, as above.
 - ⚠️ **Pin the tab: select + verify `location.pathname` every iteration.** The `devin-noauth`
-  isolated context is shared by every session on the machine; `evaluate_script` runs against
-  whichever tab is currently selected, which silently drifts to the newest page — a
-  bloom-player #433 run briefly read a different PR's review this way. The fetch is
-  same-origin, so it must run from a tab that is actually on `app.devin.ai`.
-- ⚠️ **An empty result means the tab, not the job.** The tab can *vanish* mid-run (closed by
-  another session), after which `evaluate_script` runs against the leftover `about:blank`, where
-  the same-origin fetch fails and returns an empty string — indistinguishable from "no job yet".
-  A PR #8107 run burned six minutes on 14 such iterations. So when the loop above sees an empty
-  result, don't just retry: run `chrome-devtools list_pages` and, if the tab is gone, **reopen it**
-  (backgrounded `new_page`, per §1) before continuing. Drifted → re-select; gone → reopen.
-- Make the **first** check ~30 s after the trigger — small-delta re-reviews can finish inside
-  one poll interval; don't gate on ever *observing* a `running` state (an over-wait bug hit
-  bloom-harvester #234 twice). The job for `$HEAD_SHA` being `completed` is sufficient
-  evidence, full stop.
+  context is shared by every session on the machine and the selected tab drifts to the newest
+  page; the fetch is same-origin, so it must run from a tab that is actually on `app.devin.ai`.
+- ⚠️ **An empty result means the tab, not the job.** A vanished tab leaves `evaluate_script` on
+  `about:blank`, where the fetch returns an empty string. Don't just retry: `chrome-devtools
+  list_pages`, and if the tab is gone **reopen it** (backgrounded `new_page`, per §1).
+- Make the **first** check ~30 s after the trigger and don't gate on ever *observing* a `running`
+  state; the job for `$HEAD_SHA` being `completed` is sufficient evidence.
 - Jobs for **older commits** in the list are the superseded reviews (what the old UI showed as
   `Outdated`); ignore them entirely.
 
@@ -403,9 +386,7 @@ If `bugs` and the Investigate subset are both empty, the review is **clean** —
 A re-review's findings are **not self-certifying**. A fresh job on a new head sha routinely
 re-reports findings that the very commit it reviewed already fixes, and points at lines that have
 since moved. The `head_sha` freshness check in §2 does not catch this — the sha is correct; the
-finding is stale. On one BL-16799 re-review six of the findings were fixed in the reviewed commit,
-and on one PR Devin contradicted itself inside a single result (flagging a missing approval while
-its own analysis said the approval satisfied the rule).
+finding is stale (`references/lessons.md` has the cases).
 
 The tell is `lifeguard_result.incremental` — when it reads
 `{"detected": false, "reason": "change_too_large"}` (or is otherwise not `detected`), Devin
@@ -610,25 +591,10 @@ the decision. (If the developer also ticked the report's `Leave comment` box, th
 means recording the decision as a **code comment in the repo** near the relevant code — the
 caller handles that; it is separate from, not instead of, the thread reply.)
 
-## Real Example (PR #7949)
+## Worked examples
 
-**Bugs (3 total, 1 unresolved):**
-
-- ✅ Post: "Legacy ebook layout name normalization fails for mixed-case input" — `SizeAndOrientation.cs:80`
-- ⏭ Skip: "buildSavePageContentString calls removeEditingDebris..." — `bloomEditing.ts:1322` — Resolved
-- ⏭ Skip: "Overlay can get permanently stuck if exception occurs..." — `ExternalApi.cs:240` — Resolved
-
-**Flags (6 Investigate, several Informational):**
-
-- ✅ Post: "Scale inconsistency in computeImageFitTopPercent..." — `autoFitImageOverTextSplits.ts:284`
-- ✅ Post: "BringBookUpToDate may write to disk before per-page processing..." — `BookProcessor.cs:36`
-- ⏭ Skip: All Informational items
-
-Each posted finding went in as an **inline** review thread on its `file:line`; any whose line fell outside the diff fell back to a file-level (still resolvable) comment, and only truly un-anchorable ones to a top-level comment.
-
-## Real Example (re-review after a fix commit)
-
-After the developer pushed fixes, re-navigating started a new job; the jobs API showed it `running`, then `completed` for the new head sha, and its job-result had empty `bugs` and no `needs_investigation` analyses — while the *previous* commit's job still listed the old findings. Correct outcome: post nothing, resolve any threads whose bugs the new result marks fixed (step 6), log the consultation (step 7), and report **"re-review clean — bots quiet."** (Reading the old commit's job here would have wrongly re-posted the superseded bug.)
+`references/lessons.md` walks through a first review (PR #7949: which bugs and flags were
+posted, skipped, or fell back to file level) and a clean re-review after a fix commit.
 
 ## Notes
 

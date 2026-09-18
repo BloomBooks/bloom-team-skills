@@ -191,26 +191,13 @@ directly. Root, not a subdirectory: root is also what gets re-injected after a `
 long preflight run can hit. A declaration is a passage that names **all three** of: the tracker,
 what its ticket ids look like, and which skill talks to it.
 
-**Anything less is not a declaration.** A project's instructions mentioning a tracker's name in
-passing — in a contributing note, a commit-message convention, a link — does **not** count, however
-obvious the answer looks. Treat partial and incidental mentions exactly like none.
-
-**If the project has no declaration, STOP and ask — immediately, on your first turn.** This is the
-one question preflight raises up front instead of deferring to the decision report: it arrives in
-Phase 0, while the user is still at the keyboard and nothing has been triggered yet, and one answer
-settles it for that repo permanently. Offer to write the declaration into the project's `AGENTS.md`
-(adding the `@AGENTS.md` import to `CLAUDE.md` if it's missing). **"This project doesn't use a
-tracker" is a valid answer and gets written down too** — otherwise preflight re-asks forever in a
-repo that will never have cards.
-
-**Do not investigate.** Establishing the tracker and the ticket id costs at most two cheap looks:
-the project's instructions (already in context — no tool call) and the branch name. If those don't
-answer it, you are done looking. Do **not** consult the PR title, commit messages, open cards, issue
-searches, or the codebase to reconstruct what a declaration should have said, and do not reason
-from surrounding evidence (`BL-`-shaped strings in the repo, a tracker skill being installed) to a
-conclusion the project never stated. Reaching the right answer by investigation is the **failure
-mode** here, not a save: it burns the user's tokens, and it leaves the repo undeclared so the next
-run investigates again. Asking is one cheap turn and fixes it permanently.
+**Anything less is not a declaration** — a tracker's name mentioned in passing does not count.
+**If the project has no declaration, STOP and ask — immediately, on your first turn**, while the
+user is still at the keyboard; offer to write the declaration into the project's `AGENTS.md`
+(adding the `@AGENTS.md` import to `CLAUDE.md` if it's missing). "This project doesn't use a
+tracker" is a valid answer and gets written down too. **Do not investigate**: the project's
+instructions and the branch name are the only two looks allowed; never reconstruct a declaration
+from the PR title, commits, cards, or the codebase (`references/lessons.md` says why).
 
 **What preflight needs from a tracker skill.** Five operations. How it authenticates is entirely its
 own business — a token, an MCP server, an already-authenticated CLI, anything:
@@ -229,32 +216,11 @@ skill whether it's reachable and let it decide what that means.
 
 ## When the code is already on the trunk (no branch, no PR)
 
-Preflight assumes work sits on a branch with a base to diff against. A solo side project can break
-that assumption completely — `bloom-table` had 156 commits pushed straight to `master`, no branch,
-no PR, and nothing for Devin to review, because Devin reviews a diff against a base and `master`
-has no base. ("This project doesn't use a tracker" is the *other* half of that shape, and the
-declaration rule above already handles it cleanly.)
-
-The shape that works is a **marker branch**:
-
-1. Keep a long-lived branch (`reviewed`) pointing at the last commit that has been reviewed.
-2. Open a draft PR of `master` against `reviewed`, so the PR's diff is exactly the unread code.
-3. After the review, advance the marker (`git push --force origin master:reviewed`) and close the
-   PR unmerged.
-
-For a backlog that has never been reviewed, **slice it**: four PRs of 2,000–4,500 insertions each
-produced real findings where one 12,000-line PR would have been skimmed.
-
-**Do not run the local gate or apply fixes on a slice branch.** This is the sharp edge. A slice is
-an old tree: a gate failure there is history, and a fix committed there cannot merge forward. Slice
-branches are **review-only** — collect the findings, and land every fix on current `master` as
-ordinary work. Skip Phase 1 and Phase 2 on them entirely.
-
-Two mechanics for a repo with no CI: without a `pr-automation.yml` there is nothing to trigger
-Devin, and the CI re-run `devin-review` recommends as the reliable trigger doesn't exist either, so
-loading the review page in the `devin-noauth` isolated context is the only trigger (it worked first
-time on all four slices). *Reading* the result needs no browser at all — both endpoints answer plain
-`curl --compressed`.
+A repo whose work is pushed straight to `master` has no diff for Devin to review. Use a **marker
+branch** (`reviewed`) and open a draft PR of `master` against it; slice a never-reviewed backlog
+into PRs of a few thousand lines; and never run the gate or apply fixes on a slice branch (it is an
+old tree). `references/trunk-only-repos.md` has the procedure and the mechanics for a repo with
+no CI.
 
 ## Phase 0 — Discover
 
@@ -287,34 +253,27 @@ what's safely fixable; report the rest. (The FULL test suite deliberately runs l
 overlapped with the bot wait — see Phase 4.)
 
 ⚠️ **Never read a gate's pass/fail through a pipe.** `tsc --noEmit … | tail -20; echo $?` reports
-`tail`'s status, not the tool's — a run with 13 type errors was reported as a clean gate row this
-way. Every row in this skill's output is a pass/fail claim, so capture the status directly
-(`cmd > out.txt; st=$?`), or `set -o pipefail`, or judge by grepping the output for the tool's own
-error format. A backgrounded task's own exit code has the same problem when its command is a
-pipeline.
+`tail`'s status, not the tool's. Capture the status directly (`cmd > out.txt; st=$?`), use
+`set -o pipefail`, or grep the output for the tool's own error format; a backgrounded pipeline's
+exit code has the same problem.
 
 The local review runs at one of three levels — the full `/code-review` + fix loop chews up a
 lot of tokens, so it is opt-in:
 
 - **Light (the DEFAULT):** dispatch ONE **read-only** subagent over the working diff — use the
-`Explore` agent type, or any agent whose tool set excludes Edit/Write/NotebookEdit. The tree is
-live and shared (the gate, and possibly other agents, are working in it), and a reviewer with
-write tools *will* eventually edit the code it is reviewing: one did exactly that mid-run,
-replacing a `lock (...)` with `if (true) // TEMP-REVIEW-NO-LOCK` while the C# suite was running,
-which cost a re-run and a wrong-headed hunt for the cause of the failure. Say so in the prompt
-too, in case the tool set can't be constrained: *"the tree is live and shared — do not modify any
-file; if you need to know whether something is load-bearing, say so and let the caller check."*
-Prompt it to: read the diff plus just enough surrounding code to judge it; report only
+`Explore` agent type, or any agent whose tool set excludes Edit/Write/NotebookEdit; the tree is
+live and shared, and a reviewer with write tools will eventually edit the code it is reviewing
+(`references/lessons.md`). Say so in the prompt too: *"the tree is live and shared — do not modify
+any file; if you need to know whether something is load-bearing, say so and let the caller
+check."* Prompt it to: read the diff plus just enough surrounding code to judge it; report only
 **clear, high-confidence correctness problems** (bugs, broken edge cases, misused APIs,
 unintended behavior changes) — no style points, no nits, no refactor ideas, no "consider…";
 and return a short structured list (file:line, what breaks, why it's wrong). One pass, no
 verification loop, no re-review after fixes (typecheck/lint/tests are the re-check).
-**Budget it: ~15 minutes.** A sub-agent that stalls is indistinguishable from a slow one —
-there is no way to poll its progress, and a stalled one silently blocks the phase (a PR #8117
-run lost two agents and ~50 min this way; nudging with `SendMessage` and dispatching a
-replacement both stalled too). If the agent hasn't returned by then, **stop waiting and do the
-review pass inline yourself** — it is fast and it works — and say so in the reviewer row
-("light review, done inline after the sub-agent stalled"). Do not dispatch a second agent.
+**Budget it: ~15 minutes.** A stalled sub-agent looks like a slow one and silently blocks the
+phase. If it hasn't returned by then, **stop waiting and do the review pass inline yourself**,
+say so in the reviewer row ("light review, done inline after the sub-agent stalled"), and do not
+dispatch a second agent.
 - **Thorough** — only when the user asked for a **"thorough review"** or **"expensive
 review"** (both phrasings mean the same thing — since preflight always includes *a* review,
 "with code-review" would be ambiguous). Each cycle: run the `/code-review` skill at `high`
@@ -491,9 +450,8 @@ already ran in Phase 1; its captured outcome joins the results here.
   - **When Devin never produces a review at all** — `devin-review` returns
   `devin-unavailable (large PR)`, or two runs on this PR have now ended without findings —
   **stop re-triggering and substitute a reviewer instead.** Each re-trigger costs another full
-  wait, and on a big PR it has never yet produced findings (one PR burned 23 jobs over six days
-  and got none). Dispatch a **read-only sub-agent on a different model** (a Fable-model reviewer
-  stood in for exactly this and did the job) over the same diff, prompted like the light local
+  wait, and on a big PR it has never yet produced findings (`references/lessons.md`). Dispatch a
+  **read-only sub-agent on a different model** over the same diff, prompted like the light local
   review in Phase 1. Record it in the reviewer row as "Devin unavailable (PR too large) —
   substituted <model> sub-agent review", never as "bots quiet": a PR that no third-party reviewer
   ever looked at is a fact the human reviewer needs.
