@@ -256,64 +256,22 @@ accurate. **Every `<a>` must open in a new tab** (`target="_blank" rel="noopener
 
 Links are how the report stays short: a link to a thread replaces a paragraph retelling it.
 
-## Decision items
+## Decision items and the copy-back
 
-Written for a reader with **zero context**. Use complete sentences and spell everything out:
-what the situation is, what the user would actually see or experience, why it happens, and why
-it may or may not matter. Never assume the reader remembers the code or the conversation. (The
-narrative card carries the shared background about the PR, so an item need not restate that —
-but it must still stand up on its own for someone who scrolled straight to the questions.)
+The decision items and the copy-back card follow the **`decider` skill's spec exactly** — its
+"Writing the decision items" (zero-context prose, the option order ending `Leave as is` then
+`Other:`, the fix-complexity footnotes, the `Leave comment` checkbox, a notes box on every item,
+a closing "next step" question), its `data-q` / `data-instruction` serialization, and its
+copy-back card with the clipboard ladder. Read that skill; do not restate it here.
 
-Only **open** questions belong here. A decision the user already made on an earlier run is
-settled: it lives on the review thread, in a code comment, or in the test ideas, and it is not
-re-asked or re-summarized (SKILL.md, "Processing the user's decisions"). For each item:
+Two things are specific to the preflight report:
 
-- Render the choices as a radio group (checkboxes only when genuinely non-exclusive), with the
-  recommended option pre-selected and tagged.
-- **Annotate each concrete fix option with a fix-complexity footnote** — a short parenthetical
-  estimating the effort/risk of that choice (e.g. "~10 lines, localized, low risk", "moderate —
-  changes the hook's public shape", "large / architectural", "no code — just a doc note"). This
-  lets the user weigh benefit against cost at a glance. **The `Leave as is` option gets NO
-  footnote** (don't editorialize it with "no work" / "leaves it undocumented", etc.).
-- **Put the rationale for the recommendation *inside* the recommended option itself** (as part
-  of its text or footnote — "…, recommended because …"). Do **not** add a separate "Why the
-  recommended option" callout above the choices. Exception: if the recommended option is
-  `Leave as is` (which carries no footnote), weave the rationale into the item's description
-  paragraph instead.
-- **Standard option order, identical on every decision/FYI item:** first the concrete fix
-  option(s); then — **always second-to-last** — an option labeled **exactly `Leave as is`**
-  (this exact wording every time; never "Accept as is" or a longer variant), even when it is
-  the recommended choice (in which case it is the pre-selected/tagged one); then — **always
-  last** — an option labeled **exactly `Other:`** with an inline text box for a custom answer.
-  Do not assume `Leave as is` means the behavior is intentional — it may simply not be worth
-  the added complexity.
-- **On the far right of the `Leave as is` row, a checkbox labeled `Leave comment`.** When
-  ticked it signals the user wants the decision recorded as a **code comment in the repo**,
-  near the relevant code. It does NOT gate the PR-thread reply — for items that came from a
-  bot review thread, the reply-and-resolve on the thread happens regardless of this checkbox
-  (see the skill's "Processing the user's decisions").
-- **Every question must also have a separate notes text box** so the user can pick one of the
-  offered options *and still* add caveats or constraints.
-- Include the FYIs and a final "next step" (implement vs. discuss first) question. The
-  `Leave as is` + `Leave comment` convention applies to every decision and FYI item; all
-  questions (including "next step") still end with the `Other:` option and carry a notes box.
-- Give every control — radios, the `Leave comment` checkbox, each `Other:` input, and each
-  notes box — a `data-q` label so it all serializes into the copy-back text.
-
-## Copy-back button
-
-**Placement:** the copy-back lives as the **final card at the end of the decisions column**
-(the bottom of the right column on wide screens, directly after the last decision) — its own
-titled card (e.g. "Send your answers back") with a one-line description, the button, and the
-readonly textarea beneath it. Do **not** make it a full-width sticky footer or a bar spanning
-under both columns — it must read as the last segment of the same column the decisions are in.
-
-**One copy-back button** that serializes every selection, every "Other" text, and every note
-into a clean plaintext block the user can paste straight back into the session. **The
-`Leave comment` checkbox is serialized only when ticked** (emit something like a
-`Leave comment: <the text/where>` line, or a bare `Leave comment` marker under that item);
-when it is unticked, omit it entirely — the copy-back text must not mention comments at all
-for that item, so an untouched box can't be misread as a request to leave one. Copy via
-`navigator.clipboard.writeText` **with a fallback** (write to a visible readonly `<textarea>`,
-`select()`, `execCommand('copy')`) so it works even if the async clipboard is blocked — the
-visible textarea guarantees a manual Ctrl+C. Show a "copied" confirmation.
+- Only **open** questions belong here. A decision the user already made on an earlier run is
+  settled: it lives on the review thread, in a code comment, or in the test ideas, and it is not
+  re-asked or re-summarized (SKILL.md, "Processing the user's decisions"). The narrative card
+  carries the shared background about the PR, so an item need not restate that — but it must
+  still stand up on its own for someone who scrolled straight to the questions.
+- The `Leave comment` checkbox does **not** gate the PR-thread reply: for items that came from a
+  bot review thread, the reply-and-resolve on the thread happens regardless of the checkbox
+  (SKILL.md, "Processing the user's decisions"). Include FYIs that could plausibly trigger
+  action as items with the same controls.

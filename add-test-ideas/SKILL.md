@@ -242,8 +242,9 @@ list decisions the tester can't observe — internal design choices are not thei
   the one its `AGENTS.md`/`CLAUDE.md` names (for Bloom repos, `youtrack-api`); that skill owns
   authentication and the request mechanics. For a body with headings/quotes, avoid quoting hell by
   writing the Markdown to a file and JSON-encoding it (`jq -Rs '{text: .}' body.md > body.json`).
-- **Prefix the comment** with an identifier of which model you are (per the user's identity
-  convention, e.g. `[Claude Opus 4.8] …`), since it posts under their account.
+- **Prefix the comment** with the team attribution tag (`TEAM-AGENTS.md`, "Attribution"):
+  `[<model name> from <developer-name>'s machine during add-test-ideas]`, or naming the calling
+  skill (e.g. `preflight`) when one drove it.
 - If it's wanted somewhere else (a doc, a PR comment, a message), same content, same voice.
 
 ### Update in place (the default) — don't stack duplicates blindly

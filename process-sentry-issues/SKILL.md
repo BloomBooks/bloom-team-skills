@@ -56,12 +56,12 @@ than archiving pure noise.
 
 ## Attribution — every word you post is signed
 
-The Sentry/YouTrack/GitHub tokens belong to a human developer. Every issue description,
-comment, note, and PR body you post must begin with `[Claude <your model name>]` and, where
-it's a YouTrack issue description, a first line like:
-
-> [Claude Opus 4.8] This issue was created by an AI agent working through the Sentry error
-> logs on behalf of John Hatton — analysis and text are the agent's, not John's.
+Every issue description, comment, note, and PR body you post begins with the team attribution
+tag from `TEAM-AGENTS.md` ("Attribution"), i.e.
+`[<model name> from <developer-name>'s machine during process-sentry-issues]` with the
+developer's name from `git config user.name`. A YouTrack issue description additionally opens
+with a sentence saying the issue was created by an AI agent working through the Sentry error
+logs on behalf of that developer, and that the analysis and text are the agent's.
 
 ## Step 1 — Inventory and de-duplication
 

@@ -88,7 +88,8 @@ Discussion keys tell you how a thread is wired:
 
 ## Rules
 
-- Every reply body **starts with `[<model name>]`** (e.g. `[Claude Fable 5]`) — it posts under
+- Every reply body **starts with the team attribution tag** (`TEAM-AGENTS.md`, "Attribution"):
+  `[<model name> from <developer-name>'s machine during reviewable-replies]` — it posts under
   the user's account, and text written by an AI must say so. No workflow-label prefixes
   ("Will do, TODO", etc.).
 - Exactly **one reply per thread**; don't post broad summary comments when thread replies were
