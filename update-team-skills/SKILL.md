@@ -1,7 +1,6 @@
 ---
 name: update-team-skills
 description: Update the bloom-team-skills checkout and make sure every skill in it is linked into your personal skills directory. Pulls the latest from the repo, then creates a symlink in ~/.claude/skills for any skill folder that isn't linked yet (e.g. a newly added skill), and reports what changed. Use when asked to "update team skills", "sync the team skills", "/update-team-skills", or after someone says a new shared skill was added.
-user-invocable: true
 ---
 
 # Update the team skills

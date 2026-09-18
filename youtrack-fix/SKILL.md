@@ -1,6 +1,6 @@
 ---
 name: youtrack-fix
-description: fix issues reported in youtrack cards, which start with "BL-", e.g. "BL-1234"
+description: Fix a bug or task tracked on a YouTrack card. Use when the user gives a card id or URL like "BL-1234" and wants it fixed — read the card, plan, branch, implement, then hand off to preflight.
 ---
 
 You will be given a url or an issue number starting with "BL". If you have just the issue number, then the URL is https://issues.bloomlibrary.org/youtrack/issue/<issue-number>.

@@ -2,7 +2,6 @@
 name: write-manual-test
 description: Write or rewrite a manual test case in Notion — exact steps a tester follows, "Verify" checkboxes, and a screenshot for every verification. Use when asked to write, fix, or flesh out a manual test / test case / test card in Notion. Not for tracker-card test ideas (that is add-test-ideas).
 argument-hint: "the Notion test card URL, or the feature the new card should cover"
-user-invocable: true
 ---
 # Writing a manual test case in Notion
 

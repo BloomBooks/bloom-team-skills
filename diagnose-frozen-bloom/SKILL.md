@@ -1,7 +1,6 @@
 ---
 name: diagnose-frozen-bloom
 description: Capture diagnostic evidence from a frozen, hung, or CPU-spinning Bloom.exe while it is still stuck — managed stacks, native stacks, the spinning thread, and the WebView2 console backlog. Use when the user says Bloom is frozen / "Not Responding" / hung / spinning, or asks why Bloom locked up. Capture FIRST, theorize after: hangs can self-resolve and the evidence decays.
-user-invocable: true
 ---
 
 # Diagnose a frozen Bloom

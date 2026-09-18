@@ -2,7 +2,6 @@
 name: reviewable-replies
 description: Reply to Reviewable.io PR review discussions via the official `reviewable` CLI (REST API) — per-thread replies, correct handling of GitHub-mirrored vs Reviewable-native threads, and publishing. Use whenever review comments on a Reviewable-managed PR need responses.
 argument-hint: "PR (e.g. BloomBooks/BloomDesktop#7557) and which discussions to answer; or enough context to find them"
-user-invocable: true
 ---
 
 # Reviewable Replies

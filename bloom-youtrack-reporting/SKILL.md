@@ -1,6 +1,6 @@
 ---
 name: bloom-youtrack-reporting
-description: prompts about youtrack issues/reports
+description: Query and report across Bloom YouTrack issues over the REST API — counts, lists, trends, regressions. Use when asked "how many issues…", "list the bugs that…", "report on YouTrack…", or any question that spans many issues rather than fixing or creating one.
 ---
 
 ## Scope

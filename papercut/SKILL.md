@@ -2,7 +2,6 @@
 name: papercut
 description: Log or triage "papercuts" — small dev/agent/tooling friction points and improvement ideas that aren't worth fixing mid-task. Use in ADD mode when the user says "add a papercut about ...", or proactively when you hit tooling/process friction, have to work around something, or learn something the docs/skills should have told you but now is not the time to fix it. Use in TRIM mode when asked to "trim", "triage", or "work on" the papercuts. Product bugs and feature ideas belong in YouTrack, not here.
 argument-hint: "a description of the cut to log, or 'trim' to work through the backlog"
-user-invocable: true
 ---
 
 # Papercut

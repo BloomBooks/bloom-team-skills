@@ -2,7 +2,6 @@
 name: devin-review
 description: Kick off a Devin AI code review for a GitHub PR, wait for it, then post unresolved Bugs and Investigate flags as GitHub inline review-thread comments, and resolve the threads for findings Devin now considers fixed or that we assessed as non-issues. Every finding's thread ends with a documented outcome — including recording a developer's later "leave as is" decision as a reply before resolving. Devin does NOT post to GitHub automatically — this skill bridges that gap.
 argument-hint: "PR URL or number, e.g. BloomBooks/BloomDesktop#7949"
-user-invocable: true
 ---
 
 # Devin Review Skill

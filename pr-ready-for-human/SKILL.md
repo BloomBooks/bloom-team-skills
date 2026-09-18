@@ -2,7 +2,6 @@
 name: pr-ready-for-human
 description: Promote a preflighted, self-reviewed PR to human (peer) review. Step 3 of the review sequence — (1) run preflight, (2) the developer reviews the work themselves, (3) the developer runs this. Verifies the PR is genuinely clean (CI green, bots quiet, nothing newer than the last preflight), squashes the branch to a single commit (unless the commit split genuinely helps the reviewer), links the PR on the tracker card and moves it to the project's ready-for-peer-review state, marks the PR ready-for-review, and moves the personal board to its human-review column. If anything is not clean, it bounces back to preflight instead of fixing things itself.
 argument-hint: "optional: PR number or branch name — defaults to current worktree"
-user-invocable: true
 ---
 
 # PR Ready For Human Review
