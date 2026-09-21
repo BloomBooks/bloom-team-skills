@@ -120,10 +120,9 @@ it.**
 
    > Read `update-team-skills/SKILL.md` and follow it to set up the team skills.
 
-   It finds the clone from that file's own location, then symlinks every skill folder (including
-   itself) into `~/.claude/skills`. On **Windows** turn on **Developer Mode** first (Settings →
-   Privacy & security → For developers) or run in an elevated shell, or the symlink step can't
-   create links — the skill reports that clearly if it hits it.
+   It finds the clone from that file's own location, then links every skill folder (including
+   itself) into `~/.claude/skills` — a symlink on macOS/Linux, a junction on Windows (no
+   Developer Mode or elevation needed).
 
 3. **Restart Claude Code** so the newly linked skills are discovered.
 
@@ -137,13 +136,13 @@ since their own commit doesn't trigger a pull.
 Run the equivalent loop yourself after cloning — it only links folders that contain a `SKILL.md`,
 leaving docs and other root files alone.
 
-**Windows (PowerShell; needs Developer Mode or an elevated shell):**
+**Windows (PowerShell):**
 
 ```powershell
 $repo = (Resolve-Path .).Path   # run from inside the clone
 New-Item -ItemType Directory -Force -Path "$HOME\.claude\skills" | Out-Null
 Get-ChildItem $repo -Directory | Where-Object { Test-Path "$($_.FullName)\SKILL.md" } | ForEach-Object {
-  New-Item -ItemType SymbolicLink -Path "$HOME\.claude\skills\$($_.Name)" -Target $_.FullName
+  New-Item -ItemType Junction -Path "$HOME\.claude\skills\$($_.Name)" -Target $_.FullName
 }
 ```
 

@@ -44,9 +44,10 @@ overwrites an existing link or touches skills that aren't part of this repo.
 
 Use the shell that fits the machine. Windows is the common case here; lead with PowerShell.
 
-**Windows (PowerShell).** Creating symlinks needs **Developer Mode** on (Settings → Privacy &
-security → For developers) or an elevated shell; if `New-Item -SymbolicLink` throws, report that as
-the cause rather than failing silently.
+**Windows (PowerShell).** Use a **junction**, not a symbolic link: a symbolic link needs Developer
+Mode or an elevated shell, a junction needs neither, and Claude Code follows both. `-ErrorAction
+Stop` matters: without it a refused link prints as `LINKED`, because `New-Item`'s error is
+non-terminating and never reaches the `catch`.
 
 ```powershell
 $skills = "$HOME\.claude\skills"
@@ -59,8 +60,8 @@ Get-ChildItem $repo -Directory | Where-Object { Test-Path "$($_.FullName)\SKILL.
   $link = Join-Path $skills $_.Name
   if (Test-Path $link) { "exists   $($_.Name)" }
   else {
-    try { New-Item -ItemType SymbolicLink -Path $link -Target $_.FullName | Out-Null; "LINKED   $($_.Name)" }
-    catch { "FAILED   $($_.Name): $($_.Exception.Message)  (enable Developer Mode or run elevated)" }
+    try { New-Item -ItemType Junction -Path $link -Target $_.FullName -ErrorAction Stop | Out-Null; "LINKED   $($_.Name)" }
+    catch { "FAILED   $($_.Name): $($_.Exception.Message)" }
   }
 }
 ```
