@@ -251,3 +251,34 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Context:** EthnoLib `supporting-data`, applying two migrations after the developer asked
   "what do we need so you can operate Supabase for me just like GitHub".
 
+## 2026-09-14 — the documented one-file publish to dev-process-artifacts fails on any real report
+
+- **Cut:** `dev-process-artifacts.md`'s "Republishing one file: use the contents API" snippet passes
+  the base64 payload as a command-line argument (`-f content="$(base64 -w0 ...)"`). A 25 KB preflight
+  report becomes a ~33 KB argument and Git Bash rejects the whole call with
+  `/c/Program Files/GitHub CLI/gh: Argument list too long`. Every report the skills actually produce
+  is well past that, so the documented route fails on the normal case rather than an extreme one, and
+  the error names `gh` rather than the argument, which reads as a broken CLI.
+- **Idea:** Change the snippet to build a JSON body in a file and pass `--input <file>`, which has no
+  length limit: write `{"message":..., "content":<base64>, "sha":<sha>}` and call
+  `gh api -X PUT <path> --input body.json`. Worth stating the reason inline so nobody "simplifies" it
+  back to an inline argument.
+
+## 2026-09-21 — OpenRouter's model list is not an existence test for a model
+
+- **Cut:** Asked to use `typesafe/jev-1.13`, I checked `https://openrouter.ai/api/v1/models` (446
+  models) and the model's own page, got no match and an HTTP 404, and told the developer the model
+  did not exist. It does: BloomBridge has been calling it for weeks from
+  `packages/lib/src/2-llm/jevClient.ts`. Jev is served from a separate alpha endpoint
+  (`/api/alpha/decisions`, a body shape of its own rather than chat completions) and is absent from
+  both the public catalog and the marketing pages, so the two obvious checks agree with each other
+  and are both wrong.
+- **Idea:** Before concluding that a model, endpoint or tool the developer named does not exist,
+  grep the transcripts (`~/.claude/projects/<repo-slug>/*.jsonl`) and the sibling repos — "a
+  previous session already did this" is a lookup, and here the working client, the endpoint URL and
+  the auth shape were all sitting in a file. A 404 plus an empty catalog is evidence about the
+  catalog, not about the thing.
+- **Also worth knowing:** the `OPENROUTER_KEY` in the User environment scope is dead (401 "User not
+  found" on `/api/v1/key`), as is `openrouterKey` in `~/.bloombridge/settings.json`. Anything
+  reaching OpenRouter from this machine needs a fresh key first.
+- **Context:** BL-16458 game theme editor, wiring "describe a theme in words" into the editor.
