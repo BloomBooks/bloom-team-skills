@@ -2,6 +2,15 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-09-22 — `ln -s` in Git Bash copies a skill folder instead of linking it
+
+- **Cut:** `ln -s /d/bloom-team-skills/bloom-docs/ ~/.claude/skills/bloom-docs` reported no
+  error, and the result was a plain directory holding a copy of the files. Without Windows
+  developer-mode symlinks, MSYS falls back to copying, so a skill linked that way goes stale on
+  the next pull. `ls -la` shows `drwx` where a real link shows `lrwx`.
+- **Idea:** add it to `windows-agent-gotchas` and to TEAM-AGENTS.md's trap index: link skills
+  with `New-Item -ItemType Junction` (what `update-team-skills` does), or just run that skill.
+
 ## 2026-09-16 — A `| tail` inside an `&&` chain hides the failure, and the next command runs anyway
 
 - **Cut:** `git checkout Version6.5 2>&1 | tail -2 && git merge --ff-only origin/Version6.5 2>&1 | tail -2`
