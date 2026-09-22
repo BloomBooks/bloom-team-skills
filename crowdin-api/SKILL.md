@@ -162,6 +162,37 @@ await stringTranslationsApi.listStringTranslations(PROJECT_ID, stringId, languag
 await stringTranslationsApi.listTranslationApprovals(PROJECT_ID, { stringId, languageId, limit: 1 });
 ```
 
+Those are per string. To check a whole batch -- what every string in a file currently reads in
+one language, and whether anything is approved -- page **`/projects/{id}/languages/{languageId}/translations?fileId=`**
+instead. One paged call per file per language answers "do all N carry a suggestion?" and
+"is the approval count still zero?", where the per-string calls would be N round trips.
+
+
+## Pointing translators at just the strings you mean
+
+A file link drops a translator into the whole file. **The Editor takes a `?q=` search on the
+end of the URL** and opens filtered to the strings that match:
+
+```
+https://crowdin.com/editor/sil-bloom/76/en-es?q=AiImageEditor
+```
+
+Where the ids of a feature share a prefix, that one parameter isolates them exactly and costs
+nothing: no writes to the project, nothing to maintain, and it keeps working as later strings
+with the same prefix arrive. Use it in any mail or comment that sends someone to a file. `q`
+matches the key, so it catches every id carrying the prefix -- including ones the app has since
+stopped using (see the string-table trap below).
+
+Crowdin's own mechanism for this is **labels** -- create one, attach it to the strings, then
+filter by it in the Editor and copy the resulting URL. Prefer `?q=` unless the set you want
+cannot be described by a prefix or a search: a label is a write to a shared project and has to
+be re-applied to every new batch. Labels live at `/projects/{id}/labels` and a string carries
+its `labelIds`.
+
+**A language's editor code is not its language id** -- get it from `languagesApi.getLanguage(id)`
+rather than guessing (see [Project constants](#project-constants)). `es-ES` is `en-es`, `pt-PT`
+is `en-pt`.
+
 ## Comments and issues
 
 ```js
@@ -217,6 +248,9 @@ await screenshotsApi.addTag(PROJECT_ID, shot.data.id, [
   array wipes the OCR tags; `addTag` adds to them. Filter your list against
   `listScreenshotTags` first, or you get the same string twice. The OCR is good: on the editor's
   screenshots it found roughly two thirds of the strings unaided.
+- **`branchId` is accepted by `addScreenshot` and rejected by `listScreenshots`** --
+  `Field 'branchId' is unexpected`, a 400. List them unfiltered and match on the name prefix
+  you gave them (`AiImageEditor/...`), which is the only thing tying a screenshot to a feature.
 - **Find a screenshot by name to update it** (`listScreenshots(PROJECT_ID, { search: name })`,
   then compare `name` exactly) and call `updateScreenshot(id, { storageId, name,
   usePreviousTags: false })`. Re-running a script then replaces rather than piling up copies.
@@ -258,6 +292,17 @@ const { data } = await reportsApi.downloadReport(PROJECT_ID, started.data.identi
 const rows = await fetch(data.url).then((r) => r.json()); // rows.data[].user, .translated, .approved
 ```
 
+**Do not decide who works on a language from `permissions[languageId]` alone.** The most
+productive contributor on a language can have no entry there at all: a project-wide
+`role` of `"translator, proofreader"` carries the rights without a per-language key, and the
+per-language map otherwise reads `denied` for every language a person is not on. On Bloom the
+top Portuguese contributor by a wide margin -- more words than the named proofreader -- has an
+empty `permissions` map. Rank by the report's `translated`/`approved`, then read `role` and
+`permissions` only to describe the people it found.
+
+Excluding the non-translators is manual: the report counts the bot (`SILCrowdinBot`), the
+project owner and any manager who has touched a string, and they sit among the real names.
+
 Sending them something: `notificationsApi.sendNotificationToProjectMembers(PROJECT_ID,
 { userIds, message })` posts a plain-text notification that Crowdin shows in the bell menu and,
 by default, emails. There is no reply channel, so put a contact address in the text, and it
@@ -295,7 +340,16 @@ people's work, so prefer deleting the specific ids you listed.
 - **The product's own string table and Crowdin can disagree.** When a UI reads its strings
   from a table (`ALL_IMAGE_EDITOR_STRINGS` in bloom-ai-image-tools), an id can be in that table
   and absent from the source file, or the reverse; the UI then asks for a string Crowdin has
-  never seen, and it stays English. Compare the two lists after any change to either.
+  never seen, and it stays English. Compare the two lists after any change to either. The reverse
+  case is the one that wastes a translator's time: an id the app has stopped asking for stays in
+  the XLF, so Crowdin still offers it and people translate it for nothing. **Do not answer that
+  by deleting the string** -- Crowdin re-syncs it from master within minutes, and deleting the
+  trans-unit at source takes its translations with it, permanently. Mark it obsolete instead;
+  BloomDesktop's `DistFiles/localization/README.md` ("Why we can't just delete a string") has
+  the reasoning and the one exception, and is written to pre-empt the argument that a particular
+  deletion is safe. Check the id against the app before assuming it is dead: a string can be
+  dropped from the table while the code still renders it, for a feature that is switched off
+  rather than removed.
 
 ## What Crowdin actually shows a translator
 
