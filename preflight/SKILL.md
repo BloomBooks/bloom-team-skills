@@ -185,17 +185,15 @@ timeout.
 Preflight posts two things to a work-tracking card: the PR link (Phase 3) and the QA test-ideas
 comment (Phase 5). It does not know or care which tracker a project uses.
 
-**How a project declares one.** In its own instructions at the repo root — `AGENTS.md` bridged by a
-`@AGENTS.md` line in `CLAUDE.md` (Claude Code reads `CLAUDE.md`, not `AGENTS.md`), or `CLAUDE.md`
-directly. Root, not a subdirectory: root is also what gets re-injected after a `/compact`, which a
-long preflight run can hit. A declaration is a passage that names **all three** of: the tracker,
+**How a project declares one.** In its own instructions at the repo root — `AGENTS.md` or
+`CLAUDE.md` (Claude Code reads either). Root, not a subdirectory: root is also what gets
+re-injected after a `/compact`, which a long preflight run can hit. A declaration is a passage that names **all three** of: the tracker,
 what its ticket ids look like, and which skill talks to it.
 
 **Anything less is not a declaration** — a tracker's name mentioned in passing does not count.
 **If the project has no declaration, STOP and ask — immediately, on your first turn**, while the
-user is still at the keyboard; offer to write the declaration into the project's `AGENTS.md`
-(adding the `@AGENTS.md` import to `CLAUDE.md` if it's missing). "This project doesn't use a
-tracker" is a valid answer and gets written down too. **Do not investigate**: the project's
+user is still at the keyboard; offer to write the declaration into the project's `AGENTS.md`.
+"This project doesn't use a tracker" is a valid answer and gets written down too. **Do not investigate**: the project's
 instructions and the branch name are the only two looks allowed; never reconstruct a declaration
 from the PR title, commits, cards, or the codebase (`references/lessons.md` says why).
 
