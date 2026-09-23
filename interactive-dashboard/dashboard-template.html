@@ -1,0 +1,274 @@
+<title>{{TITLE}}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f5f6f2; --panel:#ffffff; --ink:#1c221f; --muted:#5f6864; --line:#d9ddd6;
+  --accent:#1f6f8b; --accent-ink:#ffffff;
+  --queued:#8a918d; --running:#a8701a; --review:#5b5fa8; --blocked:#b3412e; --done:#2f7d4f; --failed:#7a1f1f;
+  --blocked-bg:#fbeeeb; --running-bg:#fbf3e4; --done-bg:#e9f4ed; --review-bg:#ecebf7; --queued-bg:#eef0ee; --failed-bg:#f6e3e3;
+  --focus:#1f6f8b;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#15191a; --panel:#1d2325; --ink:#e6e9e4; --muted:#9aa39d; --line:#303838;
+    --accent:#63b3cf; --accent-ink:#0f1a1e;
+    --queued:#8a918d; --running:#d8a24a; --review:#9ea0e6; --blocked:#e07a68; --done:#5fb885; --failed:#e0a0a0;
+    --blocked-bg:#3a2320; --running-bg:#3a2f1a; --done-bg:#1d3327; --review-bg:#26263c; --queued-bg:#252b2b; --failed-bg:#3d1d1d;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#15191a; --panel:#1d2325; --ink:#e6e9e4; --muted:#9aa39d; --line:#303838;
+  --accent:#63b3cf; --accent-ink:#0f1a1e;
+  --queued:#8a918d; --running:#d8a24a; --review:#9ea0e6; --blocked:#e07a68; --done:#5fb885; --failed:#e0a0a0;
+  --blocked-bg:#3a2320; --running-bg:#3a2f1a; --done-bg:#1d3327; --review-bg:#26263c; --queued-bg:#252b2b; --failed-bg:#3d1d1d;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.45;padding-inline:clamp(16px,3vw,40px);padding-block:20px 60px;max-width:1180px;margin:0 auto}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 20px;border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:22px}
+header h1{font-size:22px;font-weight:600;margin:0;letter-spacing:-.01em}
+header .sub{color:var(--muted);font-size:14px}
+.counts{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;padding:3px 9px;border-radius:999px;letter-spacing:.01em;white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.queued{color:var(--queued);background:var(--queued-bg)}
+.pill.running{color:var(--running);background:var(--running-bg)}
+.pill.review{color:var(--review);background:var(--review-bg)}
+.pill.blocked{color:var(--blocked);background:var(--blocked-bg)}
+.pill.done{color:var(--done);background:var(--done-bg)}
+.pill.failed{color:var(--failed);background:var(--failed-bg)}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;margin:28px 0 10px}
+.qs{display:grid;gap:12px}
+.q{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--blocked);border-radius:6px;padding:14px 16px}
+.q .who{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}
+.q .who .id{font-weight:600}
+.q .who .cardtitle{font-weight:600;font-size:16px}
+.q .who .asker{color:var(--muted);font-size:13px}
+.q .who time{color:var(--muted);font-size:13px;margin-left:auto}
+.q .text{white-space:pre-wrap;margin:0 0 10px}
+.q .opts{display:grid;gap:6px;margin-bottom:8px}
+.q label{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
+.q input[type=radio]{margin-top:4px}
+.q textarea{width:100%;min-height:56px;resize:vertical;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
+.row-actions{display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap}
+button{font:inherit;font-weight:500;padding:7px 14px;border-radius:4px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer}
+button.ghost{background:transparent;color:var(--accent)}
+button:disabled{opacity:.5;cursor:default}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.answered{color:var(--done);font-size:13px}
+.empty{color:var(--muted);font-style:italic;padding:8px 0}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.tablewrap{overflow-x:auto}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);font-weight:600}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.idc{font-weight:500;width:26ch;min-width:22ch}
+td.idc .mono{white-space:nowrap}
+td.idc a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}
+td .title{color:var(--muted);font-size:13px;display:block;white-space:normal;overflow-wrap:anywhere;margin-top:2px}
+td .phase{font-weight:500;overflow-wrap:anywhere}
+td .last{color:var(--muted);font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+td.when{white-space:nowrap;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+td .links{display:flex;gap:10px;font-size:13px;flex-wrap:wrap}
+td .links a{color:var(--accent)}
+tr.state-running td:first-child{box-shadow:inset 3px 0 0 var(--running)}
+tr.state-blocked td:first-child{box-shadow:inset 3px 0 0 var(--blocked)}
+tr.state-review td:first-child{box-shadow:inset 3px 0 0 var(--review)}
+tr.state-done td:first-child{box-shadow:inset 3px 0 0 var(--done)}
+tr.state-failed td:first-child{box-shadow:inset 3px 0 0 var(--failed)}
+details summary{cursor:pointer;color:var(--accent);font-size:13px}
+.log{margin:6px 0 0;padding:0;list-style:none;font-size:13px}
+.log li{padding:4px 0;border-top:1px dashed var(--line);white-space:pre-wrap}
+.log li time{color:var(--muted);margin-right:8px;font-variant-numeric:tabular-nums}
+.note{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px}
+.note textarea{width:100%;min-height:70px;resize:vertical;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
+.sent{font-size:13px;color:var(--muted);margin-top:6px}
+.offline{background:var(--blocked-bg);color:var(--blocked);padding:10px 14px;border-radius:6px;margin-bottom:16px}
+.drag{cursor:grab;color:var(--muted);user-select:none;padding-right:6px}
+tr.dragging{opacity:.4}
+tr.dropabove td{border-top:2px solid var(--accent)}
+tr.dropbelow td{border-bottom:2px solid var(--accent)}
+.rowctl{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
+.rowctl button{padding:2px 8px;font-size:12px}
+tr.paused td .phase::before{content:"Paused · ";color:var(--blocked)}
+.pill.paused{color:var(--blocked);background:var(--blocked-bg)}
+.fixes{margin:0;padding-left:18px}
+.fixes li{margin:2px 0}
+.muted{color:var(--muted)}
+#resultsTable td{font-size:14px}
+@media (max-width:640px){
+  td.idc{width:auto;min-width:0}
+  th:nth-child(4),td:nth-child(4){display:none}
+}
+</style>
+
+<header>
+  <h1>{{TITLE}}</h1>
+  <span class="sub">{{SUBTITLE}}</span>
+  <div class="counts" id="counts"></div>
+</header>
+
+<div id="offline" class="offline" hidden>The shared store is not reachable from this view, so the board shows nothing live. Open it signed in to claude.ai.</div>
+
+<h2>Needs you</h2>
+<div id="questions" class="qs"><div class="empty">No open questions.</div></div>
+
+<h2>{{ITEMS_HEADING}} <span style="font-weight:400;text-transform:none;letter-spacing:0">· drag a row to change priority; Pause keeps a card from starting, or tells a running worker to stop at its next checkpoint</span></h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>{{ITEM_COLUMN}}</th><th>State</th><th>Where it is</th><th>Updated</th><th>Links</th></tr></thead>
+  <tbody id="cards"></tbody>
+</table>
+</div>
+
+<h2>Results <span style="font-weight:400;text-transform:none;letter-spacing:0">· what each finished item produced</span></h2>
+<div class="tablewrap">
+<table id="resultsTable">
+  <thead><tr><th>Item</th><th>Test card</th><th>Tests</th><th>Product fixes</th><th>Where the work is</th></tr></thead>
+  <tbody id="results"></tbody>
+</table>
+</div>
+<div id="resultsEmpty" class="empty">Nothing finished yet.</div>
+
+<h2>Tell the controller something</h2>
+<div class="note">
+  <textarea id="noteText" placeholder="Anything the controller should know or change: stop an item, reprioritize, answer something it did not ask…"></textarea>
+  <div class="row-actions"><button id="noteSend">Send to controller</button><span id="noteSent" class="sent"></span></div>
+</div>
+
+<h2>Answered</h2>
+<div id="answered" class="qs"><div class="empty">Nothing answered yet.</div></div>
+
+<script>
+(async function(){
+  const $=s=>document.querySelector(s);
+  const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const fmt=ts=>{ if(!ts) return ""; const d=new Date(ts); const now=new Date(); const same=d.toDateString()===now.toDateString(); return same? d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : d.toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}); };
+  const STATE_LABEL={queued:"Queued",running:"Working",review:"In review",blocked:"Waiting on you",done:"Done",failed:"Failed"};
+
+  const db = await window.claude.use("db");
+  if(!db){ $("#offline").hidden=false; return; }
+
+  let cards=[], questions=[], logs=[];
+
+  const cardTitle=id=>{ if(!id||id==="run") return "{{RUN_LABEL}}"; const k=cards.find(c=>c.id===id); return k?k.summary:""; };
+  function renderCounts(){
+    const c={}; cards.forEach(k=>{c[k.state]=(c[k.state]||0)+1});
+    $("#counts").innerHTML=Object.keys(STATE_LABEL).filter(s=>c[s]).map(s=>`<span class="pill ${s}">${c[s]} ${STATE_LABEL[s]}</span>`).join("");
+  }
+  function renderCards(){
+    const tb=$("#cards");
+    const sorted=[...cards].sort((a,b)=>(a.order??99)-(b.order??99));
+    tb.innerHTML=sorted.map(k=>{
+      const kl=logs.filter(l=>l.cardId===k.id).sort((a,b)=>(b.ts||"").localeCompare(a.ts||""));
+      // Each item doc may carry links: [{label, url}]. Nothing is hard-coded to one tracker.
+      const links=(k.links||[]).filter(l=>l&&l.url).map(l=>`<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label||l.url)}</a>`);
+      return `<tr class="state-${esc(k.state)}${k.paused?" paused":""}" draggable="true" data-id="${esc(k.id)}">
+        <td class="idc"><span class="drag" title="Drag to reorder">⋮⋮</span><span class="mono">${esc(k.id)}</span><span class="title">${esc(k.summary)}</span>
+          <div class="rowctl"><button class="ghost" data-pause="${esc(k.id)}">${k.paused?"Resume":"Pause"}</button></div></td>
+        <td><span class="pill ${esc(k.state)}">${STATE_LABEL[k.state]||esc(k.state)}</span>${k.paused?'<br><span class="pill paused">Paused</span>':""}</td>
+        <td><div class="phase">${esc(k.phase||"")}</div><div class="last">${esc(k.lastUpdate||"")}</div>
+          ${kl.length?`<details><summary>${kl.length} update${kl.length>1?"s":""}</summary><ul class="log">${kl.map(l=>`<li><time>${fmt(l.ts)}</time>${esc(l.text)}</li>`).join("")}</ul></details>`:""}
+        </td>
+        <td class="when">${fmt(k.updatedAt)}</td>
+        <td><div class="links">${links.join("")}</div></td>
+      </tr>`;
+    }).join("");
+    wireRows(tb, sorted);
+  }
+  let dragId=null;
+  function wireRows(tb, sorted){
+    tb.querySelectorAll("button[data-pause]").forEach(b=>b.onclick=async()=>{
+      const k=cards.find(c=>c.id===b.dataset.pause); b.disabled=true;
+      try{ await db.doc("cards/"+k.id).update({paused:!k.paused, pauseChangedAt:new Date().toISOString(), pauseSeenAt:null}); }catch(e){ b.disabled=false; }
+    });
+    tb.querySelectorAll("tr[data-id]").forEach(tr=>{
+      tr.addEventListener("dragstart",e=>{dragId=tr.dataset.id; tr.classList.add("dragging"); e.dataTransfer.effectAllowed="move";});
+      tr.addEventListener("dragend",()=>{dragId=null; tb.querySelectorAll("tr").forEach(r=>r.classList.remove("dragging","dropabove","dropbelow"));});
+      tr.addEventListener("dragover",e=>{ if(!dragId||dragId===tr.dataset.id) return; e.preventDefault(); const r=tr.getBoundingClientRect(); const above=e.clientY<r.top+r.height/2; tr.classList.toggle("dropabove",above); tr.classList.toggle("dropbelow",!above);});
+      tr.addEventListener("dragleave",()=>tr.classList.remove("dropabove","dropbelow"));
+      tr.addEventListener("drop",e=>{ e.preventDefault(); if(!dragId||dragId===tr.dataset.id) return;
+        const r=tr.getBoundingClientRect(); const above=e.clientY<r.top+r.height/2;
+        const ids=sorted.map(k=>k.id).filter(id=>id!==dragId); let at=ids.indexOf(tr.dataset.id)+(above?0:1); ids.splice(at,0,dragId); saveOrder(ids); });
+    });
+  }
+  async function saveOrder(ids){
+    // optimistic local update so the row moves at once
+    ids.forEach((id,i)=>{const k=cards.find(c=>c.id===id); if(k) k.order=i;}); renderCards();
+    await Promise.all(ids.map((id,i)=>{const k=cards.find(c=>c.id===id); return db.doc("cards/"+id).update({order:i}).catch(()=>{});}));
+  }
+  function renderResults(){
+    const done=[...cards].filter(k=>k.outcome).sort((a,b)=>(a.order??99)-(b.order??99));
+    const tb=$("#results"); $("#resultsTable").hidden=!done.length; $("#resultsEmpty").hidden=!!done.length;
+    tb.innerHTML=done.map(k=>{const o=k.outcome||{};
+      const card=o.card?(o.card.url?`<a href="${esc(o.card.url)}" target="_blank" rel="noopener">${esc(o.card.label||o.card.url)}</a>`:esc(o.card.label||"")):"";
+      const fixes=(o.fixes||[]).length?`<ul class="fixes">${o.fixes.map(f=>`<li>${esc(f)}</li>`).join("")}</ul>`:'<span class="muted">none</span>';
+      const where=[esc(o.where||"")].concat((o.links||[]).map(l=>`<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label||l.url)}</a>`)).filter(Boolean).join(" · ");
+      return `<tr><td class="idc"><span class="mono">${esc(k.id)}</span><span class="title">${esc(k.summary)}</span></td><td>${card}</td><td>${esc(o.tests||"")}</td><td>${fixes}</td><td>${where}</td></tr>`;
+    }).join("");
+  }
+  // Drafts survive re-renders: the page redraws whenever any document changes, and a redraw
+  // would otherwise wipe what the developer is typing. Keyed by question id.
+  const drafts=new Map();
+  function saveDrafts(){
+    document.querySelectorAll(".q[data-q]").forEach(el=>{
+      const id=el.dataset.q; const ta=el.querySelector("textarea"); const picked=el.querySelector("input[type=radio]:checked");
+      if((ta&&ta.value)||picked) drafts.set(id,{text:ta?ta.value:"",option:picked?picked.value:null,focus:document.activeElement===ta,caret:ta?ta.selectionStart:0});
+      else drafts.delete(id);
+    });
+  }
+  function restoreDrafts(){
+    drafts.forEach((d,id)=>{
+      const el=document.querySelector(`.q[data-q="${id}"]`); if(!el) return;
+      const ta=el.querySelector("textarea"); if(ta){ ta.value=d.text; if(d.focus){ ta.focus(); try{ta.setSelectionRange(d.caret,d.caret);}catch{} } }
+      if(d.option){ const r=[...el.querySelectorAll("input[type=radio]")].find(r=>r.value===d.option); if(r) r.checked=true; }
+    });
+  }
+  $("#noteText").addEventListener("input",()=>{ noteDraft=$("#noteText").value; });
+  let noteDraft="";
+  function renderQuestions(){
+    saveDrafts();
+    const open=questions.filter(q=>!q.answer).sort((a,b)=>(a.askedAt||"").localeCompare(b.askedAt||""));
+    const ans=questions.filter(q=>q.answer).sort((a,b)=>(b.answeredAt||"").localeCompare(a.answeredAt||""));
+    const qEl=$("#questions");
+    qEl.innerHTML=open.length?open.map(q=>{
+      const opts=(q.options||[]).map((o,i)=>`<label><input type="radio" name="opt-${esc(q.id)}" id="opt-${esc(q.id)}-${i}" value="${esc(o)}"><span>${esc(o)}${q.recommended===o?' <em>(recommended)</em>':''}</span></label>`).join("");
+      return `<div class="q" data-q="${esc(q.id)}">
+        <div class="who"><span class="id mono">${esc(q.cardId||"run")}</span><span class="cardtitle">${esc(cardTitle(q.cardId))}</span><span class="asker">${esc(q.from||"worker")} asks</span><time>${fmt(q.askedAt)}</time></div>
+        <p class="text">${esc(q.text)}</p>
+        ${opts?`<div class="opts">${opts}</div>`:""}
+        <textarea id="ans-${esc(q.id)}" placeholder="${opts?"Or type your own answer / add a note":"Your answer"}"></textarea>
+        <div class="row-actions"><button data-send="${esc(q.id)}">Send answer</button><span class="sent" id="sent-${esc(q.id)}"></span></div>
+      </div>`;}).join("") : `<div class="empty">No open questions.</div>`;
+    qEl.querySelectorAll("button[data-send]").forEach(b=>b.onclick=()=>sendAnswer(b.dataset.send,b));
+    restoreDrafts();
+    $("#answered").innerHTML=ans.length?ans.slice(0,20).map(q=>`<div class="q" style="border-left-color:var(--done)">
+        <div class="who"><span class="id mono">${esc(q.cardId||"run")}</span><span class="cardtitle">${esc(cardTitle(q.cardId))}</span><time>${fmt(q.answeredAt)}</time></div>
+        <p class="text">${esc(q.text)}</p>
+        <div class="answered">You answered: ${esc(q.answer)}${q.relayedAt?" · relayed to the worker":" · waiting for the controller to pick it up"}</div>
+      </div>`).join("") : `<div class="empty">Nothing answered yet.</div>`;
+  }
+  async function sendAnswer(id,btn){
+    const picked=document.querySelector(`input[name="opt-${id}"]:checked`);
+    const typed=$("#ans-"+id).value.trim();
+    const answer=[picked?picked.value:"",typed].filter(Boolean).join(" — ");
+    if(!answer){ $("#sent-"+id).textContent="Pick an option or type an answer first."; return; }
+    btn.disabled=true;
+    try{ await db.doc("questions/"+id).update({answer, answeredAt:new Date().toISOString()}); drafts.delete(id); }
+    catch(e){ btn.disabled=false; $("#sent-"+id).textContent="Could not save: "+(e.message||e.code); }
+  }
+  $("#noteSend").onclick=async()=>{
+    const t=$("#noteText").value.trim(); if(!t) return;
+    $("#noteSend").disabled=true;
+    try{ await db.collection("notes").add({text:t, createdAt:new Date().toISOString(), relayedAt:null}); $("#noteText").value=""; $("#noteSent").textContent="Sent "+fmt(Date.now())+". The controller reads notes at its next check."; }
+    catch(e){ $("#noteSent").textContent="Could not send: "+(e.message||e.code); }
+    $("#noteSend").disabled=false;
+  };
+
+  db.collection("cards").onSnapshot(s=>{cards=s.docs.map(d=>({id:d.id,...d.data()})); renderCounts(); renderCards(); renderQuestions(); renderResults();}, e=>{$("#offline").hidden=false;$("#offline").textContent="Could not read the shared store: "+e.message;});
+  db.collection("questions").onSnapshot(s=>{questions=s.docs.map(d=>({id:d.id,...d.data()})); renderQuestions();});
+  db.collection("log").orderBy("ts","desc").limit(300).onSnapshot(s=>{logs=s.docs.map(d=>({id:d.id,...d.data()})); renderCards();});
+})();
+</script>
