@@ -2,6 +2,21 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-09-23 — Orca-started workers cannot build a worktree's front end without an auto-mode allow line
+
+- **Cut:** a Claude worker following `add-e2e-test` in its own worktree was refused `pnpm build`
+  by the auto-mode classifier ("Modify Shared Resources"), refused again after the developer added
+  `Bash(pnpm -C * build)` to `permissions.allow` (the worker had appended `> log 2>&1`, so the
+  pattern no longer matched, and a go-ahead relayed by the controller session was read as an
+  "Auto-Mode Bypass"). The controller may not run it on the worker's behalf. BL-16777's card sat
+  blocked for over an hour on a five-minute build.
+- **Idea:** what worked was a plain-language entry in `autoMode.allow` in `~/.claude/settings.json`
+  ("Building BloomDesktop into a worktree's own output folder … while writing or running BloomE2E
+  tests in a worktree no developer is running Bloom from, as the add-e2e-test skill directs"). Put
+  that sentence in `add-e2e-test` and `improve-test-automation-coverage` as a one-time setup step,
+  and tell workers to run the build without output redirection so allow patterns match.
+- **Context:** the 2026-09-23 UI-test run over John's 6.6 cards; worker in D:/grid-calendar.
+
 ## 2026-09-22 — `ln -s` in Git Bash copies a skill folder instead of linking it
 
 - **Cut:** `ln -s /d/bloom-team-skills/bloom-docs/ ~/.claude/skills/bloom-docs` reported no
