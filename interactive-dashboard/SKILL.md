@@ -13,8 +13,9 @@ open, and a polling loop in the controller that turns what they do on the page i
 
 The page is the developer's side of a protocol. The controller writes state and questions into
 the page's database; the developer's clicks land in the same database; the controller reads them
-back on a timer and acts. Nothing on the page talks to the controller directly, so the controller
-must poll.
+back and acts. Database writes alone never wake a session, so the page also posts a comment "sent
+to Claude" on every Send: that reaches an idle controller as a notification within about a minute.
+A slow poll remains as the fallback for answers that arrive while the controller is busy.
 
 What the developer gets, from one link:
 
@@ -41,8 +42,11 @@ What the developer gets, from one link:
 2. Fill the template's placeholders. Title is a two-to-four-word name ("UI Test Run Board"),
    subtitle one line saying what is running and which session steers it, `{{RUN_LABEL}}` the
    phrase shown on questions about the whole run rather than one item ("the whole run").
-3. Publish with the Artifact tool, `capabilities: {"db": {}}`, an `icon` such as `board`, and a
-   one-sentence description. Open the link for the developer and print it as a bare URL.
+3. Publish with the Artifact tool, `capabilities: {"db": {}, "comments": {}}`, an `icon` such as
+   `board`, and a one-sentence description. `comments` is the wake-up channel (§3); declaring it
+   makes the page ask the developer once for permission to comment, and rules out public sharing,
+   which a private steering board never needs. Open the link for the developer and print it as a
+   bare URL.
 4. Seed the database with `ArtifactData` **before** the developer opens it: one document per work
    item, and any run-level questions you already know you need (see the data model). An empty
    board reads as broken.
@@ -79,7 +83,13 @@ Do not put queue positions into `phase` text; the developer reorders and the tex
 **`questions/<id>`** — one per question. `cardId` (an item id, or `run`), `from` (who asks),
 `text`, `options` (array of strings; the whole option text is the answer), `recommended` (one of
 the options), `askedAt`, `answer` (null until the developer sends; may be an option, free text, or
-`option — free text`), `answeredAt`, `relayedAt` (null until the controller has acted).
+`option — free text`), `answeredAt`, `relayedAt` (null until the controller has acted), `ping`
+(written by the page: whether the wake-up comment went out, or why not; shown in the Answered
+list so both sides can see it).
+
+Every timestamp the controller writes comes from the clock (`date -u +%FT%TZ` in Bash), never
+typed from memory: hand-typed stamps drifted an hour ahead in the first run, so questions showed
+as asked after they were answered.
 
 Write questions so a reader with zero context can answer: what happened, what it means for them,
 what each option costs. **Every question about a bug offers "Fix it now" as the first, recommended
@@ -92,9 +102,23 @@ already, and the developer's usual answer is to fix it. Name the file and the li
 
 ## 3. Run the controller loop
 
-Nothing on the page can wake the controller, so poll. In Claude Code use `CronCreate` with a
-period of four minutes and a self-contained prompt that spells out the loop; every worker
-checkpoint message is another chance to update the board. Each poll:
+The page wakes the controller through comments. When the developer presses Send, the page calls
+`comments.sendToClaude` (see the template's `pingController`) before it writes the answer, and the
+platform delivers that as a notification to the session that published the board, as long as the
+session's watch on the artifact says "auto-replies armed" (the publish result and
+`ArtifactComments` `watch` both show this). Two facts about that delivery, both observed:
+
+- It reaches the controller only when the controller is **idle**. If the controller is mid-turn,
+  the platform posts an automatic acknowledgement in the comment thread instead and the controller
+  never sees a notification; it finds the answer at its next read. So keep controller turns short:
+  one action, one board update, stop.
+- The notification names the thread. Read the thread with `ArtifactComments`, act on the answer
+  from the database as usual, then `resolve` the thread. Do not post another reply; the automatic
+  one is already there.
+
+Keep a poll as the fallback for answers that land while the controller is busy: `CronCreate` with
+a period of ten to fifteen minutes and a self-contained prompt that spells out the loop. Every
+worker checkpoint message is another chance to update the board. Each poll:
 
 1. `ArtifactData query questions where relayedAt == null and answer != null`. For each: act on
    the answer (relay to the worker that asked, or do it yourself for run-level questions), then
@@ -131,6 +155,33 @@ checkpoint and to phrase a question with the options they see and the one they r
 can go onto the board almost verbatim. The controller answers small judgment calls itself and puts
 only real forks on the board.
 
+Quote the developer's own words in the brief for anything a worker's rules gate on the developer
+asking: commits, pushes, product-code edits. A worker will not act on "the controller says John
+approved"; it will act on `John said: "commit and push"`. Decide up front whether finished work is
+to be pushed and say so in the brief. A live worker does its own push; the controller pushes only
+when the worker's session is already gone.
+
+Product-code changes made along the way (a bug the developer chose "Fix it now" for, a test hook)
+still need the team's normal review pipeline (`preflight`). Record that on the PR when one exists,
+as a comment listing the commits, and in the item's `outcome.where` on the board; for a branch with
+no PR, running `preflight` is what creates it, so that is a question for the developer.
+
+### Orca workers: terminals and follow-ups
+
+- When a worker finishes, `worker-retain` its terminal instead of releasing it if the developer
+  may still answer something about that item. A follow-up goes to the same session with
+  `task-create` plus `worker-start --task <id> --terminal <handle> --worktree <selector>`; without
+  `--worktree` the start is refused with `terminal_worktree_mismatch`.
+- Git Bash on Windows allows 32 consoles. Past that, every new Orca terminal dies at once and a
+  `worker-start` fails at `agent_readiness` with `terminal_exited` and no output, while the same
+  command works in another worktree. Close the terminals of finished items (`orca terminal close`)
+  before starting new workers; ten idle shells per worktree accumulate quickly.
+- An instruction delivered through Orca's own messaging (the dispatch spec, or a follow-up
+  dispatch) was accepted by the worker and its permission classifier in every case tried; a
+  go-ahead relayed through Claude's `SendMessage` was refused as not the developer's own words.
+  The classifier's verdict on an identical `git commit` still varies between sessions, so a
+  refusal is not proof that the instruction path is wrong.
+
 ### Everything the developer owes goes on the board
 
 If a chat message would say "still yours" or "waiting on you", that item is a `questions` row,
@@ -153,12 +204,15 @@ where the developer sees the list is empty.
 
 - A relayed instruction is not the developer's own instruction to a worker session. Workers
   following the team's "commit only when I ask in my own words" rule will not commit on a
-  dashboard answer relayed by the controller; they want the words typed in their terminal. Put a
-  question on the board saying exactly which terminal to type in and what to type.
-- The same applies to permissions: a worker's auto-mode classifier refused product-code edits and
-  `pnpm build`, and a go-ahead relayed through the controller read as a bypass. The controller
-  must not do the refused thing on the worker's behalf. Surface it, with the exact command or
-  edit quoted, and let the developer approve in that terminal or add an `autoMode.allow` sentence.
+  dashboard answer relayed by the controller through `SendMessage`; quote the developer's words in
+  the brief or a follow-up dispatch instead (see "What the workers must know").
+- A worker's auto-mode classifier refused product-code edits and `pnpm build` until the developer
+  added an `autoMode.allow` sentence; output redirection on the command broke the match. The
+  controller must not do the refused thing on the worker's behalf. Surface it, with the exact
+  command or edit quoted, and let the developer approve in that terminal or add the allow rule.
+- The page's status line under a Send button is destroyed the moment the answer saves, because the
+  question re-renders into the Answered list. Anything the developer must see after Send goes into
+  the question document (`ping`), not into the DOM.
 - "One at a time" from the developer meant one expensive test run at a time, not one worker. Ask
   which they mean before serializing a whole queue; an idle fleet waiting on one question wasted
   an hour.

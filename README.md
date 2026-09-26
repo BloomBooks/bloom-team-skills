@@ -65,6 +65,8 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 | `diagnose-frozen-bloom`    | Capture evidence from a frozen or CPU-spinning `Bloom.exe` while it is still stuck: managed and native stacks, the spinning thread, the WebView2 console backlog. Capture first, theorize after. |
 | `crowdin-api`              | Talk to Bloom's Crowdin projects from a script: get new English strings to translators ahead of the code, upload translations and screenshots, post comments and issues, find and message a language's translators. Covers every Bloom product that localizes through Crowdin, and insists every write go in as SILCrowdinBot rather than a developer. |
 | `windows-agent-gotchas`    | The full account of the Windows / Claude Code tooling traps that present as code bugs (a subprocess that "can't find" its own file, `node -e` printing nothing, heredoc escaping, browser tools timing out). `TEAM-AGENTS.md` carries the one-line symptom index that points here. |
+| `bloom-docs`               | Write, edit or review pages on docs.bloomlibrary.org. The pages live in Notion and docu-notion publishes them, so the skill covers the Notion ids, the Database's properties, docu-notion's Outline rules, the style rules, and `notion_docs.py`, which writes a page from a markdown file. |
+| `pr-attach`                | Upload a screenshot or short video to GitHub's attachment storage and print an embed for a PR description or comment, without committing the file anywhere. How to crop, size and caption screenshots is in [`screenshots.md`](screenshots.md). |
 
 ## Publishing artifacts publicly
 
@@ -93,7 +95,7 @@ tool; the "for" column says which ones.
 | **`chrome-devtools` CLI**                            | `devin-review` browser automation, `preflight` report render check | Drives the [Chrome DevTools for agents](https://developer.chrome.com/docs/devtools/agents) **CLI** (not the MCP-server form). Install it globally: `npm i chrome-devtools-mcp@latest -g` (needs Node.js — this puts a `chrome-devtools` binary on your PATH). Verify with `chrome-devtools status`. Works in any environment; no `/plugin` required. |
 | **`jq`**                                             | `devin-review`, `add-test-ideas`                  | JSON parsing in shell snippets. `winget install jqlang.jq` on Windows. `gh api --jq` covers the GitHub calls without it. |
 | **`sentry` CLI**                                     | `process-sentry-issues`                           | Authenticate once with `sentry auth login`.                                                                              |
-| **Python 3** (`py`)                                  | `write-manual-test`                               | Runs `notion.py`. (BloomDesktop's `game-theme-preview` and `improve-test-automation-coverage` skills need it too.)        |
+| **Python 3** (`py`)                                  | `write-manual-test`, `bloom-docs`                 | Runs `notion.py` and `notion_docs.py`. (BloomDesktop's `game-theme-preview` and `improve-test-automation-coverage` skills need it too.)        |
 | **`dotnet-stack`, WinDbg (`cdb`)**                   | `diagnose-frozen-bloom`                           | The skill has the one-time install commands.                                                                             |
 
 ### Prerequisites — environment variables
@@ -105,6 +107,7 @@ Set these in your user environment (never commit them — see [Ground rules](#gr
 | `**YOUTRACK_BOT**`         | The shared **Bloom "Bot"** account's permanent token (`perm-…`) — the **only** token the YouTrack skills use, for reads and writes alike | Get it from the repo owner (distributed out-of-band, never committed). Makes automated YouTrack changes show up as authored by *Bot*, not by you; the comment/issue text carries a `[model from dev's machine during skill]` tag for provenance. Never use a personal YouTrack token instead. |
 | `**REVIEWABLE_API_TOKEN**` | Reviewable agent token (`rvbl_…`)   | In Reviewable: **Account settings** → **Provision new agent** → choose the **Author** agent type. Used by `reviewable-replies`. |
 | `**REVIEWABLE_URL**`       | `https://reviewable.io`             | Constant. Used by `reviewable-replies`.                                                                                         |
+| `**SIL_BLOOM_DOCS_NOTION_TOKEN**` | Your own Notion personal access token, for `bloom-docs` | https://app.notion.com/developers → **Personal access tokens** → **New token**. It sees what you can see in Notion, so no page needs sharing with it. |
 
 ### Set up the skills
 

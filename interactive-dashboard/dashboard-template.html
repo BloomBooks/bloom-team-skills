@@ -150,6 +150,19 @@ tr.paused td .phase::before{content:"Paused · ";color:var(--blocked)}
 
   const db = await window.claude.use("db");
   if(!db){ $("#offline").hidden=false; return; }
+  // Wake-up channel: a comment "sent to Claude" reaches the controller session at once when it is
+  // idle, so it need not wait for its next poll. Everything still works when this resolves null.
+  const comments = await window.claude.use("comments");
+  async function pingController(el, text){
+    if(!comments) return "no ping: the comments capability resolved null in this view";
+    try{
+      const can = await comments.canSendToClaude();
+      if(can!=="available") return "no ping: canSendToClaude = "+can;
+      const anchor = await comments.anchorFor(el);
+      const r = await comments.sendToClaude({anchor, text});
+      return "pinged the controller (comment "+r.commentId+")";
+    }catch(e){ return "ping failed: "+(e.code||"")+" "+(e.message||""); }
+  }
 
   let cards=[], questions=[], logs=[];
 
@@ -247,7 +260,7 @@ tr.paused td .phase::before{content:"Paused · ";color:var(--blocked)}
     $("#answered").innerHTML=ans.length?ans.slice(0,20).map(q=>`<div class="q" style="border-left-color:var(--done)">
         <div class="who"><span class="id mono">${esc(q.cardId||"run")}</span><span class="cardtitle">${esc(cardTitle(q.cardId))}</span><time>${fmt(q.answeredAt)}</time></div>
         <p class="text">${esc(q.text)}</p>
-        <div class="answered">You answered: ${esc(q.answer)}${q.relayedAt?" · relayed to the worker":" · waiting for the controller to pick it up"}</div>
+        <div class="answered">You answered: ${esc(q.answer)}${q.relayedAt?" · relayed to the worker":" · waiting for the controller to pick it up"}${q.ping?" · "+esc(q.ping):""}</div>
       </div>`).join("") : `<div class="empty">Nothing answered yet.</div>`;
   }
   async function sendAnswer(id,btn){
@@ -256,13 +269,17 @@ tr.paused td .phase::before{content:"Paused · ";color:var(--blocked)}
     const answer=[picked?picked.value:"",typed].filter(Boolean).join(" — ");
     if(!answer){ $("#sent-"+id).textContent="Pick an option or type an answer first."; return; }
     btn.disabled=true;
-    try{ await db.doc("questions/"+id).update({answer, answeredAt:new Date().toISOString()}); drafts.delete(id); }
-    catch(e){ btn.disabled=false; $("#sent-"+id).textContent="Could not save: "+(e.message||e.code); }
+    const q=questions.find(x=>x.id===id);
+    // Ping first, while this question's elements still exist; the answer write below re-renders the list.
+    $("#sent-"+id).textContent="Pinging the controller…";
+    const ping=await pingController(btn, `Dashboard answer to ${id} (${q?cardTitle(q.cardId):""}): ${answer}`);
+    try{ await db.doc("questions/"+id).update({answer, answeredAt:new Date().toISOString(), ping}); drafts.delete(id); }
+    catch(e){ btn.disabled=false; $("#sent-"+id).textContent="Could not save: "+(e.message||e.code)+" ("+ping+")"; }
   }
   $("#noteSend").onclick=async()=>{
     const t=$("#noteText").value.trim(); if(!t) return;
     $("#noteSend").disabled=true;
-    try{ await db.collection("notes").add({text:t, createdAt:new Date().toISOString(), relayedAt:null}); $("#noteText").value=""; $("#noteSent").textContent="Sent "+fmt(Date.now())+". The controller reads notes at its next check."; }
+    try{ await db.collection("notes").add({text:t, createdAt:new Date().toISOString(), relayedAt:null}); $("#noteText").value=""; $("#noteSent").textContent="Sent "+fmt(Date.now())+". "+await pingController($("#noteSend"), "Dashboard note: "+t); }
     catch(e){ $("#noteSent").textContent="Could not send: "+(e.message||e.code); }
     $("#noteSend").disabled=false;
   };
