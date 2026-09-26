@@ -236,6 +236,12 @@ This is also how a refresh earns its keep: when the developer answers a prefligh
 "leave as is" on something a tester could hit, that answer belongs here on the next update. Don't
 list decisions the tester can't observe — internal design choices are not their business.
 
+## Screenshots
+
+When the change involves UI, put screenshots in the write-up, each next to the check or
+explanation it illustrates, so the tester knows what they are looking for. How to crop, size and
+caption them, and how to attach them to a card, is in `screenshots.md` at the root of the bloom-team-skills clone (reach it through this file's real path, as with `dev-process-artifacts.md`; skills are symlinked individually, so a `../` hop does not find it).
+
 ## Where it goes
 
 - Usually a **comment on the work-tracking card.** Post it with the project's **tracker skill** —

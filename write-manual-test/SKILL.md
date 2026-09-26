@@ -109,6 +109,7 @@ the steps cannot drift apart.
 - Crop to the control (`Page.captureScreenshot` with a `clip` from the element's rectangle,
 `scale: 2`), not the whole window. A full screenshot of Bloom is unreadable in Notion.
 - Move the pointer to `5,5` before each shot, or a stale tooltip arrow shows at the edge.
+- For cropping to the context a reader needs, and for captions, see `screenshots.md` at the root of the bloom-team-skills clone (reach it through this file's real path, as with `dev-process-artifacts.md`; skills are symlinked individually, so a `../` hop does not find it).
 - For a tooltip, hover with a real `Input.dispatchMouseEvent`, wait about 1.8 seconds, then
 clip to the union of the control and `[role=tooltip]`.
 - Name the files `01-…`, `02-…` in card order. It is the only thing that keeps a rebuild

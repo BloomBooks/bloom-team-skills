@@ -69,6 +69,10 @@ nothing essential missing is the better summary.**
 **One text, two homes.** Write it once per run and use the same text in both places the humans
 look: the **PR description** (Phase 3) and the top of the **report** (Phase 5).
 
+**Show the UI.** When the change involves UI, the PR description includes screenshots of it,
+placed beside the words that describe it. How to crop, size and caption them, and how to put them
+on a PR without committing them, is in `screenshots.md` at the root of the bloom-team-skills clone (reach it through this file's real path, as with `dev-process-artifacts.md`; skills are symlinked individually, so a `../` hop does not find it).
+
 ## What the report is for — and what does not belong in it
 
 The report has exactly two jobs:

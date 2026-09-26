@@ -212,6 +212,10 @@ name:
 ```
 
 Give the alt text real content — describe what the reader is meant to notice, not "screenshot".
+YouTrack does not display alt text, so a caption the reader should see goes in the text above or
+below the image. Set the image's width in pixels (`{width=450px}`) so its text matches the text
+around it; `screenshots.md` at the root of the bloom-team-skills clone (reach it through this file's real path, as with `dev-process-artifacts.md`; skills are symlinked individually, so a `../` hop does not find it) has the rule for choosing it and the rest of the team's screenshot
+guidance.
 For a video, embed it the same way if the format renders inline; otherwise name the file in the
 prose and say what it shows.
 
