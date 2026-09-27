@@ -2,6 +2,16 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-09-27 — `curl -F file=@/c/...` in Git Bash uploads nothing and says nothing
+
+- **Cut:** Git Bash's `curl` is the mingw64 build, which does not translate MSYS paths inside
+  `-F "file=@/c/Users/..."`. The `youtrack-api` attachment upload then returned an empty body with
+  exit 0 and attached nothing; only listing the attachments afterwards showed it had failed.
+- **Idea:** In `youtrack-api` (and `pr-attach`, if it takes paths the same way), say to pass a
+  Windows path (`C:/Users/...`) to `-F`, and add `-w '%{http_code}'` to the upload example so a
+  silent failure shows.
+- **Context:** BL-16931 preflight, attaching a screenshot to the card.
+
 ## 2026-09-23 — Orca-started workers cannot build a worktree's front end without an auto-mode allow line
 
 - **Cut:** a Claude worker following `add-e2e-test` in its own worktree was refused `pnpm build`
