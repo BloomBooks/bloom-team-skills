@@ -138,6 +138,10 @@ Before posting, list existing comments and check you are not creating a duplicat
 posting a PR link, `grep -i "github.com.*pull"` the existing comment text first). For bodies
 with embedded quotes/code, write the JSON to a file and use `curl -d @file.json`.
 
+To retract a comment the Bot posted, mark it deleted: `POST .../issues/<issue-id>/comments/<comment-id>`
+with `{"deleted": true}`. A hard `DELETE` returns 403, and so does either kind of delete, or an
+edit, of a comment posted under a human's account.
+
 ### Set an issue's State
 
 The value name must match exactly, including capitalization:
