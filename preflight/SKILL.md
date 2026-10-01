@@ -445,6 +445,15 @@ already ran in Phase 1; its captured outcome joins the results here.
   if its newest post predates the PR's *previous* push and it has no check context, it is not
   re-triggering on this PR (Greptile has done this). Record it at once as "has not reviewed the
   current code" rather than waiting out the cap; a PR nothing re-reviewed should say so.
+  - **A bot that declines the PR for size has not reviewed it, and that is not a terminal
+  state.** Greptile posts "Too many files changed for review (100 file limit). Bypass the limit
+  by tagging `@greptile-apps` to review." Its count is every file any of the PR's commits
+  touched, not the net diff, so a long branch whose commits touch many files trips it even when
+  its diff against the base is well under 100 files. Post the bypass yourself, as a PR comment
+  with the attribution tag followed by `@greptile-apps review`, then wait for its review like any
+  other bot's and fold in its findings. If it declines again, record "declined (over file cap)
+  even after the bypass". Otherwise a squash in `pr-ready-for-human` brings the count under the
+  cap, and the review lands after the PR is already with a human.
   - **CI:** complete when every required check is terminal (success/failure), not
   queued/in-progress. Failures → treat like any finding (fix if safe; else decision report).
   - **On timeout:** record "timed out after N min" (for Devin, re-trigger once as you give

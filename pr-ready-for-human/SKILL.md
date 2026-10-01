@@ -82,6 +82,14 @@ Consequences of the new SHA:
 - **CI re-runs.** The tree is byte-identical, so don't wait for it.
 - **Devin's pre-squash run still counts** — the diff is unchanged — so do not re-run the
   gauntlet or treat the squash as "a new commit after preflight".
+- **A bot that declined the PR for size may review it now.** Greptile's file limit counts every
+  file any commit touched, so squashing a long branch can bring it under the cap, and Greptile
+  then reviews the squashed commit on its own, roughly ten minutes after the push. If a bot's
+  newest post on the PR is a size refusal ("Too many files changed for review"), ask the user
+  whether to wait for that review before Stage 4 (in Claude Code, with the `AskUserQuestion`
+  tool; elsewhere, ask in chat and stop until they answer). If they choose to wait and the
+  review has findings, the PR is not clean: bounce to preflight. If they choose not to wait,
+  say in the report that a review from that bot may still arrive.
 
 If the branch is already a single commit, skip this stage silently.
 
