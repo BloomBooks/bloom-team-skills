@@ -73,6 +73,40 @@ look: the **PR description** (Phase 3) and the top of the **report** (Phase 5).
 placed beside the words that describe it. How to crop, size and caption them, and how to put them
 on a PR without committing them, is in `screenshots.md` at the root of the bloom-team-skills clone (reach it through this file's real path, as with `dev-process-artifacts.md`; skills are symlinked individually, so a `../` hop does not find it).
 
+## The PR description — the narrative, then the reviewer sections
+
+The PR description is written for the **reviewer**, not the tester. After the narrative it carries
+these sections, in this order, each under its own `##` heading. Every one is present on every PR;
+when a section has nothing to say, it says so in one line ("No significant risks.", "None.") so the
+reviewer can see it was considered rather than forgotten.
+
+1. **Screenshots** — only when the change involves UI (see "Show the UI" above). A few shots of
+   what a user now sees, each with a one-line caption. Omit the heading for a PR with no UI.
+2. **Risk Evaluation** — whether the PR makes the core code significantly more complex or puts
+   existing behavior at risk. Name the shared paths the change now runs through on every use (an
+   Undo handler, a save path, a mouse handler, a stylesheet every book carries), so the reviewer
+   knows where to look hardest. Code that is new and only reached by the new feature is low risk;
+   say that in a sentence rather than listing it.
+3. **Ecosystem Impact** — what the change means for the products and files outside this repo's
+   running app: published output and its readers (e.g. Bloom Player, BloomPUB, ePUB, PDF), older
+   versions of the app opening the same files, other repos and services, new or changed
+   dependencies, localization (new strings, and whether they reach translators). Say which of
+   these were checked and which were not.
+4. **E2E Coverage** — which end-to-end tests cover the change, grouped by what they cover, and
+   what the change does that they do not cover and why. If end-to-end tests are not relevant to
+   this change (a build-script fix, a C#-only refactor with unit tests), say why in one line.
+5. **Notion Test Suite** — the cards this PR added to or changed in the team's Notion test
+   inventory, each with its Test Case ID, title, URL and Automation state, or "None." Read the
+   inventory to answer this; don't guess from memory of the session.
+
+**Don't list the checks.** Which gates passed, which suites ran, and what a tester should try are
+not reviewer material. The gates' state goes in the report; the testing steps go in the QA
+test-ideas comment on the card.
+
+All of these sit **inside** the narrative markers (Phase 3), because they describe the PR as it
+now stands and a later run has to be able to refresh them. The **report** opens with the narrative
+alone (problem, cause, fix), not these sections.
+
 ## What the report is for — and what does not belong in it
 
 The report has exactly two jobs:
@@ -327,8 +361,9 @@ Everything is already committed in Phase 2; this phase only pushes and opens the
   `gh pr create --draft --base <base> --title "<summary> (<TICKET>)" --body-file <file>` (a
   literal `--body "...\n..."` won't expand `\n` in PowerShell — always use `--body-file`). The
   body is **the PR narrative** — problem, cause where it isn't obvious, and what the whole PR
-  changes (see "The PR narrative") — wrapped in the marker lines below, followed by
-  `Ref: <tracker-url-if-known>`.
+  changes (see "The PR narrative") — followed by the reviewer sections (see "The PR description
+  — the narrative, then the reviewer sections"), all wrapped in the marker lines below, followed
+  by `Ref: <tracker-url-if-known>`.
   - Exists but is **ready-for-review** → convert it back to draft (`gh pr ready <n> --undo`):
   preflight means the work is pre-review again. Note the conversion in the report.
   - Either way the PR state changed under you, so the report must render its PR-state chip from a
@@ -342,7 +377,7 @@ anything else:
 
   ```
   <!-- preflight-narrative:begin -->
-  … problem / cause / fix …
+  … problem / cause / fix, then the reviewer sections …
   <!-- preflight-narrative:end -->
   ```
 

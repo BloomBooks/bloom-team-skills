@@ -39,10 +39,12 @@ Check all of the following. **Any failure → do not promote** (see "Not clean" 
 - **Mergeable** with the base branch.
 - **The PR description says what the PR is for.** Un-drafting a PR is the moment a human starts
   reading it, and the description is the first thing they read. It should state the problem, the
-  cause where that isn't obvious, and what the whole PR changes — `preflight` writes exactly that
-  (its "PR narrative"), between `<!-- preflight-narrative:begin/end -->` markers. This is the one
-  check that does **not** bounce: if the description is missing that, or the markers are there but
-  the narrative plainly predates the current code, say so in the report and offer to refresh it —
+  cause where that isn't obvious, and what the whole PR changes, followed by the reviewer sections
+  (Screenshots when there is UI, Risk Evaluation, Ecosystem Impact, E2E Coverage, Notion Test
+  Suite) — `preflight` writes exactly that (its "PR narrative" and "reviewer sections"), between
+  `<!-- preflight-narrative:begin/end -->` markers. This is the one check that does **not**
+  bounce: if the description is missing any of that, or the markers are there but the narrative
+  plainly predates the current code, say so in the report and offer to refresh it —
   don't hold the promotion for it, and never overwrite a description a human wrote.
 - **The commit message(s) and the PR description are accurate for the code as it now stands.** Both
   go stale when work continues after they were written, so check them against
