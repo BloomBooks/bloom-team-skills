@@ -480,6 +480,14 @@ already ran in Phase 1; its captured outcome joins the results here.
   if its newest post predates the PR's *previous* push and it has no check context, it is not
   re-triggering on this PR (Greptile has done this). Record it at once as "has not reviewed the
   current code" rather than waiting out the cap; a PR nothing re-reviewed should say so.
+  You *can* re-trigger Greptile: a PR comment with the attribution tag followed by
+  `@greptile-apps review` starts a fresh review within a minute or so. (The Retrigger link in its
+  summary comment needs a Greptile login, so it only works from the developer's browser.) That is
+  a judgment call, not a step for every run. Each review means another wait, and another round of
+  findings to triage. A fix-up commit that only answers its earlier findings rarely needs a second
+  look. Re-trigger it when the code it last saw has changed substantially (new behavior, or rework
+  of the very code it flagged), or when it never reviewed the PR's current approach at all.
+  Otherwise the "has not reviewed the current code" row is the honest record.
   - **A bot that declines the PR for size has not reviewed it, and that is not a terminal
   state.** Greptile posts "Too many files changed for review (100 file limit). Bypass the limit
   by tagging `@greptile-apps` to review." Its count is every file any of the PR's commits
