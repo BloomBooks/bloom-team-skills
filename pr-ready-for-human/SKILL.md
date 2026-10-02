@@ -50,7 +50,9 @@ Check all of the following. **Any failure → do not promote** (see "Not clean" 
   go stale when work continues after they were written, so check them against
   `git diff origin/<base>...HEAD` rather than trusting them — a stale count ("adds 5 tests" when
   there are now 9), or a description of an approach since reworked, misleads a reviewer more than
-  saying nothing would. Like the bullet above, this does not bounce: fix it, or offer to.
+  saying nothing would. Like the bullet above, this does not bounce: fix it, or offer to. Keep
+  both terse while you're at it: a commit body is what changed and why in a few lines, not a log
+  of how it was verified.
 
 ### Not clean → bounce to preflight
 
@@ -111,7 +113,20 @@ Then:
 2. List the card's comments and check a PR link isn't already there
    (`grep -i "github.com.*pull"`) — avoid duplicates.
 3. If none, post a comment: `PR: <PR URL>`.
-4. **Move the card to the ready-for-peer-review state**, then confirm the tracker echoes the new
+4. **Make the testing notes accurate and succinct.** Moving the card is when a tester starts
+   reading the test-ideas comment (`add-test-ideas`), and by now it has usually been rewritten
+   over several preflight runs. Re-read it against `git diff origin/<base>...HEAD` and fix it in
+   place:
+   - **Accurate:** every "do this → expect that" matches what the code does now, and, where
+     someone tried it in a real build, what was actually seen. An expected message is quoted
+     only if it is the one the user really gets. When a run has corrected an earlier belief,
+     write the corrected behavior, not the old one.
+   - **Current truth, nothing historical:** describe the change as it stands. No "earlier this
+     did X", no "round 2", no correction notes stacked under the original; replace the text.
+   - **Succinct:** scale it to the change. A small change gets two or three sentences and a
+     handful of checkboxes. Cut any item this diff has no plausible way of breaking, and any
+     setup a tester doesn't need.
+5. **Move the card to the ready-for-peer-review state**, then confirm the tracker echoes the new
    state back.
 
 **Never move a card backwards.** If it's already in that state, or further along (in Bloom's
