@@ -2,6 +2,16 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-10-02 — Vite+ downloads pnpm 12.8.1, which then will not run
+
+- **Cut:** `vp create vite -- <name> --template react-ts` wrote `devEngines.packageManager` pnpm
+  12.8.1 into package.json and downloaded it under `D:\.pnpm-store\v11\links\@\pnpm\12.8.1\`, but
+  every `vp install` then failed: `'...\node_modules\pnpm\pnpm' is not recognized as an internal
+  or external command`.
+- **Idea:** Find out why the downloaded pnpm has no runnable entry point. Until then, the
+  workaround is to set `devEngines.packageManager.version` to the globally installed pnpm (11.0.3).
+- **Context:** D:\coanda scaffold, vp v0.2.1, hit by Hatton's agent.
+
 ## 2026-09-27 — `curl -F file=@/c/...` in Git Bash uploads nothing and says nothing
 
 - **Cut:** Git Bash's `curl` is the mingw64 build, which does not translate MSYS paths inside
