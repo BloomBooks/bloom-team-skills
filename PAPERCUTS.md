@@ -2,6 +2,18 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-10-05 — `reviewable-replies` cannot start a new thread, and its Bash recipe hangs
+
+- **Cut:** the installed `reviewable` CLI (1.0.1) has no `discussions create`, so a reviewer's
+  "post a comment on this line" can't be done; 1.3.1 (`pnpm dlx reviewable@1.3.1`) has it, but
+  its `location` needs Reviewable's internal file key, found only via `review files list`. Every
+  `reviewable` call from the Bash tool hung with no output (even under `timeout 60`); the same
+  calls from PowerShell via `cmd /c "... < body.json > out.txt"` worked at once.
+- **Idea:** in `reviewable-replies`, bump the CLI to 1.3.x, add the create recipe (files list →
+  file key → `discussions create`, which leaves a draft), and make the PowerShell/cmd form the
+  primary one instead of Bash.
+- **Context:** reviewing PR 8388 (BL-16902) for Hatton.
+
 ## 2026-10-02 — Vite+ downloads pnpm 12.8.1, which then will not run
 
 - **Cut:** `vp create vite -- <name> --template react-ts` wrote `devEngines.packageManager` pnpm
