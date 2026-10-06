@@ -2,6 +2,16 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-10-06 — `pr-ready-for-human` squashes the bottom PR of a stack without warning
+
+- **Cut:** Stage 2 squashes the branch and force-pushes. When another open PR uses that branch as
+  its base, the squash removes the commits the next branch was built on, so its diff on GitHub
+  would show the squashed PR's changes again. Nothing in the skill mentions it; I caught it only
+  by noticing PR 8319's base was inline-1.
+- **Idea:** before squashing, `gh pr list --base <branch>`; for each PR found, merge the squashed
+  branch into its head and push, then check that PR's file list no longer repeats the squashed files.
+- **Context:** promoting PR 8318 (BL-16822, bottom of a seven-PR stack) for Hatton.
+
 ## 2026-10-06 — `pr-ready-for-human`'s chip patch is a multi-line `node -e`, which does nothing
 
 - **Cut:** Stage 4 step 2 patches the published report's PR-state chip with a multi-line
