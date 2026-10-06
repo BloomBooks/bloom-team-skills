@@ -205,6 +205,8 @@ phase says "each reviewer" and means this list:
  via a prior review/comment from the bot, a check context in `gh pr checks <n>`, or a config
  file (`.greptile*` / `.coderabbit*`). They trigger themselves on push.
 4. **CI** — the PR's checks (`gh pr checks <n>`).
+5. **Each repo check** (see "Repo checks"), one row each: passed, failed (with what failed and what
+ was done about it), or "did not apply" with the reason from its condition.
 
 **Terminal-state rule (the rule this skill exists to enforce):** the run is not done until
 every reviewer is in exactly one of two states for the **current HEAD sha**:
@@ -250,6 +252,26 @@ go hunting through the PR or the commit log.
 Never write "token" — or any other auth mechanism — into a preflight instruction. Ask the tracker
 skill whether it's reachable and let it decide what that means.
 
+## Repo checks — project-declared
+
+A project can add checks of its own to every preflight, for things only that repo knows how to
+verify, such as "every e2e spec the branch adds or changes has run once at the nightly CI window
+size". They live under a heading named **Preflight checks** (any level) in the project's root `AGENTS.md` or
+`CLAUDE.md`, the same place as the tracker declaration and for the same reason; the heading may
+point at a longer file. Each check states:
+
+- **When it applies**, as a condition on the branch's diff against the base.
+- **What to run.**
+- **What passing means.**
+
+That heading is the only place to look. With no heading the project has no checks, and the report
+says nothing about them. Read the checks in Phase 0. Run each check whose condition the final diff
+meets **once, on settled code, in Phase 4 step 4**, alongside the full suites, unless the check
+names another phase: checks are often slow, and a fix-push cycle would make an earlier run stale.
+A failing check is handled like a failing suite: fix what is within the autonomy line and run it
+again; anything else goes to the decision report. So does a check that needs something this
+machine lacks, saying what was missing.
+
 ## When the code is already on the trunk (no branch, no PR)
 
 A repo whose work is pushed straight to `master` has no diff for Devin to review. Use a **marker
@@ -264,6 +286,8 @@ no CI.
 from `git remote get-url origin`.
 - **Identify the issue tracker and this branch's ticket id**, per "The issue tracker" above — stop
 and ask if the project declares none.
+- **Read the repo checks** under the **Preflight checks** heading in the root `AGENTS.md`/`CLAUDE.md`, per
+"Repo checks" above.
 - **Pick up the problem statement and the previous narrative** — two cheap reads that the whole
 report hangs off (see "The PR narrative"): the card's own summary/description via the tracker
 skill, if this branch has a card, and the existing PR description if a PR is already open (an
@@ -440,7 +464,8 @@ already ran in Phase 1; its captured outcome joins the results here.
  against the settled code. If it already passed on an identical tree this run, don't re-run it.
  Failures → fix if safely fixable (that's a new commit → back to step 3), else decision report
  + (via the board skill) a "needs response" state. Phase 5 requires every in-scope suite green
- at the final HEAD.
+ at the final HEAD. Run the repo checks whose condition the diff meets here too (see "Repo
+ checks"), under the same rules.
 
  **In scope = the final diff can plausibly reach it** — decide per stack from the diff, not
  from what the repo happens to contain. A stack is in scope when the diff touches its own
