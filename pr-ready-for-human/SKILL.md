@@ -80,6 +80,16 @@ Mechanics (interactive rebase is not available here):
    `git reset --hard $old` and bounce to preflight.
 4. `git push --force-with-lease`. The user invoking this skill is the explicit authorization
    for this push.
+5. **Reconnect every PR stacked on this branch:** `gh pr list --base <branch> --state open`.
+   Each one's head was built on the commits the squash just removed, so GitHub now diffs it from
+   an older merge base and shows this PR's changes a second time. For each, merge the pushed
+   branch into its head and push; the squashed tree is already in that head, so the merge changes
+   no content. Work in a worktree you own (a detached `git worktree add` on a short path), never
+   one where someone else has the head checked out. Then confirm
+   `gh pr view <m> --json files` lists none of this PR's files. Only PRs based directly on this
+   branch need it; the ones above them are based on branches the squash did not rewrite. A
+   conflict means the stacked branch holds work beyond this PR's: stop and report it. Invoking
+   this skill authorizes these merges and pushes.
 
 Consequences of the new SHA:
 
@@ -186,8 +196,8 @@ lowest-stakes step.
    explicit command that skill requires). Skip silently if unavailable.
 4. **Report**: "PR #<n> is now marked ready for review; the tracker card is in its
    ready-for-peer-review state (name it). PR: <URL>" plus whether the published preflight report's
-   PR-state chip was updated (with its URL), and anything skipped (e.g. the tracker was
-   unreachable).
+   PR-state chip was updated (with its URL), which stacked PRs Stage 2 reconnected, and anything
+   skipped (e.g. the tracker was unreachable).
 
 ## Rules
 
