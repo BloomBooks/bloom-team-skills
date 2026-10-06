@@ -2,6 +2,15 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-10-06 — `pr-ready-for-human`'s chip patch is a multi-line `node -e`, which does nothing
+
+- **Cut:** Stage 4 step 2 patches the published report's PR-state chip with a multi-line
+  `node -e '...'` in Bash. On Windows it printed nothing and left the file unchanged (the known
+  multi-line `node -e` trap), so the commit that followed would have pushed nothing. The same
+  code from a script file printed "patched" and worked.
+- **Idea:** ship the patch as a `.mjs` file beside the skill and call `node <file> "$F"`.
+- **Context:** promoting PR 8346 (BL-16859) for Hatton.
+
 ## 2026-10-05 — `reviewable-replies` cannot start a new thread, and its Bash recipe hangs
 
 - **Cut:** the installed `reviewable` CLI (1.0.1) has no `discussions create`, so a reviewer's
