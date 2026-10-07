@@ -54,28 +54,21 @@ chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   #
 - **Publish once, to exactly one target.** Do not publish the same report through both the
   public repo and the Anthropic Artifact tool — that produces two links and opens two browser
   tabs.
-- **Picking the target: does the link leave the session?** When a ticket id was found, it does —
-  Phase 5 posts the report URL to the YouTrack card so decisions can be picked up later by
-  someone other than the in-session developer — so publish to the **public
-  `dev-process-artifacts` repo (GitHub Pages URL)**; see **`dev-process-artifacts.md` at the root of the
-  bloom-team-skills clone** — do *not* resolve that as a path relative to this file. Skills are
-  symlinked individually into `~/.claude/skills`, so a `../../` hop lands in the skills directory,
-  not in the clone, and the file appears to be missing when it is not. Reach it via this file's
-  real path (`readlink -f`), or read it from
-  https://github.com/BloomBooks/bloom-team-skills/blob/main/dev-process-artifacts.md. The same
-  applies whenever the link otherwise has to leave the session (handed to a teammate or another
-  agent, the user asks for a public link) or the Artifact tool is unavailable. Name it
+- **The target is the public `dev-process-artifacts` repo (GitHub Pages URL).** Phase 5 puts the
+  report URL in the PR description, where a reviewer or whoever picks the work up later opens it,
+  so it must be readable without a Claude subscription. See **`dev-process-artifacts.md` at the
+  root of the bloom-team-skills clone** — do *not* resolve that as a path relative to this file.
+  Skills are symlinked individually into `~/.claude/skills`, so a `../../` hop lands in the skills
+  directory, not in the clone, and the file appears to be missing when it is not. Reach it via this
+  file's real path (`readlink -f`), or read it from
+  https://github.com/BloomBooks/bloom-team-skills/blob/main/dev-process-artifacts.md. Name it
   `deciders/<sourceRepo>-<branch>.html` — the URL is stable per branch, so a re-run overwrites
-  the same page and the card's report-link comment stays valid (post that stable URL to the
-  card, not a commit-pinned one). The Pages deploy takes ~1 min, so on a re-run the previous
-  version can serve briefly — confirm the URL returns 200 (and shows the new report) before you
-  post or open it.
-- **Otherwise (no tracker card, link stays in-session): the Anthropic Artifact tool.** That
-  report is transient — the in-session developer reads it, answers the decisions, and it's
-  spent — so a private link is enough. It's one tool call: no clone/push, no third-party CDN,
-  and no cache staleness when a fix loop re-runs preflight minutes later. Say in the chat
-  summary that the link is **subscriber-only** (private, no public toggle) and that the user can
-  share it to fellow subscribers from the artifact's own share menu.
+  the same page and the PR description's link stays valid (use that stable URL, not a
+  commit-pinned one). The Pages deploy takes ~1 min, so on a re-run the previous version can serve
+  briefly — confirm the URL returns 200 (and shows the new report) before you link or open it.
+- **Fallback: the Anthropic Artifact tool**, only when the push to `dev-process-artifacts` fails.
+  Its link is **subscriber-only** (private, no public toggle), so leave it out of the PR
+  description and say in the chat summary that the report could not be published publicly.
 - Either way the report augments, never replaces, the chat summary.
 - **After publishing, open the report in the user's default browser exactly once** — the one
   canonical URL, and only if this report hasn't already been opened this run. Windows:

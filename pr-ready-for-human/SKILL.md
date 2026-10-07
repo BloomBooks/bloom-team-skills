@@ -155,7 +155,7 @@ lowest-stakes step.
    but still do step 2, which is precisely the case that leaves a stale report behind.
 2. **Correct the published preflight report's PR-state chip.** Preflight's report page lives at a
    stable public URL (`deciders/<sourceRepo>-<branch>.html` in `BloomBooks/dev-process-artifacts`)
-   and is linked on the tracker card, so people keep opening it after the promotion — and its
+   and is linked from the PR description, so people keep opening it after the promotion — and its
    header chip still says "Draft PR". Patch that one chip in place; do not re-render the report
    (its decisions, gate results, and reviewer outcomes must stay exactly as preflight left them).
 
@@ -180,8 +180,8 @@ lowest-stakes step.
 
    Cases where there is nothing to patch — note each in the report and move on, never guess at
    unmarked HTML:
-   - **No such file** (no ticket id, so preflight published a private Anthropic Artifact instead,
-     or no report was ever published) → nothing to do. The one exception: if that private artifact
+   - **No such file** (the push to `dev-process-artifacts` failed and preflight published a
+     private Anthropic Artifact instead, or no report was ever published) → nothing to do. The one exception: if that private artifact
      came from *this* session and you still have its local file, correct the chip there and
      redeploy to the same `url`.
    - **The file has no `pr-state` markers** (published before this convention) → say in the report

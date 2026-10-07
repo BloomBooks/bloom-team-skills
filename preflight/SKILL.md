@@ -386,14 +386,25 @@ Everything is already committed in Phase 2; this phase only pushes and opens the
   literal `--body "...\n..."` won't expand `\n` in PowerShell — always use `--body-file`). The
   body is **the PR narrative** — problem, cause where it isn't obvious, and what the whole PR
   changes (see "The PR narrative") — followed by the reviewer sections (see "The PR description
-  — the narrative, then the reviewer sections"), all wrapped in the marker lines below, followed
-  by `Ref: <tracker-url-if-known>`.
+  — the narrative, then the reviewer sections"), then the `Preflight report:` line (Phase 5), all
+  wrapped in the marker lines below, followed by `Ref: <tracker-url-if-known>`.
   - Exists but is **ready-for-review** → convert it back to draft (`gh pr ready <n> --undo`):
   preflight means the work is pre-review again. Note the conversion in the report.
   - Either way the PR state changed under you, so the report must render its PR-state chip from a
   fresh `gh pr view <n> --json isDraft` at report time rather than from what happened here — see
   `references/report-artifact.md`, "Header — the run summary and the status chips".
   - (Do NOT do the promote-to-human ceremony — that's `pr-ready-for-human`.)
+- **Number the PRs in a stack.** A PR is stacked when its base is another PR's head branch, or
+  when another PR's base is its head branch. Every PR in a stack gets the title
+  `<TICKET> (<n>/<total> in stack) <summary>`, where 1 is the PR that targets the real base branch
+  and each PR above it counts up: e.g. `BL-16822 (3/7 in stack) Inline images: the model, its persisted state,
+  and its undo stack`. To find the stack, follow the base branches down
+  (`gh pr list --head <base>`) and the head branch up (`gh pr list --base <branch>`), with
+  `--state all` so merged PRs keep their place. Once a lower PR merges, GitHub retargets the PR
+  above it to the base branch and the chain can no longer be walked, so a number already in a
+  title is the record: keep it, and change only `<total>` if the stack has grown. When this run
+  creates or renumbers a PR, check the other PRs in the stack and fix any whose number or total
+  is now wrong (`gh pr edit <n> --title`). A PR that is not stacked gets no number.
 - Record PR number & URL.
 - **The PR description is the narrative's other home — keep it current, idempotently.** Preflight
 delimits the narrative with two marker lines so a later run can refresh it without touching
@@ -402,6 +413,7 @@ anything else:
   ```
   <!-- preflight-narrative:begin -->
   … problem / cause / fix, then the reviewer sections …
+  Preflight report: <report URL>
   <!-- preflight-narrative:end -->
   ```
 
@@ -417,6 +429,7 @@ anything else:
   - **Markers absent on an existing PR** → the description is **not ours**; a human wrote or
   rewrote it. **Leave it completely alone**, and say so in one line of the report. The report
   still carries the current narrative, and their text is an input to it (see "Where to get it").
+  The report link then goes in a PR comment instead (Phase 5).
   - The narrative you push here must be the **same text** the report shows. The code has settled
   by Phase 4/5 and Devin's Overview arrives in Phase 4, so it is fine to write the best version
   you have now and refresh it once in Phase 5 — but never let the two diverge.
@@ -563,14 +576,16 @@ tester to do, because …" note; never skip the comment just because there's not
 **only** reason to skip is a genuinely missing prerequisite — no ticket id or an unreachable  
 tracker — and then note it in the report. This is independent of whether decision items remain —  
 do it either way.
-- **Link the preflight report on the tracker card (once).** If a ticket id was found in Phase 0 and
-the tracker is reachable, post the report artifact's URL to the card after publishing it (see
-"Report artifact" below — a ticket id means the report publishes to the **public** repo, whose URL
-is stable per branch). Same mechanics and idempotence as the Phase 3 PR link: list the card's
-comments, and only if that URL isn't already there post `Preflight report: <url>` (prefixed with an
-identifier of which model you are). Do this **before ending the run** — decision items may be
-deferred to a different human who picks up the card later, and the report is where the decisions
-live. No ticket id, or an unreachable tracker → skip and note it in the report.
+- **Link the preflight report from the PR description, never from the tracker card.** After
+publishing the report (see "Report artifact" below; its public URL is stable per branch), put a
+`Preflight report: <url>` line at the end of the narrative block, just before
+`<!-- preflight-narrative:end -->`, so each run's refresh keeps it current. Do this **before ending
+the run**: decision items may be deferred to a different human who picks up the work later, and
+the report is where the decisions live. Do **not** post the report link to the tracker card; the
+team keeps bot comments on cards to a minimum, and the card already links the PR. If the
+description has no preflight markers (a human wrote it), post the link once as a PR comment
+instead, prefixed with an identifier of which model you are; check the PR's comments for that
+URL first so a re-run doesn't post it twice.
 - **If decision items remain** → (via the board skill) a "needs response / ball in the user's
 court" state, and deliver the **decision report**.
 - **If nothing remains** → (via the board skill) the user's **"ready for my own final review
@@ -598,8 +613,8 @@ isDraft` — never assumed from what this run did to it); fast-gate and full-sui
 run changed; reviewer outcomes — one line per reviewer per "The reviewers" (the local review
 included, each remote one terminal: complete or "timed out after N min", how long we waited);
 mergeability; whether the QA test-ideas comment was posted/updated, whether the PR description's
-narrative was refreshed (or left alone as human-written), and whether the report link was posted
-to the card (or skipped, with why); final board state; and the count of items now waiting on the
+narrative was refreshed (or left alone as human-written), and where the report link went (the PR
+description, or a PR comment when the description is human-written); final board state; and the count of items now waiting on the
 user.
 
 "What the report is for" applies here too: no recital of settled decisions, no log of the
