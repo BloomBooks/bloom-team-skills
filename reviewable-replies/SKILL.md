@@ -75,7 +75,9 @@ shows that SHA. The body, on stdin:
 ```
 
 `disposition` is one of `informing`, `discussing` (the default), `blocking`, `working`; use
-`informing` for an explanation that asks nothing of the reviewer. Leave out `line` for a
+`informing` for an explanation that asks nothing of the reviewer. A **reply** takes a different
+set: `satisfied`, `discussing`, `blocking`, `working`. `informing` there fails with
+`invalid_disposition`, so a follow-up to your own `informing` thread uses `satisfied`. Leave out `line` for a
 file-level comment, and leave out `location` for a review-level one. Post it with
 `cat body.json | reviewable review discussions create --pr=...`, then `publish`. Verify that
 `discussions view --key=<new key>` shows `"draft": null`.
