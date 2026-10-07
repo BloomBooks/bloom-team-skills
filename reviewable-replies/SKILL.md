@@ -1,6 +1,6 @@
 ---
 name: reviewable-replies
-description: Reply to Reviewable.io PR review discussions via the official `reviewable` CLI (REST API) — per-thread replies, correct handling of GitHub-mirrored vs Reviewable-native threads, and publishing. Use whenever review comments on a Reviewable-managed PR need responses.
+description: Reply to Reviewable.io PR review discussions, or start new ones, via the official `reviewable` CLI (REST API) — per-thread replies, new file/line comments, correct handling of GitHub-mirrored vs Reviewable-native threads, and publishing. Use whenever review comments on a Reviewable-managed PR need responses, or a comment needs to go on a file or line in Reviewable.
 argument-hint: "PR (e.g. BloomBooks/BloomDesktop#7557) and which discussions to answer; or enough context to find them"
 ---
 
@@ -46,8 +46,39 @@ reviewable review discussions  list [--query="+needs:me"] --pr=...
 reviewable review discussions  view --key=<key> --pr=...
 reviewable review discussions  reply --key=<key> --pr=...      # JSON body on stdin
 reviewable review discussions  acknowledge --key=<key> --pr=...
+reviewable review discussions  create --pr=...                 # JSON body on stdin; CLI 1.3.1+
+reviewable review files        list --pr=...                   # file keys, for create
+reviewable review revisions    list --pr=...                   # rN key + head commit SHA
 reviewable review publish      --pr=...
 ```
+
+`discussions create` does not exist in CLI 1.0.x. If it is missing, update the CLI
+(`volta install reviewable@latest`).
+
+## Starting a new thread
+
+To put a new comment on a file or line (e.g. an explanation for a reviewer), create a draft
+discussion and then publish. Get the file's `key` from `files list` and the head commit SHA of the
+revision to anchor on from `revisions list`. If you just pushed, wait until `revisions list`
+shows that SHA. The body, on stdin:
+
+```json
+{
+  "markdownBody": "[<attribution tag>] <the comment>",
+  "disposition": "informing",
+  "location": {
+    "file": { "key": "<file key>", "path": "src/path/File.cs" },
+    "line": 42,
+    "revision": { "commitSha": "<head SHA>" }
+  }
+}
+```
+
+`disposition` is one of `informing`, `discussing` (the default), `blocking`, `working`; use
+`informing` for an explanation that asks nothing of the reviewer. Leave out `line` for a
+file-level comment, and leave out `location` for a review-level one. Post it with
+`cat body.json | reviewable review discussions create --pr=...`, then `publish`. Verify that
+`discussions view --key=<new key>` shows `"draft": null`.
 
 If a flag doesn't behave as documented here, check `reviewable review --help` — this file
 describes the workflow, the CLI is the source of truth for its own syntax.
