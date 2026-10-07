@@ -405,6 +405,12 @@ Everything is already committed in Phase 2; this phase only pushes and opens the
   title is the record: keep it, and change only `<total>` if the stack has grown. When this run
   creates or renumbers a PR, check the other PRs in the stack and fix any whose number or total
   is now wrong (`gh pr edit <n> --title`). A PR that is not stacked gets no number.
+- **In a stack, look for an open PR the stack replaced.** List the ticket's open PRs
+  (`gh pr list --search "<TICKET>" --state open`). Any that is not in the stack is probably the
+  single PR the work was split from, and a reviewer following an old card link will review it
+  instead of the stack. Do not close it yourself; put it at the top of the report as a decision,
+  naming the PR and the card comments that link to it. The tracker skill's stack guidance says
+  how to retire it.
 - Record PR number & URL.
 - **The PR description is the narrative's other home — keep it current, idempotently.** Preflight
 delimits the narrative with two marker lines so a later run can refresh it without touching

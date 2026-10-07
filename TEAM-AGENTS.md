@@ -74,6 +74,13 @@ later, rename it (`git branch -m <old> <new>`) while that's still free — befor
 before a PR or an Orca worktree is pointing at the old name. The 1–3 words are for humans; don't
 paste the card's whole summary in.
 
+## Splitting a PR into a stack retires the original
+
+When you split one PR into a stack of PRs, close the original PR and repoint every link to it on
+the card **in the same step**. Otherwise a reviewer who follows an old card link spends hours on a
+PR nobody is updating. The procedure is in `youtrack-api`, "Guide a reviewer through a stack of
+PRs".
+
 ## Two agents in one tree overwrite each other, and it never looks like that
 
 This has cost real work three times, and **not once did it present as a conflict**. Nothing in

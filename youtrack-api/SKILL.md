@@ -151,11 +151,24 @@ included. List comments with `fields=id,text` to get the id.
 When one card's work is split into a stack of PRs (each PR's base branch is the previous PR's
 branch), the PR titles carry the order and one card comment lists the stack for reviewers.
 
-**PR titles:** `<card-id> (<n>/<total> in stack) <what this PR does>`, numbered from the PR based
-on `master` (or the `VersionX.Y` branch) upward, e.g. `BL-16822 (3/7 in stack) Inline images: the
-model, its persisted state, and its undo stack`. Work out the order by following `baseRefName`
-from `gh pr list --search "<card-id>" --state open --json number,title,headRefName,baseRefName,isDraft`,
-and retitle with `gh pr edit <n> --title "…"`.
+**PR titles:** numbered as preflight's "Number the PRs in a stack" says:
+`<card-id> (<n>/<total> in stack) <what this PR does>`.
+
+**Retire the PR the stack replaces, in the same step as opening the stack.** A reviewer who
+follows an old link from the card into the original PR reviews it for hours, unaware that the
+stack exists. So, before the work counts as split:
+
+1. Close the original PR (`gh pr close <n> --comment "…"`), with a comment that links to the
+   stack's 1/N PR and starts with the attribution tag from §1.
+2. List the card's comments (`fields=id,text`) and find every one that links to the original
+   PR: preflight's `PR:` comment, a preflight report comment, the test-ideas comment. Edit each
+   one the Bot posted so it links to the stack instead (see "Post a comment" above). A link in
+   a comment a human posted can't be edited; name it in your report.
+3. Check the card's description the same way, and update it if it links to the original PR.
+
+Done means: the only open PRs for the card are the stack's, and every PR link on the card leads
+to the stack. The same holds the other way: when a stack is folded back into one PR, close the
+stack's PRs and repoint the card at the one PR.
 
 **The card comment:** one comment, posted once and then edited in place (see "Post a comment"
 above) whenever a title, the order, or a draft state changes. Each PR is one line: an unchecked
