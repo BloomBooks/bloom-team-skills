@@ -1,6 +1,6 @@
 ---
 name: youtrack-api
-description: How to talk to the Bloom YouTrack tracker over REST — authentication, base URL, and common operations (read an issue, find an issue id, list/post comments, set an issue's State, assign an issue, attachments). Bloom's implementation of the "tracker skill" that preflight and pr-ready-for-human ask for, and the shared low-level building block the other youtrack-* skills rely on.
+description: How to talk to the Bloom YouTrack tracker over REST — authentication, base URL, and common operations (read an issue, find an issue id, list/post/edit comments, a card's guide to a stack of PRs, set an issue's State, assign an issue, attachments). Bloom's implementation of the "tracker skill" that preflight and pr-ready-for-human ask for, and the shared low-level building block the other youtrack-* skills rely on.
 ---
 
 # Using the Bloom YouTrack REST API
@@ -141,6 +141,45 @@ with embedded quotes/code, write the JSON to a file and use `curl -d @file.json`
 To retract a comment the Bot posted, mark it deleted: `POST .../issues/<issue-id>/comments/<comment-id>`
 with `{"deleted": true}`. A hard `DELETE` returns 403, and so does either kind of delete, or an
 edit, of a comment posted under a human's account.
+
+To edit a comment the Bot posted, `POST .../issues/<issue-id>/comments/<comment-id>?fields=text`
+with `{"text": "…"}`. The whole text is replaced, so send the full new body, attribution tag
+included. List comments with `fields=id,text` to get the id.
+
+### Guide a reviewer through a stack of PRs
+
+When one card's work is split into a stack of PRs (each PR's base branch is the previous PR's
+branch), the PR titles carry the order and one card comment lists the stack for reviewers.
+
+**PR titles:** `<card-id> (<n>/<total> in stack) <what this PR does>`, numbered from the PR based
+on `master` (or the `VersionX.Y` branch) upward, e.g. `BL-16822 (3/7 in stack) Inline images: the
+model, its persisted state, and its undo stack`. Work out the order by following `baseRefName`
+from `gh pr list --search "<card-id>" --state open --json number,title,headRefName,baseRefName,isDraft`,
+and retitle with `gh pr edit <n> --title "…"`.
+
+**The card comment:** one comment, posted once and then edited in place (see "Post a comment"
+above) whenever a title, the order, or a draft state changes. Each PR is one line: an unchecked
+checkbox for the reviewer to tick, then the PR's current title as a link to the PR. Group the
+lines by readiness, in stack order:
+
+```markdown
+[Claude Opus 5.5 following a prompt from Hatton]
+
+This work is split into a stack of PRs, each built on the one before. Reviewers: please check each one off as you finish reviewing it.
+
+## Ready
+
+* [ ] [BL-16822 (1/7 in stack) Extract the canvas control menu rendering from the canvas component](https://github.com/BloomBooks/BloomDesktop/pull/8318)
+* [ ] [BL-16822 (2/7 in stack) Book CSS for inline (Word-style) images, and a layout suite for it](https://github.com/BloomBooks/BloomDesktop/pull/8319)
+
+## Still in Draft
+
+* [ ] [BL-16822 (3/7 in stack) Inline images: the model, its persisted state, and its undo stack](https://github.com/BloomBooks/BloomDesktop/pull/8320)
+```
+
+The link text is the PR's title exactly as GitHub shows it now, so re-read the titles before
+writing the comment. Leave out the "Still in Draft" heading when nothing is a draft. A box a
+reviewer has already ticked stays ticked when you edit the comment.
 
 ### Set an issue's State
 
