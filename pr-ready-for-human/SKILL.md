@@ -1,6 +1,6 @@
 ---
 name: pr-ready-for-human
-description: Promote a preflighted, self-reviewed PR to human (peer) review. Step 3 of the review sequence — (1) run preflight, (2) the developer reviews the work themselves, (3) the developer runs this. Verifies the PR is genuinely clean (CI green, bots quiet, nothing newer than the last preflight), squashes the branch to a single commit (unless the commit split genuinely helps the reviewer), links the PR on the tracker card and moves it to the project's ready-for-peer-review state, marks the PR ready-for-review, and moves the personal board to its human-review column. If anything is not clean, it bounces back to preflight instead of fixing things itself.
+description: Promote a preflighted, self-reviewed PR to human (peer) review. Step 3 of the review sequence — (1) run preflight, (2) the developer reviews the work themselves, (3) the developer runs this. Verifies the PR is genuinely clean (CI green, bots quiet, nothing newer than the last preflight), squashes the branch to a single commit (unless the commit split genuinely helps the reviewer), links the PR on the tracker card, makes the card accurate about the PR, and moves it to the project's ready-for-peer-review state, marks the PR ready-for-review, and moves the personal board to its human-review column. If anything is not clean, it bounces back to preflight instead of fixing things itself.
 argument-hint: "optional: PR number or branch name — defaults to current worktree"
 ---
 
@@ -123,7 +123,23 @@ Then:
 2. List the card's comments and check a PR link isn't already there
    (`grep -i "github.com.*pull"`) — avoid duplicates.
 3. If none, post a comment: `PR: <PR URL>`.
-4. **Make the testing notes accurate and succinct.** Moving the card is when a tester starts
+4. **Make the whole card accurate about the PR.** A reviewer starts from the card, so read its
+   description and every comment, and the PR's own description, against what the PR is now.
+   This step is done when all of these hold:
+   - **Every PR link leads to this PR or its stack.** List the ticket's PRs
+     (`gh pr list --search "<TICKET>" --state all`). A link to a closed or superseded PR gets
+     repointed. An open PR for the ticket outside this PR or its stack is a decision for the
+     developer, not something to close here; ask with `AskUserQuestion`. (Retiring a PR a stack
+     replaced is in the tracker skill's stack guidance.)
+   - **Every statement about the PR's scope is true.** "In this PR" and "not in this PR" lines,
+     test lists and counts, and work said to have moved to another card all match the diff and
+     the specs as they stand. A "moved to" names the card that holds the work now.
+   - **No stale state.** Nothing calls the PR a draft, or says a decision is still open when the
+     developer has made it.
+
+   Fix text in place, the same way as the testing notes below: current truth, nothing
+   historical. A comment posted under a human's account can't be edited; name it in the report.
+5. **Make the testing notes accurate and succinct.** Moving the card is when a tester starts
    reading the test-ideas comment (`add-test-ideas`), and by now it has usually been rewritten
    over several preflight runs. Re-read it against `git diff origin/<base>...HEAD` and fix it in
    place:
@@ -136,7 +152,7 @@ Then:
    - **Succinct:** scale it to the change. A small change gets two or three sentences and a
      handful of checkboxes. Cut any item this diff has no plausible way of breaking, and any
      setup a tester doesn't need.
-5. **Move the card to the ready-for-peer-review state**, then confirm the tracker echoes the new
+6. **Move the card to the ready-for-peer-review state**, then confirm the tracker echoes the new
    state back.
 
 **Never move a card backwards.** If it's already in that state, or further along (in Bloom's
