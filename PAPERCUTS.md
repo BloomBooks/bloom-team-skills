@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-10-08 — BloomLibrary2 worktrees: postinstall fails, and pnpm then breaks every `pnpm exec` (incl. the pre-commit hook)
+
+- **Cut:** In a BloomLibrary2 git worktree, `pnpm install`'s postinstall (`shx rm -rf .git/hooks && shx ln -s ../.husky .git/hooks`) fails because `.git` is a file there. pnpm's verify-deps-before-run then re-runs that failing install on every `pnpm exec`, including the husky pre-commit hook's `pnpm exec pretty-quick` / `lint-staged`, so `git commit` fails. `husky install` also rewrites `.husky/.gitignore` each time.
+- **Idea:** Make the postinstall skip the hooks symlink when `.git` is not a directory (or drop it; `prepare: husky install` already exists), or document `export npm_config_verify_deps_before_run=false` (hooks still run) plus calling `node_modules/.bin/*` directly.
+- **Context:** BL-17000-relogin worktree, PR BloomBooks/BloomLibrary2#625, Claude Opus 5.5 during preflight.
+
 ## 2026-10-06 — `pr-ready-for-human`'s chip patch is a multi-line `node -e`, which does nothing
 
 - **Cut:** Stage 4 step 2 patches the published report's PR-state chip with a multi-line
