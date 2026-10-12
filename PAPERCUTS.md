@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-10-12 — add-test-ideas' "test-ideas" substring search can pick a human-facing reply
+
+- **Cut:** `add-test-ideas` finds its comment by the substring `test-ideas` and updates the most recent match. On BL-16741 a later reply ("I rewrote the test-ideas comment above") matched too, so the most recent match was that reply, not the test-ideas comment. Caught only because the anchored edits failed.
+- **Idea:** Match comments whose body starts with the marker line (`<!-- test-ideas -->` or the older `<!-- bloom-test-ideas -->`), not any comment containing the word.
+- **Context:** BloomDesktop PR 8463, Claude Opus 5.5 during preflight.
+
 ## 2026-10-08 — BloomLibrary2 worktrees: postinstall fails, and pnpm then breaks every `pnpm exec` (incl. the pre-commit hook)
 
 - **Cut:** In a BloomLibrary2 git worktree, `pnpm install`'s postinstall (`shx rm -rf .git/hooks && shx ln -s ../.husky .git/hooks`) fails because `.git` is a file there. pnpm's verify-deps-before-run then re-runs that failing install on every `pnpm exec`, including the husky pre-commit hook's `pnpm exec pretty-quick` / `lint-staged`, so `git commit` fails. `husky install` also rewrites `.husky/.gitignore` each time.
