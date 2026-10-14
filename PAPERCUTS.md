@@ -359,3 +359,15 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   found" on `/api/v1/key`), as is `openrouterKey` in `~/.bloombridge/settings.json`. Anything
   reaching OpenRouter from this machine needs a fresh key first.
 - **Context:** BL-16458 game theme editor, wiring "describe a theme in words" into the editor.
+
+## 2026-10-14 — Deleting a worktree can empty the node_modules its junction points at
+
+- **Cut:** To test in short-lived worktrees without a 5-minute `pnpm install` each, I junctioned
+  their `src/BloomBrowserUI/node_modules` to the main worktree's. A week later the main worktree's
+  `node_modules` was empty: those worktrees had since been deleted, and a delete that follows a
+  junction (`rm -rf`, Explorer, some `git worktree remove --force` paths) empties the target. Nothing
+  reported it; the next `pnpm exec prettier` just said "Command not found".
+- **Idea:** Wherever a skill or note suggests junctioning `node_modules` into a scratch worktree,
+  pair it with the removal step: `cmd /c rmdir <link>` first, which removes only the link, then
+  remove the worktree. Or skip the junction and accept the install.
+- **Context:** BL-16822 stacked PRs, e2e worktree.
