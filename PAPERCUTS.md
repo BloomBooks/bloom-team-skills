@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-10-15 — Breaking the source on purpose can break an e2e run that uses the same dev server
+
+- **Cut:** An e2e run whose Bloom loads its UI from a worktree's Vite dev server runs whatever source is on disk at that moment. An agent that breaks the source on purpose, for a minute, to check that its tests catch the breakage can make a concurrent e2e run fail in a way the real code doesn't. This is a risk; it was not proven to cause the failure that raised it.
+- **Idea:** Say in the testing guidance (TEAM-AGENTS.md or BloomDesktop's AGENTS.md) that such deliberate breakage belongs in a separate copy (another worktree or a scratch copy of the files), never in a worktree whose dev server an e2e run may be using.
+- **Context:** BloomDesktop worktree D:\undo (more-undo-exploration); an undo-routing.spec.ts failure that couldn't be reproduced afterwards. Claude Opus 5.5 following a prompt from Hatton.
+
 ## 2026-10-12 — add-test-ideas' "test-ideas" substring search can pick a human-facing reply
 
 - **Cut:** `add-test-ideas` finds its comment by the substring `test-ideas` and updates the most recent match. On BL-16741 a later reply ("I rewrote the test-ideas comment above") matched too, so the most recent match was that reply, not the test-ideas comment. Caught only because the anchored edits failed.
