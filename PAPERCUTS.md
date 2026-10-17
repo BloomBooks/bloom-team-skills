@@ -377,3 +377,17 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   pair it with the removal step: `cmd /c rmdir <link>` first, which removes only the link, then
   remove the worktree. Or skip the junction and accept the install.
 - **Context:** BL-16822 stacked PRs, e2e worktree.
+
+## 2026-10-17 — Vitest's browser tests can't start when Windows reserves port 63315
+
+- **Cut:** In BloomDesktop, `pnpm exec vitest run` passed all the jsdom files but never ran the
+  `*.browser.spec.ts` files: `listen EACCES: permission denied ::1:63315`, even with the Bash sandbox
+  off. Port 63315 is Vitest browser mode's default API port, and this machine's TCP excluded port
+  ranges (`netsh int ipv4 show excludedportrange protocol=tcp`, which Hyper-V and WinNAT reserve)
+  included 63252-63351. The summary still printed "140 passed", so the run reads as green.
+  `--browser.api.port` on the command line has no effect, because the browser project's own config
+  does not inherit it.
+- **Idea:** Set `browser.api.port` in the browser project of `vite.config.mts` to a port outside the
+  usual reservations, or have the test script check the excluded ranges first. Meanwhile, a
+  temporary config that copies the browser project with `api: { port: 63360 }` runs them.
+- **Context:** BL-17020 undo, the whole-suite run before adding commits to PR 8484.
