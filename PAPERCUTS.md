@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-10-20 — youtrack-create-issue's sprint endpoint returns 404
+
+- **Cut:** Step 3 of `youtrack-create-issue` adds the issue to the release sprint with `POST /api/agiles/89-5/sprints/93-213/issues` and `{"id":"<numeric id>"}`. As the Bot, that returned HTTP 404, so the following `State Ready For Work` command failed with "Set Kanban Board before leaving Incoming". The command `Kanban Board Bloom 6.5` through `POST /api/commands` set the field at once.
+- **Idea:** Replace step 3 with the `Kanban Board Bloom <version>` command (the field's values are named like the sprints, e.g. `Bloom 6.5`).
+- **Context:** creating BL-17026, Claude Opus 5.5 during youtrack-create-issue.
+
 ## 2026-10-15 — Breaking the source on purpose can break an e2e run that uses the same dev server
 
 - **Cut:** An e2e run whose Bloom loads its UI from a worktree's Vite dev server runs whatever source is on disk at that moment. An agent that breaks the source on purpose, for a minute, to check that its tests catch the breakage can make a concurrent e2e run fail in a way the real code doesn't. This is a risk; it was not proven to cause the failure that raised it.
