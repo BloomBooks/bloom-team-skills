@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-10-22 — wrangler run inside a repo rewrites that repo
+
+- **Cut:** wrangler 4.152, run in a folder that has no `wrangler.jsonc`, configures the project it finds there for Workers. `wrangler pages project create` does this too, because it now hands Pages over to Workers. Run in a lameta checkout, it added `wrangler` to `package.json`, changed `pnpm-lock.yaml` and `vite.config.ts`, and ran `pnpm install`, which removed 128 packages. The command then failed with `ERR_PNPM_IGNORED_BUILDS`, and the only hint about the changes was in its log file.
+- **Idea:** Add to the `windows-agent-gotchas` list in TEAM-AGENTS.md: run wrangler with `--cwd <folder outside the repo>` or `--config <file>`, and run `git status` afterwards.
+- **Context:** lameta, Claude Opus 5.5 while writing the `share-lameta-alpha` skill.
+
 ## 2026-10-20 — youtrack-create-issue's sprint endpoint returns 404
 
 - **Cut:** Step 3 of `youtrack-create-issue` adds the issue to the release sprint with `POST /api/agiles/89-5/sprints/93-213/issues` and `{"id":"<numeric id>"}`. As the Bot, that returned HTTP 404, so the following `State Ready For Work` command failed with "Set Kanban Board before leaving Incoming". The command `Kanban Board Bloom 6.5` through `POST /api/commands` set the field at once.
