@@ -51,8 +51,12 @@ account), and start the issue **description** with the attribution tag from `you
   `BL` (currently id `77-0`).
 - Board + sprint for the target version: the board is **"Bloom Kanban"** (`GET /api/agiles?fields=id,name` →
   currently agile id `89-5`), and each release is a **sprint** on it
-  (`GET /api/agiles/<agileId>/sprints?fields=id,name&$top=200` → find the one named like `Bloom 6.5`).
-  The issue's version field is the **`Kanban Board`** single-version custom field.
+  (`GET /api/agiles/<agileId>/sprints?fields=id,name,archived&$top=200` → find the one named like
+  `Bloom 6.6`). The issue's version field is the **`Kanban Board`** single-version custom field.
+- **Never create a card on an archived board.** A finished release's sprint stays in that list with
+  `archived: true` (e.g. `Bloom 6.5`); a card put there is off every board anyone is working from.
+  If the requested board's sprint is archived, do not create the issue: stop and ask which current
+  board it belongs on, offering the non-archived sprints from the same list.
 - State / Type values: `GET /api/admin/projects/<projectId>/customFields?fields=field(name),bundle(values(name))&$top=200`.
 
 **Order matters (workflow rule):** there is a rule *"Set Kanban Board before leaving Incoming."*
