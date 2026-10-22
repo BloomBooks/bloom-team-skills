@@ -14,13 +14,6 @@ import path from "node:path";
 export const TEAM_SKILLS = path.join(os.homedir(), "dev", "bloom-team-skills");
 export const BOT_DIR = path.join(TEAM_SKILLS, "bloom-bot");
 export const BOT_TOOLS = path.join(BOT_DIR, "bot-tools.mjs");
-// The repos every run can read. Each is a clone under ~/dev on the Mac; a run gets a worktree of
-// each, named `name`, side by side in its working directory. Adding a repo: clone it there with
-// --filter=blob:none, add it here, and list it in BOT.md.
-const REPOS = [
-    { name: "BloomDesktop", clone: path.join(os.homedir(), "dev", "bloom"), branch: "master" },
-    { name: "bloom-player", clone: path.join(os.homedir(), "dev", "bloom-player"), branch: "master" },
-];
 export const HOME_DIR = path.join(os.homedir(), "bloom-bot");
 const WORK_DIR = path.join(HOME_DIR, "work");
 const STATUS_DIR = path.join(HOME_DIR, "status");
@@ -175,25 +168,19 @@ export async function runJob(name, work) {
     }
 }
 
-/** Makes a folder for one run holding a detached worktree of each repo in REPOS, on its default
- * branch, named as in REPOS. Fetches every branch, because answers often read a Version* branch. */
-export function makeWorktree(name) {
+/** Makes an empty working folder for one run. The run adds the repos it needs with
+ * `bot-tools.mjs checkout`, so only those get fetched. */
+export function makeRunDir(name) {
     const dir = path.join(WORK_DIR, name);
-    // A run that was killed leaves its worktrees behind, and a retry uses the same name.
+    // A run that was killed leaves its folder behind, and a retry uses the same name.
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
-    for (const repo of REPOS) {
-        execFileSync("git", ["-C", repo.clone, "fetch", "-q", "--prune", "origin"]);
-        execFileSync("git", ["-C", repo.clone, "worktree", "prune"]);
-        execFileSync("git", ["-C", repo.clone, "worktree", "add", "-q", "--detach",
-            path.join(dir, repo.name), `origin/${repo.branch}`]);
-    }
     return dir;
 }
 
-/** Removes a run folder made by makeWorktree, including any worktree that `bot-tools.mjs checkout`
- * added to it. */
-export function removeWorktree(dir) {
+/** Removes a run folder made by makeRunDir, with the worktrees that `bot-tools.mjs checkout` put
+ * in it. */
+export function removeRunDir(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const worktree = path.join(dir, entry.name);
         // A worktree has a .git file pointing back at its clone.

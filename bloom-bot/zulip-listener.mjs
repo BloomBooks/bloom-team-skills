@@ -10,7 +10,7 @@
 import path from "node:path";
 import {
     BOT_TOOLS, TEAM_SKILLS,
-    log, makeWorktree, notify, pullTeamSkills, removeWorktree, runClaude, writeStatus, zulipCredentials,
+    log, makeRunDir, notify, pullTeamSkills, removeRunDir, runClaude, writeStatus, zulipCredentials,
 } from "./bot-runtime.mjs";
 
 const SKILL = path.join(TEAM_SKILLS, "answer-zulip-mention", "SKILL.md");
@@ -87,7 +87,7 @@ async function answer(message) {
     let dir;
     try {
         if (pullTeamSkills()) restartWanted = true;
-        dir = makeWorktree(`zulip-${message.id}`);
+        dir = makeRunDir(`zulip-${message.id}`);
         const task = [
             `The read-only helper is \`node ${BOT_TOOLS}\`.`,
             `${message.sender_full_name} mentioned you in ${where}. Their message is the last one below.`,
@@ -104,7 +104,7 @@ async function answer(message) {
         await notify(`The bot failed to answer ${message.sender_full_name} in ${where}:\n\`\`\`\n${error.message.slice(0, 1500)}\n\`\`\``);
         await reply(message, "Sorry, I failed to answer that. The developers have been told.").catch(() => {});
     } finally {
-        if (dir) removeWorktree(dir);
+        if (dir) removeRunDir(dir);
         await api("DELETE", `/messages/${message.id}/reactions`, { emoji_name: "eyes" }).catch(() => {});
     }
 }

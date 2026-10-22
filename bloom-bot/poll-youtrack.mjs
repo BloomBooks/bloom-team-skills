@@ -12,7 +12,7 @@
 import path from "node:path";
 import {
     BOT_TOOLS, MODEL_NAME, TEAM_SKILLS,
-    log, makeWorktree, notify, removeWorktree, runClaude, runJob,
+    log, makeRunDir, notify, removeRunDir, runClaude, runJob,
 } from "./bot-runtime.mjs";
 
 const BASE = "https://issues.bloomlibrary.org/youtrack/api";
@@ -110,7 +110,7 @@ async function answer(issue, { queuedComment, request }) {
     log(`${issue.idReadable}: answering comment ${request.id}`);
     let dir;
     try {
-        dir = makeWorktree(`${issue.idReadable}-${queuedComment.id}`);
+        dir = makeRunDir(`${issue.idReadable}-${queuedComment.id}`);
         const task = [
             `The card is ${issue.idReadable}. The read-only helper is \`node ${BOT_TOOLS}\`.`,
             `Its attachments: ${issue.attachments.map((a) => `${a.name} (${a.size} bytes)`).join(", ") || "none"}.`,
@@ -134,7 +134,7 @@ async function answer(issue, { queuedComment, request }) {
         await setCommentText(issue.idReadable, queuedComment.id,
             "[YouTrack workflow] The Bloom bot failed to answer this. The log on the bot's Mac has the details.");
     } finally {
-        if (dir) removeWorktree(dir);
+        if (dir) removeRunDir(dir);
     }
 }
 
