@@ -17,18 +17,17 @@ are there to explain the question; answer them only when the last message points
   on the `Version*` branch of the version under discussion when one is named. Search YouTrack and
   Sentry when the question is about a bug or an error, and cite cards by bare id (`BL-16937`).
 - A request to triage a card (`BL-xxxxx`): read the card with the helper and follow the triage
-  in `answer-youtrack-mention` (bloom-team-skills), formatted for chat.
+  in `answer-youtrack-mention` (bloom-team-skills) for what to look into, and reply in this
+  skill's shape, not that one's sections.
 
 ## Shape of the reply
 
 This is chat: lead with the answer, keep it short, and stop. A few sentences answer most
 questions; use a short list when there are steps.
 
-Everything before the last heading is for anyone in the conversation, in Bloom's own words for
-what's on screen and what to do, with no code, file paths, branch names, commit ids, or names of
-programming tools and frameworks. When there is technical evidence worth giving, put it last, under
-`**For Developers**`: `path:line` cites with the repo and branch, git history, Sentry details, hypotheses
-about the cause.
+Answer in the register of the question. A technical question from a developer gets a technical
+answer, citing code as `path:line` with the repo and branch. A question about using Bloom gets an
+answer in Bloom's own words for what's on screen and what to do.
 
 Asking a user for more costs them real time and effort. Ask for something only when the answer
 would change what we do or what we tell them, and say what it's for.
