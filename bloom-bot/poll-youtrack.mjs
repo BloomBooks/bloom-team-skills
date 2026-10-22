@@ -143,11 +143,12 @@ await runJob("youtrack", async () => {
     for (const issueId of await findQueuedIssues()) {
         const issue = await readIssue(issueId);
         for (const request of findRequests(issue)) {
-            // Out of budget, a request stays queued and is answered after the weekly reset.
             const blocked = await budgetBlock();
             if (blocked) {
-                log(blocked);
-                return;
+                log(`${issue.idReadable}: ${blocked}`);
+                await setCommentText(issue.idReadable, request.queuedComment.id,
+                    `[YouTrack workflow] The Bloom bot can't answer this now. ${blocked} Mention @Bot again after that.`);
+                continue;
             }
             await answer(issue, request);
         }

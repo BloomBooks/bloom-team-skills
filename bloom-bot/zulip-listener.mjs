@@ -85,7 +85,7 @@ async function answer(message) {
     const blocked = await budgetBlock();
     if (blocked) {
         log(blocked);
-        await reply(message, `Sorry, I can't answer right now. ${blocked}`);
+        await reply(message, `Sorry, I can't answer right now. ${blocked} Ask me again after that.`);
         return;
     }
     log(`answering ${message.sender_full_name} in ${where}`);
