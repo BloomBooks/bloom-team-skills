@@ -139,6 +139,9 @@ export async function runJob(name, work) {
 export function makeWorktree(name) {
     execFileSync("git", ["-C", REPO, "fetch", "-q", "--prune", "origin"]);
     const dir = path.join(WORK_DIR, name);
+    // A run that was killed leaves its worktree behind, and a retry uses the same name.
+    fs.rmSync(dir, { recursive: true, force: true });
+    execFileSync("git", ["-C", REPO, "worktree", "prune"]);
     execFileSync("git", ["-C", REPO, "worktree", "add", "-q", "--detach", dir, "origin/master"]);
     return dir;
 }
