@@ -7,6 +7,10 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Cut:** Step 3 of `youtrack-create-issue` adds the issue to the release sprint with `POST /api/agiles/89-5/sprints/93-213/issues` and `{"id":"<numeric id>"}`. As the Bot, that returned HTTP 404, so the following `State Ready For Work` command failed with "Set Kanban Board before leaving Incoming". The command `Kanban Board Bloom 6.5` through `POST /api/commands` set the field at once.
 - **Idea:** Replace step 3 with the `Kanban Board Bloom <version>` command (the field's values are named like the sprints, e.g. `Bloom 6.5`).
 - **Context:** creating BL-17026, Claude Opus 5.5 during youtrack-create-issue.
+- **Note (2026-10-22):** caused by using an archived board, not a broken endpoint. Sprint `93-213`
+  is Bloom 6.5, which was already archived on 2026-10-20; the same call adding BL-17040 to the live
+  Bloom 6.6 sprint (`93-216`) returned 200. The skill now says never to create a card on an
+  archived board.
 
 ## 2026-10-15 — Breaking the source on purpose can break an e2e run that uses the same dev server
 
