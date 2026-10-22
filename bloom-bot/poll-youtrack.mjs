@@ -27,6 +27,9 @@ const TOKEN = process.env.YOUTRACK_BOT;
 async function youtrack(pathAndQuery, options = {}) {
     const response = await fetch(`${BASE}${pathAndQuery}`, {
         ...options,
+        // A connection that dies without a reply otherwise hangs the job, and launchd starts no
+        // new run while one is going.
+        signal: AbortSignal.timeout(60_000),
         headers: {
             Accept: "application/json",
             "Content-Type": "application/json",

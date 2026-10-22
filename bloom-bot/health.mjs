@@ -15,7 +15,7 @@ const STALE_MS = { youtrack: 30 * 60 * 1000 };
 /** Fails with the service's reply unless a GET with this bearer token succeeds. */
 async function checkToken(name, url, token) {
     if (!token) return `${name}: no token in ~/.config/bloom-bot/env`;
-    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch(url, { signal: AbortSignal.timeout(60_000), headers: { Authorization: `Bearer ${token}` } });
     return response.ok ? null : `${name}: ${response.status} ${(await response.text()).slice(0, 200)}`;
 }
 

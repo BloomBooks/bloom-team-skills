@@ -63,6 +63,7 @@ export async function notify(message, kind) {
         }
         const response = await fetch(`${zulip.site}/api/v1/messages`, {
             method: "POST",
+            signal: AbortSignal.timeout(60_000),
             headers: { Authorization: `Basic ${Buffer.from(`${zulip.email}:${zulip.key}`).toString("base64")}` },
             body: new URLSearchParams({ type: "stream", to: ZULIP_CHANNEL, topic: ZULIP_TOPIC, content: message }),
         });

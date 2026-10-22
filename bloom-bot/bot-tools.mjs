@@ -27,7 +27,7 @@ function readTokens() {
 
 /** GETs a URL with a bearer token and fails loudly on any non-2xx status. */
 async function get(url, token) {
-    const response = await fetch(url, { headers: { Accept: "application/json", Authorization: `Bearer ${token}` } });
+    const response = await fetch(url, { signal: AbortSignal.timeout(120_000), headers: { Accept: "application/json", Authorization: `Bearer ${token}` } });
     if (!response.ok) throw new Error(`${response.status} from ${url}: ${(await response.text()).slice(0, 500)}`);
     return response;
 }
