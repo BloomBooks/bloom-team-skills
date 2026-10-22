@@ -62,7 +62,18 @@ async function main() {
         case "sentry": {
             if (!tokens.SENTRY_BOT_TOKEN) throw new Error("SENTRY_BOT_TOKEN is not in ~/.config/bloom-bot/env yet");
             const response = await get(`${SENTRY}${apiPath(args[0])}`, tokens.SENTRY_BOT_TOKEN);
-            console.log(JSON.stringify(await response.json(), null, 1));
+            const data = await response.json();
+            // Sentry's issue objects run to kilobytes each, so a caller that truncates the output
+            // sees only the first one. Print issue lists as one line per issue.
+            if (Array.isArray(data) && data.every((issue) => issue.shortId)) {
+                for (const issue of data) {
+                    console.log([issue.shortId, issue.status, `count ${issue.count}`, `users ${issue.userCount}`,
+                        `first ${issue.firstSeen}`, `last ${issue.lastSeen}`, issue.permalink, issue.title].join(" | "));
+                }
+                if (data.length === 0) console.log("no issues");
+            } else {
+                console.log(JSON.stringify(data, null, 1));
+            }
             break;
         }
         default:

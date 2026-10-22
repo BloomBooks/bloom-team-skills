@@ -20,7 +20,8 @@ What you have:
   - `youtrack <api path>` is a GET on YouTrack's REST API (`/issues?query=...&fields=...`),
     with the query syntax YouTrack's search box uses.
   - `sentry <api path>` is a GET on Sentry's API (org `bloom-app`; Bloom desktop's project is
-    `bloom-desktop`), e.g. `/organizations/bloom-app/issues/?query=...`.
+    `bloom-desktop`), e.g. `/organizations/bloom-app/issues/?query=...`. Issue lists come back
+    as one line per issue; read the whole list. Single issues and events come back as full JSON.
 
 You can't run Bloom, build, change anything on YouTrack or Sentry, or reach other sites.
 
@@ -52,7 +53,10 @@ For triage and for any bug question, search before answering:
 - **YouTrack:** other cards with the same error text, dialog wording or feature, open and closed.
   A closed duplicate often names the fix and its version.
 - **Sentry:** the error message or exception type, and, when the card or a problem report shows
-  who the user is, other errors from that user. Note which releases an error appears in.
+  who the user is, other errors from that user. Note which releases an error appears in. Search
+  for a short distinctive phrase from the message, unquoted and without ids or paths (`FindPageDiv`,
+  not the whole line), over `statsPeriod=90d`: Sentry's default window is short and exact
+  messages differ per user.
 
 List each card you found as a link (`https://issues.bloomlibrary.org/youtrack/issue/BL-xxxxx`)
 with a line on why it's related, and each Sentry issue as its URL. Say so when you found nothing.
@@ -84,7 +88,8 @@ few words.
 
 ## 4. Output
 
-Only the comment text, concise. The poller adds the attribution line.
+End your final message with a line holding only `=== COMMENT ===`, followed by the comment text,
+concise. The poller posts only what follows the last such line, and adds the attribution line.
 
 The comment has two parts. Everything before the last heading is for testers and users: Bloom's
 own words for what's on screen and what to do, with no code, file paths, branch names, commit

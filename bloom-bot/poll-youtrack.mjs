@@ -169,7 +169,10 @@ function askClaude(cwd, issue, request) {
     if (result.status !== 0) {
         throw new Error(`claude exited ${result.status}: ${result.stderr.slice(-2000)}`);
     }
-    return result.stdout.trim();
+    // Claude's final message can open with progress notes; the skill has it put the comment after
+    // a marker line.
+    const parts = result.stdout.split(/^=== COMMENT ===\s*$/m);
+    return parts[parts.length - 1].trim();
 }
 
 /** Answers one request, leaving the queued comment either holding the answer or saying it failed. */
