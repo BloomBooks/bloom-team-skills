@@ -114,12 +114,9 @@ async function handle(event) {
     const { message, flags } = event;
     if (message.sender_id === botId) return;
     // Zulip sets the "mentioned" flag only in channels the bot is subscribed to, so also look for
-    // the mention in the rendered message, which tags it with the mentioned user's id.
-    // People also type "@bot" by hand without picking it from Zulip's suggestions, which leaves it as
-    // plain text; accept that too, by the bot's current name.
-    const mentioned = flags.includes("mentioned")
-        || message.content.includes(`data-user-id="${botId}"`)
-        || typedMention.test(message.content);
+    // the mention in the Markdown: "@**bot**" when picked from Zulip's suggestions, or "@bot" when
+    // typed by hand, which Zulip leaves as plain text.
+    const mentioned = flags.includes("mentioned") || typedMention.test(message.content);
     if (message.type === "stream" && !mentioned) return;
     if (message.type === "stream") log(`mention in #${message.display_recipient} from ${message.sender_full_name}`);
     if (!(await isFullMember(message.sender_id))) {
