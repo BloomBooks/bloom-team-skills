@@ -10,7 +10,7 @@
 import path from "node:path";
 import {
     BOT_TOOLS, TEAM_SKILLS,
-    log, makeRunDir, notify, pullTeamSkills, removeRunDir, runClaude, writeStatus, zulipCredentials,
+    budgetBlock, log, makeRunDir, notify, pullTeamSkills, removeRunDir, runClaude, writeStatus, zulipCredentials,
 } from "./bot-runtime.mjs";
 
 const SKILL = path.join(TEAM_SKILLS, "answer-zulip-mention", "SKILL.md");
@@ -82,6 +82,12 @@ async function reply(message, content) {
 /** Answers one mention, replying with a short failure note if the run fails. */
 async function answer(message) {
     const where = message.type === "stream" ? `#${message.display_recipient} > ${message.subject}` : "a DM";
+    const blocked = await budgetBlock();
+    if (blocked) {
+        log(blocked);
+        await reply(message, `Sorry, I can't answer right now. ${blocked}`);
+        return;
+    }
     log(`answering ${message.sender_full_name} in ${where}`);
     await api("POST", `/messages/${message.id}/reactions`, { emoji_name: "eyes" }).catch(() => {});
     let dir;

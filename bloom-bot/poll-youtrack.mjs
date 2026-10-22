@@ -12,7 +12,7 @@
 import path from "node:path";
 import {
     BOT_TOOLS, MODEL_NAME, TEAM_SKILLS,
-    log, makeRunDir, notify, removeRunDir, runClaude, runJob,
+    budgetBlock, log, makeRunDir, notify, removeRunDir, runClaude, runJob,
 } from "./bot-runtime.mjs";
 
 const BASE = "https://issues.bloomlibrary.org/youtrack/api";
@@ -143,6 +143,12 @@ await runJob("youtrack", async () => {
     for (const issueId of await findQueuedIssues()) {
         const issue = await readIssue(issueId);
         for (const request of findRequests(issue)) {
+            // Out of budget, a request stays queued and is answered after the weekly reset.
+            const blocked = await budgetBlock();
+            if (blocked) {
+                log(blocked);
+                return;
+            }
             await answer(issue, request);
         }
     }

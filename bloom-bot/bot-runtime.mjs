@@ -192,10 +192,80 @@ export function removeRunDir(dir) {
     fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// The bot runs on John's Claude subscription. It stops when his weekly usage reaches
+// MAX_WEEKLY_USAGE, or when the bot itself has used MAX_BOT_SHARE of the week.
+const MAX_WEEKLY_USAGE = 0.9;
+const MAX_BOT_SHARE = 0.05;
+const BUDGET_FILE = path.join(HOME_DIR, "budget.json");
+
+/** Reads the subscription's weekly usage (0 to 1) and when the week resets, from the headers of a
+ * one-token request. Anthropic reports usage on every reply; this is the cheapest reply there is. */
+export async function readWeeklyUsage() {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        signal: AbortSignal.timeout(60_000),
+        headers: {
+            Authorization: `Bearer ${process.env.CLAUDE_CODE_OAUTH_TOKEN}`,
+            "anthropic-beta": "oauth-2025-04-20",
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        body: JSON.stringify({
+            model: "claude-haiku-5-5", max_tokens: 1,
+            // A subscription token is only accepted for Claude Code requests.
+            system: "You are Claude Code, Anthropic's official CLI for Claude.",
+            messages: [{ role: "user", content: "hi" }],
+        }),
+    });
+    const usage = response.headers.get("anthropic-ratelimit-unified-7d-utilization");
+    const reset = response.headers.get("anthropic-ratelimit-unified-7d-reset");
+    if (usage === null) throw new Error(`no weekly usage in the reply (${response.status}): ${(await response.text()).slice(0, 300)}`);
+    return { usage: Number(usage), resetsAt: new Date(Number(reset) * 1000) };
+}
+
+/** Reads the bot's share of the current week, starting from zero when the week has reset. */
+function readBotShare(resetsAt) {
+    const saved = fs.existsSync(BUDGET_FILE) ? JSON.parse(fs.readFileSync(BUDGET_FILE, "utf8")) : {};
+    return saved.resetsAt === resetsAt.toISOString() ? saved.botShare : 0;
+}
+
+/** Returns null when the budget allows a run, or a sentence saying why not and until when. Tells
+ * Zulip once per week and reason. */
+export async function budgetBlock() {
+    const { usage, resetsAt } = await readWeeklyUsage();
+    const botShare = readBotShare(resetsAt);
+    const until = `until the weekly reset at ${resetsAt.toISOString().replace("T", " ").slice(0, 16)} UTC`;
+    let reason = null;
+    if (usage >= MAX_WEEKLY_USAGE) {
+        reason = `John's Claude subscription is at ${Math.round(usage * 100)}% of this week's budget, so the bot is paused ${until}.`;
+    } else if (botShare >= MAX_BOT_SHARE) {
+        reason = `The bot has used its ${Math.round(MAX_BOT_SHARE * 100)}% of this week's Claude budget, so it is paused ${until}.`;
+    }
+    if (reason) await notify(reason, `budget:${resetsAt.toISOString()}:${usage >= MAX_WEEKLY_USAGE ? "total" : "bot"}`);
+    return reason;
+}
+
+/** Adds what a run used to the bot's share of the week. The difference also counts any use of the
+ * subscription made elsewhere during the run, so it errs toward stopping the bot early. */
+function recordBotUse(before, after) {
+    const botShare = readBotShare(after.resetsAt) + Math.max(0, after.usage - (before.resetsAt.getTime() === after.resetsAt.getTime() ? before.usage : 0));
+    fs.writeFileSync(BUDGET_FILE, JSON.stringify({ resetsAt: after.resetsAt.toISOString(), botShare }));
+}
+
 /** Runs Claude read-only in `cwd` with BOT.md, then the job's skill, then the job's own text as
  * its prompt. Returns the text after the last "=== OUTPUT ===" line, and any note after a
- * "=== MAINTAINER ===" line before it, which is also sent to Zulip. */
+ * "=== MAINTAINER ===" line before it, which is also sent to Zulip. Callers check budgetBlock()
+ * first; this records what the run used toward the bot's share. */
 export async function runClaude({ cwd, skillFile, task, label, test = false }) {
+    const usageBefore = await readWeeklyUsage();
+    try {
+        return await runClaudeOnce({ cwd, skillFile, task, label, test });
+    } finally {
+        recordBotUse(usageBefore, await readWeeklyUsage());
+    }
+}
+
+async function runClaudeOnce({ cwd, skillFile, task, label, test }) {
     const prompt = [fs.readFileSync(BOT_GUIDE, "utf8"), fs.readFileSync(skillFile, "utf8"), task].join("\n\n");
     const env = { ...process.env };
     for (const key of ["YOUTRACK_BOT", "SENTRY_BOT_TOKEN"]) delete env[key];
