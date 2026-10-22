@@ -14,7 +14,13 @@ import path from "node:path";
 export const TEAM_SKILLS = path.join(os.homedir(), "dev", "bloom-team-skills");
 export const BOT_DIR = path.join(TEAM_SKILLS, "bloom-bot");
 export const BOT_TOOLS = path.join(BOT_DIR, "bot-tools.mjs");
-export const REPO = path.join(os.homedir(), "dev", "bloom");
+// The repos every run can read. Each is a clone under ~/dev on the Mac; a run gets a worktree of
+// each, named `name`, side by side in its working directory. Adding a repo: clone it there with
+// --filter=blob:none, add it here, and list it in BOT.md.
+const REPOS = [
+    { name: "BloomDesktop", clone: path.join(os.homedir(), "dev", "bloom"), branch: "master" },
+    { name: "bloom-player", clone: path.join(os.homedir(), "dev", "bloom-player"), branch: "master" },
+];
 export const HOME_DIR = path.join(os.homedir(), "bloom-bot");
 const WORK_DIR = path.join(HOME_DIR, "work");
 const STATUS_DIR = path.join(HOME_DIR, "status");
@@ -170,21 +176,28 @@ export async function runJob(name, work) {
     }
 }
 
-/** Makes a detached worktree of BloomDesktop's current master for one run. Fetches every branch,
- * because answers often read a Version* branch. */
+/** Makes a folder for one run holding a detached worktree of each repo in REPOS, on its default
+ * branch, named as in REPOS. Fetches every branch, because answers often read a Version* branch. */
 export function makeWorktree(name) {
-    execFileSync("git", ["-C", REPO, "fetch", "-q", "--prune", "origin"]);
     const dir = path.join(WORK_DIR, name);
-    // A run that was killed leaves its worktree behind, and a retry uses the same name.
+    // A run that was killed leaves its worktrees behind, and a retry uses the same name.
     fs.rmSync(dir, { recursive: true, force: true });
-    execFileSync("git", ["-C", REPO, "worktree", "prune"]);
-    execFileSync("git", ["-C", REPO, "worktree", "add", "-q", "--detach", dir, "origin/master"]);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const repo of REPOS) {
+        execFileSync("git", ["-C", repo.clone, "fetch", "-q", "--prune", "origin"]);
+        execFileSync("git", ["-C", repo.clone, "worktree", "prune"]);
+        execFileSync("git", ["-C", repo.clone, "worktree", "add", "-q", "--detach",
+            path.join(dir, repo.name), `origin/${repo.branch}`]);
+    }
     return dir;
 }
 
-/** Removes a worktree made by makeWorktree. */
+/** Removes a run folder made by makeWorktree. */
 export function removeWorktree(dir) {
-    execFileSync("git", ["-C", REPO, "worktree", "remove", "--force", dir]);
+    for (const repo of REPOS) {
+        execFileSync("git", ["-C", repo.clone, "worktree", "remove", "--force", path.join(dir, repo.name)]);
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
 }
 
 /** Runs Claude read-only in `cwd` with BOT.md, then the job's skill, then the job's own text as
@@ -205,8 +218,7 @@ export async function runClaude({ cwd, skillFile, task, label }) {
             "--permission-mode", "default",
             "--allowedTools",
             "Read", "Grep", "Glob",
-            "Bash(git log:*)", "Bash(git show:*)", "Bash(git blame:*)", "Bash(git grep:*)",
-            "Bash(git diff:*)", "Bash(git branch:*)",
+            ...["log", "show", "blame", "grep", "diff", "branch"].map((command) => `Bash(git -C * ${command} *)`),
             `Bash(node ${BOT_TOOLS}:*)`,
             "--disallowedTools",
             `Read(/${SECRETS}/**)`, `Read(/${path.join(os.homedir(), ".claude")}/**)`, `Read(/${ZULIPRC})`,

@@ -5,9 +5,13 @@ bloom-team-skills. The job's own instructions follow this text; this part holds 
 
 ## What you have
 
-- Your working directory is a checkout of BloomDesktop `master`, with every `origin/Version*`
-  branch fetched.
-- Read, Grep, Glob, and `git log/show/blame/grep/diff/branch`.
+- Your working directory holds a checkout of each repo you can read, on its default branch, with
+  every other branch fetched:
+  - `BloomDesktop/`: Bloom itself, with a `Version*` branch per release;
+  - `bloom-player/`: Bloom Player, which shows books in Bloom Reader, on Bloom Library and in
+    Bloom's own previews.
+- Read, Grep, Glob, and `git log/show/blame/grep/diff/branch`, which take the repo with `-C`:
+  `git -C BloomDesktop log -- src/BloomExe/Book/Book.cs`.
 - The read-only helper `node <bloom-team-skills>/bloom-bot/bot-tools.mjs` (the job gives its full
   path):
   - `youtrack <api path>` is a GET on YouTrack's REST API (`/issues?query=...&fields=...`), with

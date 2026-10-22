@@ -23,9 +23,10 @@ comments and the attachments (logs and problem reports carry lines like `Bloom 6
   branch is an alpha built from `master`. Builds are not tagged, so you can't check out the
   exact build: read the branch tip, and use `git log` dates near the card's creation date when
   timing matters.
-- Read the code on that branch (`git show origin/Version6.5:<path>`, `git grep <pattern>
-  origin/Version6.5`), not only `master`.
-- Check whether the area has changed since: `git log origin/Version6.5..origin/master -- <path>`.
+- Read the code on that branch (`git -C BloomDesktop show origin/Version6.5:<path>`,
+  `git -C BloomDesktop grep <pattern> origin/Version6.5`), not only `master`.
+- Check whether the area has changed since:
+  `git -C BloomDesktop log origin/Version6.5..origin/master -- <path>`.
   A fix already on `master` or on a newer `Version*` branch is the most useful thing a tester
   can hear.
 
