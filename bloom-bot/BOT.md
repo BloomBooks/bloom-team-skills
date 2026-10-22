@@ -10,6 +10,9 @@ bloom-team-skills. The job's own instructions follow this text; this part holds 
   - `BloomDesktop/`: Bloom itself, with a `Version*` branch per release;
   - `bloom-player/`: Bloom Player, which shows books in Bloom Reader, on Bloom Library and in
     Bloom's own previews.
+
+  You can read any other repo in the BloomBooks GitHub organization: the helper's `repos` lists
+  them with their descriptions, and `checkout <repo>` puts one beside these two.
 - Read, Grep, Glob, and `git log/show/blame/grep/diff/branch`, which take the repo with `-C`:
   `git -C BloomDesktop log -- src/BloomExe/Book/Book.cs`.
 - The read-only helper `node <bloom-team-skills>/bloom-bot/bot-tools.mjs` (the job gives its full
@@ -20,6 +23,8 @@ bloom-team-skills. The job's own instructions follow this text; this part holds 
   - `sentry <api path>` is a GET on Sentry's API (org `bloom-app`; Bloom desktop's project is
     `bloom-desktop`), e.g. `/organizations/bloom-app/issues/?query=...`. Issue lists come back as
     one line per issue; read the whole list. Single issues and events come back as full JSON.
+  - `repos` lists the BloomBooks GitHub repos; `checkout <repo>` adds one to your working
+    directory, on its default branch with every branch fetched.
 
 You can't run Bloom, build, change anything on YouTrack, Sentry or GitHub, or reach other sites.
 The job script posts your output for you.

@@ -24,7 +24,6 @@ const REPOS = [
 export const HOME_DIR = path.join(os.homedir(), "bloom-bot");
 const WORK_DIR = path.join(HOME_DIR, "work");
 const STATUS_DIR = path.join(HOME_DIR, "status");
-const SECRETS = path.join(os.homedir(), ".config", "bloom-bot");
 const ZULIPRC = path.join(os.homedir(), ".zuliprc");
 const BOT_GUIDE = path.join(BOT_DIR, "BOT.md");
 
@@ -192,10 +191,16 @@ export function makeWorktree(name) {
     return dir;
 }
 
-/** Removes a run folder made by makeWorktree. */
+/** Removes a run folder made by makeWorktree, including any worktree that `bot-tools.mjs checkout`
+ * added to it. */
 export function removeWorktree(dir) {
-    for (const repo of REPOS) {
-        execFileSync("git", ["-C", repo.clone, "worktree", "remove", "--force", path.join(dir, repo.name)]);
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const worktree = path.join(dir, entry.name);
+        // A worktree has a .git file pointing back at its clone.
+        if (!entry.isDirectory() || !fs.existsSync(path.join(worktree, ".git"))) continue;
+        const gitDir = execFileSync("git", ["-C", worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            { encoding: "utf8" }).trim();
+        execFileSync("git", ["--git-dir", gitDir, "worktree", "remove", "--force", worktree]);
     }
     fs.rmSync(dir, { recursive: true, force: true });
 }
@@ -221,7 +226,9 @@ export async function runClaude({ cwd, skillFile, task, label }) {
             ...["log", "show", "blame", "grep", "diff", "branch"].map((command) => `Bash(git -C * ${command} *)`),
             `Bash(node ${BOT_TOOLS}:*)`,
             "--disallowedTools",
-            `Read(/${SECRETS}/**)`, `Read(/${path.join(os.homedir(), ".claude")}/**)`, `Read(/${ZULIPRC})`,
+            // ~/.config holds the bot's tokens and gh's GitHub login.
+            `Read(/${path.join(os.homedir(), ".config")}/**)`, `Read(/${path.join(os.homedir(), ".claude")}/**)`,
+            `Read(/${ZULIPRC})`,
             "WebFetch", "WebSearch",
         ],
         { cwd, env, input: prompt, encoding: "utf8", timeout: CLAUDE_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
