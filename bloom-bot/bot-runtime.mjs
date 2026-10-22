@@ -195,7 +195,7 @@ export function removeRunDir(dir) {
 /** Runs Claude read-only in `cwd` with BOT.md, then the job's skill, then the job's own text as
  * its prompt. Returns the text after the last "=== OUTPUT ===" line, and any note after a
  * "=== MAINTAINER ===" line before it, which is also sent to Zulip. */
-export async function runClaude({ cwd, skillFile, task, label }) {
+export async function runClaude({ cwd, skillFile, task, label, test = false }) {
     const prompt = [fs.readFileSync(BOT_GUIDE, "utf8"), fs.readFileSync(skillFile, "utf8"), task].join("\n\n");
     const env = { ...process.env };
     for (const key of ["YOUTRACK_BOT", "SENTRY_BOT_TOKEN"]) delete env[key];
@@ -227,7 +227,9 @@ export async function runClaude({ cwd, skillFile, task, label }) {
     const parts = result.stdout.split(/^=== OUTPUT ===\s*$/m);
     const noteParts = parts.slice(0, -1).join("\n").split(/^=== MAINTAINER ===\s*$/m);
     const maintainerNote = noteParts.length > 1 ? noteParts[noteParts.length - 1].trim() : "";
-    if (maintainerNote) {
+    // A test run (test: true) prints its note instead, for whoever is running the test.
+    if (maintainerNote && test) log(`maintainer note: ${maintainerNote}`);
+    if (maintainerNote && !test) {
         await notify(`While working on ${label}, the bot left this note for its maintainer:\n\n${maintainerNote}`);
     }
     return parts[parts.length - 1].trim();
