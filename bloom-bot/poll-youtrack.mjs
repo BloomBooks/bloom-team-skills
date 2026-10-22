@@ -223,6 +223,9 @@ async function main() {
     fs.mkdirSync(WORK_DIR, { recursive: true });
     if (!takeLock()) return;
     try {
+        // Picks up changes to the skill and these scripts. A changed poller takes effect on the
+        // next run, since this one is already loaded.
+        execFileSync("git", ["-C", TEAM_SKILLS, "pull", "-q", "--ff-only"]);
         for (const issueId of await findQueuedIssues()) {
             const issue = await readIssue(issueId);
             for (const request of findRequests(issue)) {
