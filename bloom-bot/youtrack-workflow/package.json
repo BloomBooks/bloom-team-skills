@@ -1,0 +1,6 @@
+{
+  "name": "bloom-bot-mentions",
+  "title": "Bloom Bot mentions",
+  "version": "1.0.0",
+  "description": "Queues @Bot comments from the Developers group for the Bloom bot on the Mac mini"
+}

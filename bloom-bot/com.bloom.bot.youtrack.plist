@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Install: cp to ~/Library/LaunchAgents/, then
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bloom.bot.youtrack.plist
+     A login zsh loads PATH (Volta, ~/.local/bin) and ~/.config/bloom-bot/env. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bloom.bot.youtrack</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-lc</string>
+        <string>node ~/dev/bloom-team-skills/bloom-bot/poll-youtrack.mjs</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>120</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/johnhatton/bloom-bot/youtrack.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/johnhatton/bloom-bot/youtrack.log</string>
+</dict>
+</plist>
