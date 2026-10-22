@@ -111,7 +111,10 @@ async function answer(message) {
 async function handle(event) {
     const { message, flags } = event;
     if (message.sender_id === botId) return;
-    if (message.type === "stream" && !flags.includes("mentioned")) return;
+    // Zulip sets the "mentioned" flag only in channels the bot is subscribed to, so also look for
+    // the mention in the rendered message, which tags it with the mentioned user's id.
+    const mentioned = flags.includes("mentioned") || message.content.includes(`data-user-id="${botId}"`);
+    if (message.type === "stream" && !mentioned) return;
     if (!(await isFullMember(message.sender_id))) {
         log(`ignored a message from ${message.sender_full_name}, who is not a full member`);
         return;
