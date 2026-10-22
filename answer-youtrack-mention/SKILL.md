@@ -58,8 +58,8 @@ For triage and for any bug question, search before answering:
   not the whole line), over `statsPeriod=90d`: Sentry's default window is short and exact
   messages differ per user.
 
-List each card you found as a link (`https://issues.bloomlibrary.org/youtrack/issue/BL-xxxxx`)
-with a line on why it's related. Say so when you found nothing.
+List each card you found by its bare id (`BL-16937`; YouTrack links it) with a line on why it's
+related. Say so when you found nothing.
 
 Sentry findings go in a `#### Sentry` subsection of For Developers: each issue's URL, release,
 count and users, and how it relates. In triage that subsection is always there, saying what you
@@ -67,8 +67,22 @@ searched for when you found nothing. When Sentry says something a tester can use
 hit many errors lately, many users hit this, it stopped after a release), say it in plain words
 under Other reports too.
 
-When you find the reporter's own events in Sentry, say under Reporter's version where they are
-(city, region, country from the event's `user.geo`).
+When you find the reporter's own events in Sentry, read one event in full
+(`/organizations/bloom-app/issues/<id>/events/latest/`) and report, in the Sentry subsection:
+
+- where they are: city, region and country from `user.geo`;
+- their Windows version (`os` tag) and their Windows display language and number/date format
+  (the `Current UI Culture` and `Current Culture` contexts);
+- the breadcrumbs before the error: what the user did just before it, especially steps the
+  report leaves out;
+- their other errors over the last 90 days (search by their `user.id`), as a count and the
+  main kinds;
+- whether other users hit the same error, and in which releases it first and last appeared.
+
+Under Reporter's version, give their location, Windows version and display language in a
+sentence. Bring the rest into the tester sections only when it changes the picture: a user hitting
+many unrelated errors, a non-English number format where the code parses numbers, steps from the
+breadcrumbs that the report doesn't mention.
 
 Your comment is visible only to the Developers group.
 
