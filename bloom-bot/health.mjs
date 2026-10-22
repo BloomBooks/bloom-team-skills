@@ -10,7 +10,7 @@ import { log, notify, readStatuses, runJob } from "./bot-runtime.mjs";
 const MIN_FREE_GIB = 5;
 // A job whose last success is older than this has stopped working, even if no run reported an
 // error (launchd stopped starting it, or it hangs).
-const STALE_MS = { youtrack: 30 * 60 * 1000 };
+const STALE_MS = { youtrack: 30 * 60 * 1000, zulip: 15 * 60 * 1000 };
 
 /** Fails with the service's reply unless a GET with this bearer token succeeds. */
 async function checkToken(name, url, token) {

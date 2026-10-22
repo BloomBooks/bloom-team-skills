@@ -94,8 +94,23 @@ function takeLock(lock) {
     }
 }
 
+/** Reads the Zulip bot's credentials, failing if ~/.zuliprc is missing. */
+export function zulipCredentials() {
+    const zulip = readZuliprc();
+    if (!zulip) throw new Error("~/.zuliprc is missing");
+    return zulip;
+}
+
+/** Fast-forwards bloom-team-skills and returns true if that changed anything in bloom-bot/. */
+export function pullTeamSkills() {
+    const before = execFileSync("git", ["-C", TEAM_SKILLS, "rev-parse", "HEAD:bloom-bot"], { encoding: "utf8" });
+    execFileSync("git", ["-C", TEAM_SKILLS, "pull", "-q", "--ff-only"]);
+    const after = execFileSync("git", ["-C", TEAM_SKILLS, "rev-parse", "HEAD:bloom-bot"], { encoding: "utf8" });
+    return before !== after;
+}
+
 /** Records how the job's last run went, for the health job to read. */
-function writeStatus(name, ok, error) {
+export function writeStatus(name, ok, error) {
     fs.mkdirSync(STATUS_DIR, { recursive: true });
     const file = path.join(STATUS_DIR, `${name}.json`);
     const previous = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
@@ -121,7 +136,7 @@ export async function runJob(name, work) {
     const lock = path.join(HOME_DIR, `${name}.lock`);
     if (!takeLock(lock)) return;
     try {
-        execFileSync("git", ["-C", TEAM_SKILLS, "pull", "-q", "--ff-only"]);
+        pullTeamSkills();
         await work();
         writeStatus(name, true);
     } catch (error) {

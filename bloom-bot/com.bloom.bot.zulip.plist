@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Install: cp to ~/Library/LaunchAgents/, then
+     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.bloom.bot.zulip.plist
+     The listener runs continuously; launchd restarts it whenever it exits, including after it
+     exits on purpose to pick up new code. A login zsh loads PATH and ~/.config/bloom-bot/env. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.bloom.bot.zulip</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-lc</string>
+        <string>node ~/dev/bloom-team-skills/bloom-bot/zulip-listener.mjs &lt; /dev/null</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/johnhatton/bloom-bot/zulip.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/johnhatton/bloom-bot/zulip.log</string>
+</dict>
+</plist>
