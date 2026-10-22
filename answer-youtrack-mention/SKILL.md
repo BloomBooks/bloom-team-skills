@@ -116,6 +116,11 @@ few words.
 End your final message with a line holding only `=== COMMENT ===`, followed by the comment text,
 concise. The poller posts only what follows the last such line, and adds the attribution line.
 
+When the bot itself needs fixing, put a note for its maintainer before the comment: a line
+holding only `=== MAINTAINER ===`, then the note. The poller sends it to the developers channel
+on Zulip, not to the card. Examples: this skill contradicts the code or the tools you were given,
+a tool failed, or the request needed something you aren't allowed to do.
+
 The comment has two parts. Everything before the last heading is for testers and users: Bloom's
 own words for what's on screen and what to do, with no code, file paths, branch names, commit
 ids, or names of programming tools and frameworks. A version is written the way users see it

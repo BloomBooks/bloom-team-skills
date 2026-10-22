@@ -27,6 +27,10 @@ const TEAM_SKILLS = path.join(os.homedir(), "dev", "bloom-team-skills");
 const SKILL = path.join(TEAM_SKILLS, "answer-youtrack-mention", "SKILL.md");
 const BOT_TOOLS = path.join(TEAM_SKILLS, "bloom-bot", "bot-tools.mjs");
 const SECRETS = path.join(os.homedir(), ".config", "bloom-bot");
+const ZULIP_CHANNEL = "developers";
+const ZULIP_TOPIC = "Bloom bot";
+const NOTIFY_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const MIN_FREE_GIB = 5;
 const REPO = path.join(os.homedir(), "dev", "bloom");
 const HOME_DIR = path.join(os.homedir(), "bloom-bot");
 const WORK_DIR = path.join(HOME_DIR, "work");
@@ -161,6 +165,7 @@ function askClaude(cwd, issue, request) {
             `Bash(node ${BOT_TOOLS}:*)`,
             "--disallowedTools",
             `Read(/${SECRETS}/**)`, `Read(/${path.join(os.homedir(), ".claude")}/**)`,
+            `Read(/${path.join(os.homedir(), ".zuliprc")})`,
             "WebFetch", "WebSearch",
         ],
         { cwd, env, input: prompt, encoding: "utf8", timeout: CLAUDE_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
@@ -170,9 +175,64 @@ function askClaude(cwd, issue, request) {
         throw new Error(`claude exited ${result.status}: ${result.stderr.slice(-2000)}`);
     }
     // Claude's final message can open with progress notes; the skill has it put the comment after
-    // a marker line.
+    // a marker line, and any note for the bot's maintainer after another marker before that.
     const parts = result.stdout.split(/^=== COMMENT ===\s*$/m);
-    return parts[parts.length - 1].trim();
+    const before = parts.slice(0, -1).join("\n");
+    const noteParts = before.split(/^=== MAINTAINER ===\s*$/m);
+    return {
+        comment: parts[parts.length - 1].trim(),
+        maintainerNote: noteParts.length > 1 ? noteParts[noteParts.length - 1].trim() : "",
+    };
+}
+
+/** Reads the Zulip bot's credentials from ~/.zuliprc, or returns null if there is none yet. */
+function readZuliprc() {
+    const file = path.join(os.homedir(), ".zuliprc");
+    if (!fs.existsSync(file)) return null;
+    const values = {};
+    for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+        const match = line.match(/^\s*(\w+)\s*=\s*(.*?)\s*$/);
+        if (match) values[match[1]] = match[2];
+    }
+    return values;
+}
+
+/** Posts to the bot's topic in Zulip's developers channel. With `kind`, posts at most once a day
+ * per kind, so a problem that recurs every poll (an expired token) sends one message, not hundreds.
+ * Never throws: a failure to notify must not stop the poll. */
+async function notify(message, kind) {
+    try {
+        fs.mkdirSync(HOME_DIR, { recursive: true });
+        const stateFile = path.join(HOME_DIR, "notified.json");
+        const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
+        if (kind && Date.now() - (state[kind] ?? 0) < NOTIFY_INTERVAL_MS) return;
+        const zulip = readZuliprc();
+        if (!zulip) {
+            log(`not notified (no ~/.zuliprc): ${message}`);
+            return;
+        }
+        const response = await fetch(`${zulip.site}/api/v1/messages`, {
+            method: "POST",
+            headers: { Authorization: `Basic ${Buffer.from(`${zulip.email}:${zulip.key}`).toString("base64")}` },
+            body: new URLSearchParams({ type: "stream", to: ZULIP_CHANNEL, topic: ZULIP_TOPIC, content: message }),
+        });
+        if (!response.ok) throw new Error(`Zulip ${response.status}: ${await response.text()}`);
+        if (kind) {
+            state[kind] = Date.now();
+            fs.writeFileSync(stateFile, JSON.stringify(state));
+        }
+    } catch (error) {
+        log(`notify failed: ${error.message}`);
+    }
+}
+
+/** Warns when the Mac is short of disk; each answer needs room for a worktree. */
+async function checkDisk() {
+    const { bavail, bsize } = fs.statfsSync(os.homedir());
+    const freeGiB = (bavail * bsize) / 1024 ** 3;
+    if (freeGiB < MIN_FREE_GIB) {
+        await notify(`The bot's Mac has only ${freeGiB.toFixed(1)} GiB of disk free.`, "disk");
+    }
 }
 
 /** Answers one request, leaving the queued comment either holding the answer or saying it failed. */
@@ -188,12 +248,16 @@ async function answer(issue, { queuedComment, request }) {
     let dir;
     try {
         dir = makeWorktree(`${issue.idReadable}-${queuedComment.id}`);
-        const text = askClaude(dir, issue, request);
+        const { comment, maintainerNote } = askClaude(dir, issue, request);
         await setCommentText(issue.idReadable, queuedComment.id,
-            `[${MODEL_NAME} on the Bloom bot Mac during bloom-bot]\n\n${text}`);
+            `[${MODEL_NAME} on the Bloom bot Mac during bloom-bot]\n\n${comment}`);
         log(`${issue.idReadable}: answered`);
+        if (maintainerNote) {
+            await notify(`While answering ${issue.idReadable}, the bot left this note for its maintainer:\n\n${maintainerNote}`);
+        }
     } catch (error) {
         log(`${issue.idReadable}: failed: ${error.stack}`);
+        await notify(`The bot failed to answer a request on ${issue.idReadable}:\n\`\`\`\n${error.message.slice(0, 1500)}\n\`\`\``);
         await setCommentText(issue.idReadable, queuedComment.id,
             "[YouTrack workflow] The Bloom bot failed to answer this. The log on the bot's Mac has the details.");
     } finally {
@@ -226,6 +290,7 @@ async function main() {
         // Picks up changes to the skill and these scripts. A changed poller takes effect on the
         // next run, since this one is already loaded.
         execFileSync("git", ["-C", TEAM_SKILLS, "pull", "-q", "--ff-only"]);
+        await checkDisk();
         for (const issueId of await findQueuedIssues()) {
             const issue = await readIssue(issueId);
             for (const request of findRequests(issue)) {
@@ -237,7 +302,8 @@ async function main() {
     }
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
     log(error.stack);
+    await notify(`The bot's YouTrack poll is failing:\n\`\`\`\n${error.message.slice(0, 1500)}\n\`\`\``, "poll");
     process.exit(1);
 });
