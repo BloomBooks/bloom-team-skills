@@ -7,41 +7,21 @@
 // replaces the queued comment's text with the answer.
 //
 // Claude never gets the YouTrack token or any tool that can write: this script fetches the card,
-// hands it over as data, and posts the answer itself. Card text comes from the public and must be
-// treated as untrusted.
+// hands it over as data, and posts the answer itself.
 
-import { execFileSync, spawnSync } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import {
+    BOT_TOOLS, MODEL_NAME, TEAM_SKILLS,
+    log, makeWorktree, notify, removeWorktree, runClaude, runJob,
+} from "./bot-runtime.mjs";
 
 const BASE = "https://issues.bloomlibrary.org/youtrack/api";
 const PROJECTS = (process.env.BLOOM_BOT_PROJECTS || "BL,SB").split(",");
 const QUEUED = "[YouTrack workflow] Queued for the Bloom bot.";
 const WORKING = "[YouTrack workflow] The Bloom bot is working on this.";
 const BOT_LOGIN = "Bot";
-const MODEL = process.env.BLOOM_BOT_MODEL || "claude-opus-5-5";
-const MODEL_NAME = "Claude Opus 5.5";
-const EFFORT = "low";
-const TEAM_SKILLS = path.join(os.homedir(), "dev", "bloom-team-skills");
 const SKILL = path.join(TEAM_SKILLS, "answer-youtrack-mention", "SKILL.md");
-const BOT_TOOLS = path.join(TEAM_SKILLS, "bloom-bot", "bot-tools.mjs");
-const SECRETS = path.join(os.homedir(), ".config", "bloom-bot");
-const ZULIP_CHANNEL = "developers";
-const ZULIP_TOPIC = "Bloom bot";
-const NOTIFY_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const MIN_FREE_GIB = 5;
-const REPO = path.join(os.homedir(), "dev", "bloom");
-const HOME_DIR = path.join(os.homedir(), "bloom-bot");
-const WORK_DIR = path.join(HOME_DIR, "work");
-const LOCK = path.join(HOME_DIR, "poll-youtrack.lock");
-const CLAUDE_TIMEOUT_MS = 15 * 60 * 1000;
 const TOKEN = process.env.YOUTRACK_BOT;
-
-/** Logs a line with a timestamp; launchd sends stdout to the log file. */
-function log(message) {
-    console.log(`${new Date().toISOString()} ${message}`);
-}
 
 /** Calls the YouTrack REST API as the Bot account and returns the parsed JSON. */
 async function youtrack(pathAndQuery, options = {}) {
@@ -77,7 +57,7 @@ async function findQueuedIssues() {
     return issues.map((issue) => issue.idReadable);
 }
 
-/** Reads the card's summary, description and live comments, oldest comment first. */
+/** Reads the card's summary, description, attachments and live comments, oldest comment first. */
 async function readIssue(issueId) {
     const issue = await youtrack(
         `/issues/${issueId}?fields=idReadable,summary,description,` +
@@ -115,126 +95,6 @@ function renderIssue(issue) {
     return `# ${issue.idReadable}: ${issue.summary}\n\n${fields}\n\n## Description\n\n${issue.description ?? ""}\n\n## Comments\n\n${comments}`;
 }
 
-/** Makes a detached worktree of BloomDesktop's current master for one run. Fetches every branch,
- * because answers read the Version* branch that the reporter's build came from. */
-function makeWorktree(name) {
-    execFileSync("git", ["-C", REPO, "fetch", "-q", "--prune", "origin"]);
-    const dir = path.join(WORK_DIR, name);
-    execFileSync("git", ["-C", REPO, "worktree", "add", "-q", "--detach", dir, "origin/master"]);
-    return dir;
-}
-
-/** Removes a worktree made by makeWorktree. */
-function removeWorktree(dir) {
-    execFileSync("git", ["-C", REPO, "worktree", "remove", "--force", dir]);
-}
-
-/** Runs Claude read-only in the worktree and returns its answer text. */
-function askClaude(cwd, issue, request) {
-    const prompt = [
-        fs.readFileSync(SKILL, "utf8"),
-        "",
-        `The card is ${issue.idReadable}. The read-only helper is \`node ${BOT_TOOLS}\`.`,
-        `Its attachments: ${issue.attachments.map((a) => `${a.name} (${a.size} bytes)`).join(", ") || "none"}.`,
-        `The comment you are answering is comment ${request.id}:`,
-        "",
-        "<request>",
-        request.text,
-        "</request>",
-        "",
-        "<card>",
-        renderIssue(issue),
-        "</card>",
-    ].join("\n");
-
-    const env = { ...process.env };
-    delete env.YOUTRACK_BOT;
-
-    const result = spawnSync(
-        "claude",
-        [
-            "-p",
-            "--model", MODEL,
-            "--effort", EFFORT,
-            "--setting-sources", "project",
-            "--permission-mode", "default",
-            "--allowedTools",
-            "Read", "Grep", "Glob",
-            "Bash(git log:*)", "Bash(git show:*)", "Bash(git blame:*)", "Bash(git grep:*)",
-            "Bash(git diff:*)", "Bash(git branch:*)",
-            `Bash(node ${BOT_TOOLS}:*)`,
-            "--disallowedTools",
-            `Read(/${SECRETS}/**)`, `Read(/${path.join(os.homedir(), ".claude")}/**)`,
-            `Read(/${path.join(os.homedir(), ".zuliprc")})`,
-            "WebFetch", "WebSearch",
-        ],
-        { cwd, env, input: prompt, encoding: "utf8", timeout: CLAUDE_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
-    );
-    if (result.error) throw result.error;
-    if (result.status !== 0) {
-        throw new Error(`claude exited ${result.status}: ${result.stderr.slice(-2000)}`);
-    }
-    // Claude's final message can open with progress notes; the skill has it put the comment after
-    // a marker line, and any note for the bot's maintainer after another marker before that.
-    const parts = result.stdout.split(/^=== COMMENT ===\s*$/m);
-    const before = parts.slice(0, -1).join("\n");
-    const noteParts = before.split(/^=== MAINTAINER ===\s*$/m);
-    return {
-        comment: parts[parts.length - 1].trim(),
-        maintainerNote: noteParts.length > 1 ? noteParts[noteParts.length - 1].trim() : "",
-    };
-}
-
-/** Reads the Zulip bot's credentials from ~/.zuliprc, or returns null if there is none yet. */
-function readZuliprc() {
-    const file = path.join(os.homedir(), ".zuliprc");
-    if (!fs.existsSync(file)) return null;
-    const values = {};
-    for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
-        const match = line.match(/^\s*(\w+)\s*=\s*(.*?)\s*$/);
-        if (match) values[match[1]] = match[2];
-    }
-    return values;
-}
-
-/** Posts to the bot's topic in Zulip's developers channel. With `kind`, posts at most once a day
- * per kind, so a problem that recurs every poll (an expired token) sends one message, not hundreds.
- * Never throws: a failure to notify must not stop the poll. */
-async function notify(message, kind) {
-    try {
-        fs.mkdirSync(HOME_DIR, { recursive: true });
-        const stateFile = path.join(HOME_DIR, "notified.json");
-        const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
-        if (kind && Date.now() - (state[kind] ?? 0) < NOTIFY_INTERVAL_MS) return;
-        const zulip = readZuliprc();
-        if (!zulip) {
-            log(`not notified (no ~/.zuliprc): ${message}`);
-            return;
-        }
-        const response = await fetch(`${zulip.site}/api/v1/messages`, {
-            method: "POST",
-            headers: { Authorization: `Basic ${Buffer.from(`${zulip.email}:${zulip.key}`).toString("base64")}` },
-            body: new URLSearchParams({ type: "stream", to: ZULIP_CHANNEL, topic: ZULIP_TOPIC, content: message }),
-        });
-        if (!response.ok) throw new Error(`Zulip ${response.status}: ${await response.text()}`);
-        if (kind) {
-            state[kind] = Date.now();
-            fs.writeFileSync(stateFile, JSON.stringify(state));
-        }
-    } catch (error) {
-        log(`notify failed: ${error.message}`);
-    }
-}
-
-/** Warns when the Mac is short of disk; each answer needs room for a worktree. */
-async function checkDisk() {
-    const { bavail, bsize } = fs.statfsSync(os.homedir());
-    const freeGiB = (bavail * bsize) / 1024 ** 3;
-    if (freeGiB < MIN_FREE_GIB) {
-        await notify(`The bot's Mac has only ${freeGiB.toFixed(1)} GiB of disk free.`, "disk");
-    }
-}
-
 /** Answers one request, leaving the queued comment either holding the answer or saying it failed. */
 async function answer(issue, { queuedComment, request }) {
     if (!request) {
@@ -248,13 +108,23 @@ async function answer(issue, { queuedComment, request }) {
     let dir;
     try {
         dir = makeWorktree(`${issue.idReadable}-${queuedComment.id}`);
-        const { comment, maintainerNote } = askClaude(dir, issue, request);
+        const task = [
+            `The card is ${issue.idReadable}. The read-only helper is \`node ${BOT_TOOLS}\`.`,
+            `Its attachments: ${issue.attachments.map((a) => `${a.name} (${a.size} bytes)`).join(", ") || "none"}.`,
+            `The comment you are answering is comment ${request.id}:`,
+            "",
+            "<request>",
+            request.text,
+            "</request>",
+            "",
+            "<card>",
+            renderIssue(issue),
+            "</card>",
+        ].join("\n");
+        const comment = await runClaude({ cwd: dir, skillFile: SKILL, task, label: issue.idReadable });
         await setCommentText(issue.idReadable, queuedComment.id,
             `[${MODEL_NAME} on the Bloom bot Mac during bloom-bot]\n\n${comment}`);
         log(`${issue.idReadable}: answered`);
-        if (maintainerNote) {
-            await notify(`While answering ${issue.idReadable}, the bot left this note for its maintainer:\n\n${maintainerNote}`);
-        }
     } catch (error) {
         log(`${issue.idReadable}: failed: ${error.stack}`);
         await notify(`The bot failed to answer a request on ${issue.idReadable}:\n\`\`\`\n${error.message.slice(0, 1500)}\n\`\`\``);
@@ -265,45 +135,12 @@ async function answer(issue, { queuedComment, request }) {
     }
 }
 
-/** Takes the lock file, or returns false if another poll is still running. */
-function takeLock() {
-    try {
-        fs.writeFileSync(LOCK, String(process.pid), { flag: "wx" });
-        return true;
-    } catch {
-        const pid = Number(fs.readFileSync(LOCK, "utf8"));
-        try {
-            process.kill(pid, 0);
-            return false;
-        } catch {
-            fs.writeFileSync(LOCK, String(process.pid));
-            return true;
-        }
-    }
-}
-
-async function main() {
+await runJob("youtrack", async () => {
     if (!TOKEN) throw new Error("YOUTRACK_BOT is not set; it belongs in ~/.config/bloom-bot/env");
-    fs.mkdirSync(WORK_DIR, { recursive: true });
-    if (!takeLock()) return;
-    try {
-        // Picks up changes to the skill and these scripts. A changed poller takes effect on the
-        // next run, since this one is already loaded.
-        execFileSync("git", ["-C", TEAM_SKILLS, "pull", "-q", "--ff-only"]);
-        await checkDisk();
-        for (const issueId of await findQueuedIssues()) {
-            const issue = await readIssue(issueId);
-            for (const request of findRequests(issue)) {
-                await answer(issue, request);
-            }
+    for (const issueId of await findQueuedIssues()) {
+        const issue = await readIssue(issueId);
+        for (const request of findRequests(issue)) {
+            await answer(issue, request);
         }
-    } finally {
-        fs.rmSync(LOCK);
     }
-}
-
-main().catch(async (error) => {
-    log(error.stack);
-    await notify(`The bot's YouTrack poll is failing:\n\`\`\`\n${error.message.slice(0, 1500)}\n\`\`\``, "poll");
-    process.exit(1);
 });
