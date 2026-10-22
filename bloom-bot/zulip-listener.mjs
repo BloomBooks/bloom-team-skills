@@ -113,8 +113,13 @@ async function handle(event) {
     if (message.sender_id === botId) return;
     // Zulip sets the "mentioned" flag only in channels the bot is subscribed to, so also look for
     // the mention in the rendered message, which tags it with the mentioned user's id.
-    const mentioned = flags.includes("mentioned") || message.content.includes(`data-user-id="${botId}"`);
+    // People also type "@bot" by hand without picking it from Zulip's suggestions, which leaves it as
+    // plain text; accept that too, by the bot's current name.
+    const mentioned = flags.includes("mentioned")
+        || message.content.includes(`data-user-id="${botId}"`)
+        || typedMention.test(message.content);
     if (message.type === "stream" && !mentioned) return;
+    if (message.type === "stream") log(`mention in #${message.display_recipient} from ${message.sender_full_name}`);
     if (!(await isFullMember(message.sender_id))) {
         log(`ignored a message from ${message.sender_full_name}, who is not a full member`);
         return;
@@ -122,7 +127,8 @@ async function handle(event) {
     await answer(message);
 }
 
-const { user_id: botId } = await api("GET", "/users/me");
+const { user_id: botId, full_name: botName } = await api("GET", "/users/me");
+const typedMention = new RegExp(`(^|[^\\w@])@\\**${botName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
 let restartWanted = false;
 
 /** Registers an event queue for messages in every public channel and the bot's DMs. */
