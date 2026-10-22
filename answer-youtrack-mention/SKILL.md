@@ -100,7 +100,8 @@ Asking a user for more costs them real time and effort. Ask for something only w
 would change what we do or what we tell them, and say in the reply what it's for. When the fix
 and the advice are the same whatever they answer, ask nothing.
 
-**`@Bot triage`** means all of it, under these headings in this order: the reporter's version,
+**`@Bot triage`** is complete on its own every time, including when an earlier bot comment on the
+card already triaged it: redo each section in full rather than pointing back. It means all of it, under these headings in this order: the reporter's version,
 other reports, how to make it happen, what to tell the user, then For Developers.
 
 Any other question: answer it from the code and history on the reporter's branch.
