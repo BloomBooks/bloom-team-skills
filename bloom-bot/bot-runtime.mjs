@@ -27,7 +27,7 @@ export const MODEL_NAME = "Claude Opus 5.5";
 const EFFORT = "low";
 const CLAUDE_TIMEOUT_MS = 15 * 60 * 1000;
 
-const ZULIP_CHANNEL = "developers";
+const ZULIP_CHANNEL = "bot testing";
 const ZULIP_TOPIC = "Bloom bot";
 const NOTIFY_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -103,10 +103,31 @@ export function zulipCredentials() {
 
 /** Fast-forwards bloom-team-skills and returns true if that changed anything in bloom-bot/. */
 export function pullTeamSkills() {
-    const before = execFileSync("git", ["-C", TEAM_SKILLS, "rev-parse", "HEAD:bloom-bot"], { encoding: "utf8" });
-    execFileSync("git", ["-C", TEAM_SKILLS, "pull", "-q", "--ff-only"]);
-    const after = execFileSync("git", ["-C", TEAM_SKILLS, "rev-parse", "HEAD:bloom-bot"], { encoding: "utf8" });
-    return before !== after;
+    // Every job pulls, and two at once in one clone corrupt each other's FETCH_HEAD ("Cannot
+    // fast-forward to multiple branches"). So take a lock, and fetch and merge one named branch.
+    const lock = path.join(HOME_DIR, "pull.lock");
+    fs.mkdirSync(HOME_DIR, { recursive: true });
+    for (let tries = 0; ; tries++) {
+        try {
+            fs.mkdirSync(lock);
+            break;
+        } catch (error) {
+            if (error.code !== "EEXIST") throw error;
+            // A lock older than a minute belongs to a run that died mid-pull.
+            if (Date.now() - fs.statSync(lock).mtimeMs > 60_000) fs.rmSync(lock, { recursive: true, force: true });
+            if (tries > 120) throw new Error(`${lock} has been held for over a minute`);
+            execFileSync("sleep", ["0.5"]);
+        }
+    }
+    try {
+        const before = execFileSync("git", ["-C", TEAM_SKILLS, "rev-parse", "HEAD:bloom-bot"], { encoding: "utf8" });
+        execFileSync("git", ["-C", TEAM_SKILLS, "fetch", "-q", "origin", "main"]);
+        execFileSync("git", ["-C", TEAM_SKILLS, "merge", "-q", "--ff-only", "origin/main"]);
+        const after = execFileSync("git", ["-C", TEAM_SKILLS, "rev-parse", "HEAD:bloom-bot"], { encoding: "utf8" });
+        return before !== after;
+    } finally {
+        fs.rmSync(lock, { recursive: true, force: true });
+    }
 }
 
 /** Records how the job's last run went, for the health job to read. */

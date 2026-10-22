@@ -56,13 +56,15 @@ function conversationNarrow(message) {
     return [{ operator: "dm", operand: message.display_recipient.map((r) => r.id) }];
 }
 
-/** Reads the messages leading up to and including this one, as raw Markdown. */
+/** Renders the messages leading up to this one, then this one, as raw Markdown. The message itself
+ * comes from the event, not from history: right after it is sent, a history fetch can come back
+ * without it. */
 async function readConversation(message) {
     const { messages } = await api("GET", "/messages", {
         anchor: String(message.id), num_before: String(CONTEXT_MESSAGES), num_after: "0",
-        narrow: conversationNarrow(message), apply_markdown: "false",
+        include_anchor: "false", narrow: conversationNarrow(message), apply_markdown: "false",
     });
-    return messages
+    return [...messages.filter((m) => m.id !== message.id), message]
         .map((m) => `### ${m.sender_full_name}, ${new Date(m.timestamp * 1000).toISOString()}\n\n${m.content}`)
         .join("\n\n");
 }
@@ -133,7 +135,10 @@ let restartWanted = false;
 
 /** Registers an event queue for messages in every public channel and the bot's DMs. */
 async function register() {
-    const queue = await api("POST", "/register", { event_types: ["message"], all_public_streams: "true" });
+    // apply_markdown false: events carry the raw Markdown people typed, which is what Claude reads.
+    const queue = await api("POST", "/register", {
+        event_types: ["message"], all_public_streams: "true", apply_markdown: "false",
+    });
     log(`listening (queue ${queue.queue_id})`);
     return { queueId: queue.queue_id, lastEventId: queue.last_event_id };
 }
