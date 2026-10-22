@@ -9,7 +9,8 @@ bloom-team-skills. The job's own instructions follow this text; this part holds 
   the repos the question needs with the helper's `checkout <repo>`, which fetches it fresh from
   GitHub. Most questions need `BloomDesktop` (Bloom itself, with a `Version*` branch per release);
   `bloom-player` is Bloom Player, which shows books in Bloom Reader, on Bloom Library and in
-  Bloom's own previews; `repos` lists the rest with their descriptions.
+  Bloom's own previews; `BloomLibrary2` is the BloomLibrary.org website, which the team calls
+  "blorg"; `repos` lists the rest with their descriptions.
 - Read, Grep, Glob, and `git log/show/blame/grep/diff/branch`, which take the repo with `-C`:
   `git -C BloomDesktop log -- src/BloomExe/Book/Book.cs`.
 - The read-only helper `node <bloom-team-skills>/bloom-bot/bot-tools.mjs` (the job gives its full
