@@ -19,8 +19,11 @@ exports.rule = entities.Issue.onChange({
       if (comment.author.isInGroup(ALLOWED_GROUP)) {
         // The bot on the Mac finds requests by searching for this text. The request is the
         // comment just before this one; the bot replaces this text with its answer, which
-        // takes the issue out of that search.
-        issue.addComment('[YouTrack workflow] Queued for the Bloom bot.', ctx.Bot);
+        // takes the issue out of that search. Limiting this comment to Developers keeps the
+        // answer off the public tracker; the Bot account can't see groups, so it has to be
+        // done here rather than by the bot.
+        const queued = issue.addComment('[YouTrack workflow] Queued for the Bloom bot.', ctx.Bot);
+        queued.permittedGroups.add(ctx.Developers);
       } else {
         issue.addComment(
           '[YouTrack workflow] @Bot only answers members of the Bloom developer team.',
@@ -33,6 +36,10 @@ exports.rule = entities.Issue.onChange({
     Bot: {
       type: entities.User,
       login: BOT_LOGIN
+    },
+    Developers: {
+      type: entities.UserGroup,
+      name: ALLOWED_GROUP
     }
   }
 });

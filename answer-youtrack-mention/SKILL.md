@@ -59,10 +59,18 @@ For triage and for any bug question, search before answering:
   messages differ per user.
 
 List each card you found as a link (`https://issues.bloomlibrary.org/youtrack/issue/BL-xxxxx`)
-with a line on why it's related, and each Sentry issue as its URL. Say so when you found nothing.
+with a line on why it's related. Say so when you found nothing.
 
-The tracker is public: the reporter and other users read your comment. Refer to Sentry users and
-other reporters by what happened to them, never by name, email or machine name.
+Sentry findings go in a `#### Sentry` subsection of For Developers: each issue's URL, release,
+count and users, and how it relates. In triage that subsection is always there, saying what you
+searched for when you found nothing. When Sentry says something a tester can use (this user has
+hit many errors lately, many users hit this, it stopped after a release), say it in plain words
+under Other reports too.
+
+When you find the reporter's own events in Sentry, say under Reporter's version where they are
+(city, region, country from the event's `user.geo`).
+
+Your comment is visible only to the Developers group.
 
 ## 3. Answer the request
 
