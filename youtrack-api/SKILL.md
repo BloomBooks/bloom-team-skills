@@ -82,6 +82,9 @@ bracketed tag:
 Get `<developer-name>` from `git config user.name`. This is the YouTrack-specific form of the
 team-wide attribution rule in `TEAM-AGENTS.md`.
 
+The tag goes on a line of its own, followed by a blank line (`\n\n` in the JSON), and the text
+starts after that.
+
 Validate the token before doing real work:
 ```bash
 # should report the BOT's login:
@@ -132,7 +135,7 @@ Start the text with the attribution tag from §1:
 curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/comments" \
   -H "Authorization: Bearer $YOUTRACK_BOT" \
   -H "Content-Type: application/json" \
-  -d '{"text": "[Claude Opus 4.8 from Hatton'\''s machine during preflight] your comment text"}'
+  -d '{"text": "[Claude Opus 4.8 from Hatton'\''s machine during preflight]\n\nyour comment text"}'
 ```
 Before posting, list existing comments and check you are not creating a duplicate (e.g. when
 posting a PR link, `grep -i "github.com.*pull"` the existing comment text first). For bodies
