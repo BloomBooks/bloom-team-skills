@@ -13,7 +13,10 @@ You will be given a card id starting with `BL-`, or its URL
 1. **Read the card** — summary, description, comments and attachments — through the
    `youtrack-api` skill (the web URL is a SPA and returns blank to a plain fetch).
 2. **Plan.** Read the code as needed and write a short plan. Ask the user for anything you need
-   clarified, then present the plan and ask whether to proceed.
+   clarified, then present the plan and ask whether to proceed. List in it the existing tests
+   whose expectations the change will alter, and why. Approving the plan approves changing those
+   tests, and only those (see "Changing an existing test needs the developer's approval" in
+   `TEAM-AGENTS.md`).
 3. **Branch.** The project's `AGENTS.md` names the target branch (and a `[6.X]` prefix on the
    card's summary overrides it — see the repo's issue-tracker section; confirm with the user if
    they disagree). Branch off that target as `BL-<n>-<one to three words>` (the id first is

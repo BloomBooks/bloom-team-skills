@@ -137,6 +137,49 @@ is an action the tester performs; keep plain prose for the explanatory parts (th
 lead-in, and the reasoning inside "watch these especially"), where a checkbox would make no sense.
 Don't force everything into checkboxes — they're for the do-this items, not for narrative.
 
+### Marking what has already been checked
+
+When at least one checkbox has earned a badge, two badge slots at the start of every checkbox
+tell the tester which items something has already checked, so they can spend their time on the
+rest. When none has, write plain checkboxes with no slots and no legend.
+
+- 🤖 (first slot) — an automated test checks this, and it passed on this version of the change.
+- 👁️ (second slot) — an agent did these steps in a running Bloom and saw the expected result.
+- ▫️ — an empty slot. Whenever the slots are used, fill both on every checkbox, so the text of
+  every checkbox lines up. Write the eye and the empty slot with U+FE0F (`👁️`, `▫️`); without
+  it some fonts draw a narrow text glyph that breaks the column.
+
+Explain them once, in a legend at the very end of the comment, after everything else. Testers
+soon learn the marks, so the legend should not stand between them and the checkboxes. It is two
+plain lines, nothing more (YouTrack shows each on its own line):
+
+```markdown
+🤖: an automated test checks this
+👁️: an AI agent did this in a running Bloom and saw the expected result
+```
+
+```markdown
+- [ ] 🤖👁️ Rename the collection to "Stories." and reopen Bloom. It opens with the new name.
+- [ ] ▫️👁️ Open the collection on a second computer through Team Collections. The name matches.
+- [ ] ▫️▫️ Undo the rename from the Team Collection history.
+```
+
+Nothing else goes on the line: no test names, no kind of test, no commit. The point is a column
+the eye can scan. A badge has to be earned in full:
+
+- **🤖** only for a test that ran and passed at the final HEAD, and only when it does the same
+  thing and checks the same expected result. A test of the same area, or of part of the item,
+  earns nothing, and neither does a test that only runs in the nightly. `preflight` gives you the
+  list of tests it saw pass at HEAD, each with what it checks. Run by hand, use only tests you can
+  see passed at HEAD, such as the PR's green CI run of their suite.
+- **👁️** only from the live checks at the end of the PR description's E2E Coverage section, each
+  with the commit it ran on. Driving Bloom's UI and seeing the result counts; reading the code or
+  calling an API does not. Leave a slot empty when the code that item exercises has changed since
+  that commit: a live check cannot be re-run.
+
+"Watch these especially" should favour the unmarked items: risky parts nothing has checked are
+where the tester's time is worth most.
+
 ### When there's nothing for a tester to do
 
 Some changes have no user-observable behavior to exercise — a pure internal refactor, a
@@ -324,6 +367,8 @@ comment when you can name what would be lost by overwriting.
   "can't-really-break" confirmations (especially "it's just a normal X now" items) — they dilute
   the tester's attention.
 - Is there a clear **"watch these especially"** for the risky/just-fixed/data-affecting parts?
+- Has every 🤖 or 👁️ been earned in full, and is every 👁️ still current? If any checkbox has a
+  badge, does every checkbox have both slots filled?
 - Does it name the **known, deliberate limits** a tester will run into, so they don't file a
   settled decision as a new bug?
 - Did you prompt them to try the relevant **conditions** (online/offline, different computers,

@@ -84,6 +84,19 @@ the card **in the same step**. Otherwise a reviewer who follows an old card link
 PR nobody is updating. The procedure is in `youtrack-api`, "Guide a reviewer through a stack of
 PRs".
 
+## Changing an existing test needs the developer's approval
+
+A test that fails after your change is usually reporting a real problem, and editing the test is
+the quickest way to hide it. So before you change what an existing automated test asserts or
+expects, delete it, skip it, or narrow what it covers, ask the developer first and say why the
+test is wrong rather than the code. This holds during preflight too, when a bot or a failing suite
+makes the edit look routine. Updating a snapshot or visual-regression baseline counts: show the
+old and new output side by side when you ask.
+
+An existing test is one already on the base branch; tests your branch added are yours to change
+until it merges. No approval is needed to add new tests, or for mechanical updates that leave what a test checks
+unchanged: a rename, a moved file, a changed method signature.
+
 ## Two agents in one tree overwrite each other, and it never looks like that
 
 This has cost real work three times, and **not once did it present as a conflict**. Nothing in

@@ -37,11 +37,15 @@ Check all of the following. **Any failure → do not promote** (see "Not clean" 
   `devin-ai-integration` post covering HEAD, or the caller's durable marker — see the
   `personal-board` skill's Devin marker if available). Never promote without Devin having run.
 - **Mergeable** with the base branch.
+- **The test decision was made** (preflight's "The test decision"). Read the `Test of the
+  change:` line in the Automated Tests section, or in a PR comment for a human-written
+  description. Pass when it names a test or gives a `developer's decision`. Bounce when it says
+  `awaiting` or there is no such line. Never supply a reason yourself.
 - **The PR description says what the PR is for.** Un-drafting a PR is the moment a human starts
   reading it, and the description is the first thing they read. It should state the problem, the
   cause where that isn't obvious, and what the whole PR changes, followed by the reviewer sections
-  (Screenshots when there is UI, Risk Evaluation, Ecosystem Impact, E2E Coverage, Notion Test
-  Suite) — `preflight` writes exactly that (its "PR narrative" and "reviewer sections"), between
+  (Screenshots when there is UI, Risk Evaluation, Ecosystem Impact, Automated Tests, E2E Coverage,
+  Notion Test Suite) — `preflight` writes exactly that (its "PR narrative" and "reviewer sections"), between
   `<!-- preflight-narrative:begin/end -->` markers. This is the one check that does **not**
   bounce: if the description is missing any of that, or the markers are there but the narrative
   plainly predates the current code, say so in the report and offer to refresh it —
@@ -80,6 +84,9 @@ Mechanics (interactive rebase is not available here):
    `git reset --hard $old` and bounce to preflight.
 4. `git push --force-with-lease`. The user invoking this skill is the explicit authorization
    for this push.
+   Then change the commit shas on the live-check lines at the end of the PR description's E2E
+   Coverage section to the new squash commit. The tree is identical, so the checks still hold,
+   and a later preflight run can no longer find the old shas.
 5. **Reconnect every PR stacked on this branch:** `gh pr list --base <branch> --state open`.
    Each one's head was built on the commits the squash just removed, so GitHub now diffs it from
    an older merge base and shows this PR's changes a second time. For each, merge the pushed
@@ -149,6 +156,9 @@ Then:
      write the corrected behavior, not the old one.
    - **Current truth, nothing historical:** describe the change as it stands. No "earlier this
      did X", no "round 2", no correction notes stacked under the original; replace the text.
+   - **Badges kept consistent** (`add-test-ideas`, "Marking what has already been checked"): an
+     item you add or reword gets ▫️▫️ unless it earns a badge, and if no badge remains, drop the
+     slots and the legend.
    - **Succinct:** scale it to the change. A small change gets two or three sentences and a
      handful of checkboxes. Cut any item this diff has no plausible way of breaking, and any
      setup a tester doesn't need.
@@ -217,7 +227,8 @@ lowest-stakes step.
 
 ## Rules
 
-- Never promote with failing CI, unanswered bot comments, or without Devin having run —
+- Never promote with failing CI, unanswered bot comments, without Devin having run, or without
+  the test decision —
   bounce to preflight instead. No exceptions except an explicit user override ("skip the
   checks, promote anyway"), which must be noted in the report.
 - Never request a teammate's review; un-drafting the PR is the handoff.

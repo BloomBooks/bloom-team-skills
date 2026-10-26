@@ -92,10 +92,20 @@ reviewer can see it was considered rather than forgotten.
    versions of the app opening the same files, other repos and services, new or changed
    dependencies, localization (new strings, and whether they reach translators). Say which of
    these were checked and which were not.
-4. **E2E Coverage** — which end-to-end tests cover the change, grouped by what they cover, and
+4. **Automated Tests** — the unit, component and end-to-end tests this PR adds or changes, each in
+   a few words, then one line that records the test decision (see "The test decision"):
+   `Test of the change: <which test(s)>`, `Test of the change: none — developer's decision:
+   <reason>`, or `Test of the change: none — awaiting the developer's decision`. Never put a
+   reason of your own here. Phase 3 writes the section before that check has run: keep a
+   `developer's decision` line an earlier run wrote; otherwise write `awaiting`.
+5. **E2E Coverage** — which end-to-end tests cover the change, grouped by what they cover, and
    what the change does that they do not cover and why. If end-to-end tests are not relevant to
    this change (a build-script fix, a C#-only refactor with unit tests), say why in one line.
-5. **Notion Test Suite** — the cards this PR added to or changed in the team's Notion test
+   End it with the **live checks**: each thing an agent did in a running Bloom while working on
+   this PR and saw work, one line each, with the short commit sha it ran on. Keep the lines an
+   earlier run recorded, and drop one when the code it exercised has changed since its commit.
+   These are what `add-test-ideas` turns into 👁️ badges.
+6. **Notion Test Suite** — the cards this PR added to or changed in the team's Notion test
    inventory, each with its Test Case ID, title, URL and Automation state, or "None." Read the
    inventory to answer this; don't guess from memory of the session.
 
@@ -175,7 +185,11 @@ everything else) when it is any of:
 - a change to **user-facing behavior or a public API/interface/contract**;
 - a **large or architecturally-significant** change, or one touching **many files**;
 - a **semantic** merge conflict (resolve only trivial ones — lockfile, imports, formatting);
-- **disagreeing with a human comment** (always report; never auto-dismiss a human).
+- **disagreeing with a human comment** (always report; never auto-dismiss a human);
+- **changing what an existing test asserts or expects** (including a snapshot or visual
+  baseline), or skipping or deleting it, unless the developer already approved that change (see
+  "Changing an existing test needs the developer's approval" in `TEAM-AGENTS.md`). Leave the
+  suite red and say in the report that it waits on this decision.
 
 Disagreeing with a **bot** does *not* need the user — post a reply and move on. **Agreeing** with
 a human is fine to act on too: if their point is a clearly-correct, in-scope fix, make the fix,
@@ -272,6 +286,28 @@ A failing check is handled like a failing suite: fix what is within the autonomy
 again; anything else goes to the decision report. So does a check that needs something this
 machine lacks, saying what was missing.
 
+## The test decision — tests, or the developer says why not
+
+Every PR either comes with an automated test of what it changes, or the developer has said that it
+doesn't need one. Preflight never makes that call itself. It checks in Phase 5, once the code has
+settled, by looking for added or changed tests, in any stack, in `git diff origin/<base>...HEAD`:
+
+- **At least one of them checks the changed behavior** → `Test of the change: <which>`. Nothing
+  to decide. A renamed test or a tweaked fixture is not a test of the change.
+- **None does, and an earlier run recorded the developer's decision** → keep it, unless the PR
+  has changed since so that the reason no longer fits; then ask again.
+- **None does, and no decision yet** → `Test of the change: none — awaiting the developer's
+  decision`, and a decision item in the report. Put the recommended option first, as usual:
+  either the test you would write (what it checks and where it goes, concretely enough to write
+  on a yes), or "no test needed" with the reason you would suggest (a docs-only change, a look only
+  a person can judge, existing tests already cover it, tested in PR n/m of this stack). On this
+  item `Leave as is` means the line stays `awaiting` and the PR can't be promoted yet.
+
+When the PR description is human-written (no preflight markers), the `Test of the change:` line
+goes in a PR comment instead, starting with the attribution tag. A trunk-only review slice (see below) has no test decision: its code is already merged.
+
+`pr-ready-for-human` will not promote a PR whose decision is still `awaiting` or missing.
+
 ## When the code is already on the trunk (no branch, no PR)
 
 A repo whose work is pushed straight to `master` has no diff for Devin to review. Use a **marker
@@ -309,7 +345,9 @@ use it for all later board moves. If none, skip board steps silently.
 
 **The fast gate — run at every level, and before every push:** repeat until **typecheck**,
 then **lint**, then **fast tests** (only changed/related tests, non-watch) all pass. Fix
-what's safely fixable; report the rest. (The FULL test suite deliberately runs later, once,
+what's safely fixable; report the rest. A failure waiting on approval to change an existing test
+(see "Autonomy line") does not block the gate: note it and go on. If a commit hook rejects the
+commit because of it, stop and report; never bypass the hook. (The FULL test suite deliberately runs later, once,
 overlapped with the bot wait — see Phase 4.)
 
 ⚠️ **Never read a gate's pass/fail through a pipe.** `tsc --noEmit … | tail -20; echo $?` reports
@@ -558,11 +596,14 @@ already ran in Phase 1; its captured outcome joins the results here.
 
 ## Phase 5 — Converge, land, report
 
-Enter when: fast gate clean, **every in-scope test suite green at HEAD**, every reviewer terminal
+Enter when: fast gate clean, **every in-scope test suite green at HEAD** (apart from failures
+waiting on a decision to change an existing test), every reviewer terminal
 (complete or recorded timeout — the terminal-state rule), all **bot** comments resolved (fixed
 or replied), branch mergeable, and only human-decision items (if any) remain.
 
-- **Settle the PR narrative first — everything else in this phase quotes it.** Re-derive
+- **Make the test decision check** (see "The test decision") before settling the narrative, since
+the Automated Tests section reports its outcome.
+- **Settle the PR narrative — everything else in this phase quotes it.** Re-derive
 problem / cause / fix from the full diff at HEAD, folding in anything worth taking from Devin's
 Overview (see "The PR narrative"). Then write that one text into both homes: the PR description
 (Phase 3's marker rules — and leave a human-written description alone) and the top of the
@@ -576,7 +617,9 @@ skill may still *choose* to add a new "round 2" comment when history matters —
 already worked the old notes and only part needs retesting; that deliberate case is fine, blind  
 duplication is not.) The write is authorized by this skill invocation like the other tracker  
 writes. Base the write-up on the final diff for the current HEAD (this is why it lives here,  
-after the code has settled). Post it **even when the change has nothing user-testable** (a pure  
+after the code has settled). Give it the tests its 🤖 badges may come from: the tests you saw pass
+at HEAD (in Phase 4, a repo check, or CI) that are in the Automated Tests section or check the
+changed behavior, each with what it checks. Post it **even when the change has nothing user-testable** (a pure  
 refactor, tooling, docs) — in that case the comment is `add-test-ideas`'s short "nothing for a  
 tester to do, because …" note; never skip the comment just because there's nothing to test. The  
 **only** reason to skip is a genuinely missing prerequisite — no ticket id or an unreachable  
@@ -656,6 +699,10 @@ repo** near the relevant code (this is what that checkbox means — a durable re
 source, not a PR comment; the PR-thread reply above happens regardless of the checkbox).
 Commit it with the normal conventions.
 - `**Other:` text or notes** → follow them; if they amount to a fix, treat as a chosen fix.
+- **The test decision** → a test chosen: write it, as a chosen fix. No test needed: record the
+reason the developer picked or wrote, verbatim, as `Test of the change: none — developer's
+decision: <reason>` in the Automated Tests section (or in the PR comment, for a human-written
+description).
 
 **Then park the decision where it belongs, and stop carrying it.** Once an item is settled it
 must not reappear as prose in the next report (see "What the report is for"). Its home is one or
