@@ -79,8 +79,21 @@ The two questions testers bring most:
 - **"How do I make this happen?"** Steps a tester performs in Bloom: which collection settings,
   book, page, tool and clicks. Hand-editing a book or collection file is not a reproduction.
   Say which step is the one that matters, in terms of what the tester sees and does.
-- **"What should I tell this user?"** A reply the tester can send to the reporter. Include a
-  workaround when there is one, and the version that fixes it if one does.
+
+  Say how likely a tester is to see it with these steps. When the failure depends on timing
+  (two things Bloom does at once finishing in the wrong order, such as a save, a rename or a page
+  load), say so at the top of the section, in bold: following the steps will usually not show
+  it, and a tester who doesn't see it has learned nothing new. Back that up with how rare it is:
+  the reporter's own "how often", and the Sentry count of events and users over how long. Don't
+  suggest that the tester's computer, disk or sync software explains a miss unless the code or
+  the Sentry data points at it. When a reliable reproduction would need a change to Bloom, such
+  as a delay added in a test build, say that under For Developers.
+- **"What should I tell this user?"** A reply the tester can send to the reporter. Include the
+  version that fixes it if one does.
+
+  Offer workarounds when you have them, including ones you haven't confirmed. Say which kind each
+  one is: one the code shows will work, or one worth trying. Check each against the code first,
+  and drop any that the code shows can't work.
 
 Asking a user for more costs them real time and effort. Ask for something only when the answer
 would change what we do or what we tell them, and say in the reply what it's for. When the fix
