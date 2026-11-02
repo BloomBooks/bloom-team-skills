@@ -94,8 +94,8 @@ reviewer can see it was considered rather than forgotten.
    these were checked and which were not.
 4. **Automated Tests** — the unit, component and end-to-end tests this PR adds or changes, each in
    a few words, then one line that records the test decision (see "The test decision"):
-   `Test of the change: <which test(s)>`, `Test of the change: none — developer's decision:
-   <reason>`, or `Test of the change: none — awaiting the developer's decision`. Never put a
+   `Test of the change: <which test(s)>`, `Test of the change: none — test-only change: <which
+   tests>`, `Test of the change: none — developer's decision: <reason>`, or `Test of the change: none — awaiting the developer's decision`. Never put a
    reason of your own here. Phase 3 writes the section before that check has run: keep a
    `developer's decision` line an earlier run wrote; otherwise write `awaiting`.
 5. **E2E Coverage** — which end-to-end tests cover the change, grouped by what they cover, and
@@ -288,12 +288,18 @@ machine lacks, saying what was missing.
 
 ## The test decision — tests, or the developer says why not
 
-Every PR either comes with an automated test of what it changes, or the developer has said that it
-doesn't need one. Preflight never makes that call itself. It checks in Phase 5, once the code has
+Every PR either comes with an automated test of what it changes, changes only test code, or the
+developer has said that it doesn't need one. Apart from the test-only case, preflight never makes
+that call itself. It checks in Phase 5, once the code has
 settled, by looking for added or changed tests, in any stack, in `git diff origin/<base>...HEAD`:
 
 - **At least one of them checks the changed behavior** → `Test of the change: <which>`. Nothing
   to decide. A renamed test or a tweaked fixture is not a test of the change.
+- **The PR changes only test code** (tests, test helpers, fixtures, test infrastructure, and
+  docs about them) → `Test of the change: none — test-only change: <the tests it fixes or adds,
+  which are their own check>`. Nothing to decide: the tests it touches must run and pass, and
+  that is the check. Any change to product code rules this out, even one made only so a test can
+  use it (a test endpoint, a milestone, a hook); such a PR goes through the cases below.
 - **None does, and an earlier run recorded the developer's decision** → keep it, unless the PR
   has changed since so that the reason no longer fits; then ask again.
 - **None does, and no decision yet** → `Test of the change: none — awaiting the developer's

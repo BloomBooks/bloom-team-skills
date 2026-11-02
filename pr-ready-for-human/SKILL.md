@@ -39,7 +39,8 @@ Check all of the following. **Any failure → do not promote** (see "Not clean" 
 - **Mergeable** with the base branch.
 - **The test decision was made** (preflight's "The test decision"). Read the `Test of the
   change:` line in the Automated Tests section, or in a PR comment for a human-written
-  description. Pass when it names a test or gives a `developer's decision`. Bounce when it says
+  description. Pass when it names a test, says `test-only change` (and the diff
+  touches no product code), or gives a `developer's decision`. Bounce when it says
   `awaiting` or there is no such line. Never supply a reason yourself.
 - **The PR description says what the PR is for.** Un-drafting a PR is the moment a human starts
   reading it, and the description is the first thing they read. It should state the problem, the
