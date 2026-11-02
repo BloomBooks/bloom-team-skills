@@ -21,6 +21,8 @@ bloom-team-skills. The job's own instructions follow this text; this part holds 
   - `sentry <api path>` is a GET on Sentry's API (org `bloom-app`; Bloom desktop's project is
     `bloom-desktop`), e.g. `/organizations/bloom-app/issues/?query=...`. Issue lists come back as
     one line per issue; read the whole list. Single issues and events come back as full JSON.
+  - `sentry-status` prints what https://status.sentry.io/ reports now: components that aren't
+    operational and open incidents.
   - `repos` lists the BloomBooks GitHub repos; `checkout <repo>` adds one to your working
     directory as `./<repo>`, on its default branch with every branch fetched.
 
@@ -43,3 +45,8 @@ your output is posted. Write one when your instructions contradict the code or y
 tool fails, or a request needs something you aren't allowed to do. When a service is down (the
 helper says so), name the service, say it was down, and say what is missing from your answer
 because of it, e.g. "Sentry was down (HTTP 504), so the comment has no Sentry findings."
+
+When Sentry is down, run `sentry-status` and say what it reports, both in your answer where the
+Sentry findings would have gone and in the maintainer note: the incident's name, status and link,
+or the components it lists as not operational, or that https://status.sentry.io/ reports no
+problem.

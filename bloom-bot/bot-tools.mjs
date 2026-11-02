@@ -6,6 +6,7 @@
 //   node bot-tools.mjs youtrack <api path>             e.g. /issues?query=...&fields=idReadable,summary
 //   node bot-tools.mjs attachment <issue id> <name>    saves the attachment to ./.card/<name>
 //   node bot-tools.mjs sentry <api path>               e.g. /organizations/bloom-app/issues/?query=...
+//   node bot-tools.mjs sentry-status                   what https://status.sentry.io/ reports now
 //   node bot-tools.mjs repos                           lists the BloomBooks repos
 //   node bot-tools.mjs checkout <repo>                 puts a worktree of a BloomBooks repo at ./<repo>
 
@@ -105,6 +106,23 @@ async function main() {
             }
             break;
         }
+        case "sentry-status": {
+            // status.sentry.io is a public Atlassian Statuspage; its summary needs no token.
+            const response = await fetch("https://status.sentry.io/api/v2/summary.json", { signal: AbortSignal.timeout(60_000) });
+            if (!response.ok) throw new Error(`status.sentry.io answered HTTP ${response.status}`);
+            const summary = await response.json();
+            console.log(`overall: ${summary.status.description} (https://status.sentry.io/)`);
+            const troubled = summary.components.filter((component) => component.status !== "operational");
+            for (const component of troubled) console.log(`component: ${component.name} | ${component.status} since ${component.updated_at}`);
+            if (troubled.length === 0) console.log("every component is operational");
+            for (const incident of summary.incidents) {
+                const latest = incident.incident_updates[0];
+                console.log(`incident: ${incident.name} | ${incident.status} | started ${incident.started_at} | ${incident.shortlink}`);
+                if (latest) console.log(`  latest update ${latest.created_at}: ${latest.body}`);
+            }
+            if (summary.incidents.length === 0) console.log("no open incidents");
+            break;
+        }
         case "repos": {
             for (const repo of listRepos()) {
                 console.log(`${repo.name}${repo.isPrivate ? " (private)" : ""}${repo.isArchived ? " (archived)" : ""} | ${repo.description ?? ""}`);
@@ -134,7 +152,7 @@ async function main() {
             break;
         }
         default:
-            throw new Error("usage: bot-tools.mjs youtrack <path> | attachment <issue> <name> | sentry <path> | repos | checkout <repo>");
+            throw new Error("usage: bot-tools.mjs youtrack <path> | attachment <issue> <name> | sentry <path> | sentry-status | repos | checkout <repo>");
     }
 }
 
