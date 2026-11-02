@@ -9,7 +9,7 @@
 
 import path from "node:path";
 import {
-    BOT_TOOLS, TEAM_SKILLS,
+    BOT_TOOLS, CLAUDE_TIMEOUT_MINUTES, TEAM_SKILLS,
     budgetBlock, log, makeRunDir, notify, pullTeamSkills, removeRunDir, runClaude, writeStatus, zulipCredentials,
 } from "./bot-runtime.mjs";
 
@@ -108,7 +108,10 @@ async function answer(message) {
     } catch (error) {
         log(`failed: ${error.stack}`);
         await notify(`The bot failed to answer ${message.sender_full_name} in ${where}:\n\`\`\`\n${error.message.slice(0, 1500)}\n\`\`\``);
-        await reply(message, "Sorry, I failed to answer that. The developers have been told.").catch(() => {});
+        const apology = error.timedOut
+            ? `Sorry, I ran out of time on that (a run is stopped after ${CLAUDE_TIMEOUT_MINUTES} minutes). The developers have been told.`
+            : "Sorry, I failed to answer that. The developers have been told.";
+        await reply(message, apology).catch(() => {});
     } finally {
         if (dir) removeRunDir(dir);
         await api("DELETE", `/messages/${message.id}/reactions`, { emoji_name: "eyes" }).catch(() => {});
@@ -135,6 +138,9 @@ async function handle(event) {
 const { user_id: botId, full_name: botName } = await api("GET", "/users/me");
 const typedMention = new RegExp(`(^|[^\\w@])@\\**${botName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
 let restartWanted = false;
+// The chain of answers still to give, and how many messages are on it or being answered.
+let answering = Promise.resolve();
+let messagesInHand = 0;
 
 /** Registers an event queue for messages in every public channel and the bot's DMs. */
 async function register() {
@@ -166,13 +172,16 @@ for (;;) {
     for (const event of events) {
         queue.lastEventId = Math.max(queue.lastEventId, event.id);
         if (event.type !== "message") continue;
-        try {
-            await handle(event);
-        } catch (error) {
-            log(`handling message ${event.message.id}: ${error.stack}`);
-        }
+        // Answer in the background, one message at a time, and go straight back to polling: Zulip
+        // drops an event queue that nobody polls for about ten minutes, and a Claude run can take
+        // fifteen, so waiting on the answer here would lose every mention sent meanwhile.
+        messagesInHand++;
+        answering = answering
+            .then(() => handle(event))
+            .catch((error) => log(`handling message ${event.message.id}: ${error.stack}`))
+            .finally(() => { messagesInHand--; });
     }
-    if (restartWanted) {
+    if (restartWanted && messagesInHand === 0) {
         log("bloom-bot/ changed; exiting so launchd restarts on the new code");
         process.exit(0);
     }

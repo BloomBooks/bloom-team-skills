@@ -6,7 +6,7 @@
 // ~/.zuliprc. Claude runs never see either: runClaude() strips the tokens from its environment
 // and denies its file tools those paths.
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -23,7 +23,7 @@ const BOT_GUIDE = path.join(BOT_DIR, "BOT.md");
 export const MODEL = "claude-opus-5-5";
 export const MODEL_NAME = "Claude Opus 5.5";
 const EFFORT = "low";
-const CLAUDE_TIMEOUT_MS = 15 * 60 * 1000;
+export const CLAUDE_TIMEOUT_MINUTES = 15;
 
 const ZULIP_CHANNEL = "bot testing";
 const ZULIP_TOPIC = "Bloom bot";
@@ -255,7 +255,8 @@ function recordBotUse(before, after) {
 /** Runs Claude read-only in `cwd` with BOT.md, then the job's skill, then the job's own text as
  * its prompt. Returns the text after the last "=== OUTPUT ===" line, and any note after a
  * "=== MAINTAINER ===" line before it, which is also sent to Zulip. Callers check budgetBlock()
- * first; this records what the run used toward the bot's share. */
+ * first; this records what the run used toward the bot's share. A run that goes past
+ * CLAUDE_TIMEOUT_MINUTES throws an error with `timedOut` set. */
 export async function runClaude({ cwd, skillFile, task, label, test = false }) {
     const usageBefore = await readWeeklyUsage();
     try {
@@ -265,12 +266,41 @@ export async function runClaude({ cwd, skillFile, task, label, test = false }) {
     }
 }
 
+/**
+ * Runs a command with `input` on stdin and resolves with its exit status and output. Unlike
+ * spawnSync it leaves the event loop free, so a job keeps polling while Claude works. Stops the
+ * command after `timeoutMs` and reports that with `timedOut`.
+ */
+function runCommand(command, args, { cwd, env, input, timeoutMs }) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, { cwd, env });
+        let stdout = "";
+        let stderr = "";
+        let timedOut = false;
+        child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+        child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+        const timer = setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGTERM");
+        }, timeoutMs);
+        child.on("error", (error) => {
+            clearTimeout(timer);
+            reject(error);
+        });
+        child.on("close", (status) => {
+            clearTimeout(timer);
+            resolve({ status, stdout, stderr, timedOut });
+        });
+        child.stdin.end(input);
+    });
+}
+
 async function runClaudeOnce({ cwd, skillFile, task, label, test }) {
     const prompt = [fs.readFileSync(BOT_GUIDE, "utf8"), fs.readFileSync(skillFile, "utf8"), task].join("\n\n");
     const env = { ...process.env };
     for (const key of ["YOUTRACK_BOT", "SENTRY_BOT_TOKEN"]) delete env[key];
 
-    const result = spawnSync(
+    const result = await runCommand(
         "claude",
         [
             "-p",
@@ -288,9 +318,13 @@ async function runClaudeOnce({ cwd, skillFile, task, label, test }) {
             `Read(/${ZULIPRC})`,
             "WebFetch", "WebSearch",
         ],
-        { cwd, env, input: prompt, encoding: "utf8", timeout: CLAUDE_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+        { cwd, env, input: prompt, timeoutMs: CLAUDE_TIMEOUT_MINUTES * 60 * 1000 },
     );
-    if (result.error) throw result.error;
+    if (result.timedOut) {
+        const error = new Error(`Claude ran past ${CLAUDE_TIMEOUT_MINUTES} minutes on ${label} and was stopped`);
+        error.timedOut = true;
+        throw error;
+    }
     if (result.status !== 0) {
         throw new Error(`claude exited ${result.status}: ${result.stderr.slice(-2000)}`);
     }
