@@ -40,4 +40,6 @@ job should post. The job posts only what follows the last such line.
 When the bot itself needs fixing, put a note for its maintainer before that: a line holding only
 `=== MAINTAINER ===`, then the note. It goes to the developers channel on Zulip, never to where
 your output is posted. Write one when your instructions contradict the code or your tools, a
-tool fails, or a request needs something you aren't allowed to do.
+tool fails, or a request needs something you aren't allowed to do. When a service is down (the
+helper says so), name the service, say it was down, and say what is missing from your answer
+because of it, e.g. "Sentry was down (HTTP 504), so the comment has no Sentry findings."

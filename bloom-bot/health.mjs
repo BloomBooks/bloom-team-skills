@@ -12,10 +12,21 @@ const MIN_FREE_GIB = 5;
 // error (launchd stopped starting it, or it hangs).
 const STALE_MS = { youtrack: 30 * 60 * 1000, zulip: 15 * 60 * 1000 };
 
-/** Fails with the service's reply unless a GET with this bearer token succeeds. */
+/**
+ * Returns a problem naming the service unless a GET with this bearer token succeeds. A service
+ * that doesn't answer is a problem to report, not a reason to skip the remaining checks.
+ */
 async function checkToken(name, url, token) {
     if (!token) return `${name}: no token in ~/.config/bloom-bot/env`;
-    const response = await fetch(url, { signal: AbortSignal.timeout(60_000), headers: { Authorization: `Bearer ${token}` } });
+    const host = new URL(url).host;
+    let response;
+    try {
+        response = await fetch(url, { signal: AbortSignal.timeout(60_000), headers: { Authorization: `Bearer ${token}` } });
+    } catch (error) {
+        if (error.name === "TimeoutError") return `${name}: ${host} is down (no reply within 60 s)`;
+        return `${name}: could not reach ${host}: ${error.message}`;
+    }
+    if (response.status >= 500) return `${name}: ${host} is down (HTTP ${response.status})`;
     return response.ok ? null : `${name}: ${response.status} ${(await response.text()).slice(0, 200)}`;
 }
 

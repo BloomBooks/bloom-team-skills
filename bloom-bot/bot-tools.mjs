@@ -28,9 +28,22 @@ function readTokens() {
     return tokens;
 }
 
-/** GETs a URL with a bearer token and fails loudly on any non-2xx status. */
+/**
+ * GETs a URL with a bearer token and fails loudly on any non-2xx status. A timeout or a 5xx
+ * says that the service is down, so the caller doesn't take it for a problem with its request.
+ */
 async function get(url, token) {
-    const response = await fetch(url, { signal: AbortSignal.timeout(120_000), headers: { Accept: "application/json", Authorization: `Bearer ${token}` } });
+    const host = new URL(url).host;
+    let response;
+    try {
+        response = await fetch(url, { signal: AbortSignal.timeout(120_000), headers: { Accept: "application/json", Authorization: `Bearer ${token}` } });
+    } catch (error) {
+        if (error.name === "TimeoutError") throw new Error(`${host} is down: no reply within 120 s to ${url}`);
+        throw error;
+    }
+    if (response.status >= 500) {
+        throw new Error(`${host} is down: HTTP ${response.status} (a server error on their side) from ${url}`);
+    }
     if (!response.ok) throw new Error(`${response.status} from ${url}: ${(await response.text()).slice(0, 500)}`);
     return response;
 }
