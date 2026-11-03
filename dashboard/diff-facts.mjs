@@ -4,7 +4,9 @@
 //   BL-16988 PR https://github.com/BloomBooks/BloomDesktop/pull/8367: reviewDecision "" -> "APPROVED"
 //   BL-16777 D:/grid-calendar: pushed
 // Changes that happen all the time without meaning anything for a row (master moving on, files
-// being edited, PR line counts) are left out.
+// being edited, PR line counts) are left out, and so is every change about a card that is not on
+// the developer's board: one that is not assigned to them, or that was not In Progress or Has
+// Comments before or after. A PR or worktree line counts as being about the card its branch names.
 
 const ACTIVE = ["In Progress", "Has Comments"];
 const PR_FIELDS = ["isDraft", "mergeable", "reviewDecision", "checks", "baseRefName", "report", "reportDecisions"];
@@ -16,6 +18,11 @@ export function diffFacts(prev, next) {
 
   const prevCards = new Map(prev.cards.map(c => [c.id, c]));
   const nextCards = new Map(next.cards.map(c => [c.id, c]));
+  // The cards whose changes matter: assigned to the developer, and on the board before or after.
+  const onBoard = new Set([...prevCards.keys(), ...nextCards.keys()].filter(id => {
+    const before = prevCards.get(id), after = nextCards.get(id);
+    return (before?.assignedToDeveloper || after?.assignedToDeveloper) && (ACTIVE.includes(before?.state) || ACTIVE.includes(after?.state));
+  }));
   for (const [id, c] of nextCards) {
     const p = prevCards.get(id);
     if (!p) { if (ACTIVE.includes(c.state)) lines.push(`${id} card: new, State ${c.state}`); }
@@ -50,5 +57,6 @@ export function diffFacts(prev, next) {
   }
   for (const [path, p] of prevWts) if (!nextWts.has(path)) lines.push(`${p.card} ${path}: worktree removed`);
 
-  return lines;
+  // Every line starts with the card id it is about ("-" for a PR whose branch names no card).
+  return lines.filter(line => onBoard.has(line.split(" ")[0]));
 }

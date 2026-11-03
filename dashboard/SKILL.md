@@ -137,7 +137,9 @@ The server appends lines to `~/.claude/bloom-dashboard/events.log`, each startin
 - every 5 s, when an agent in a card's worktree changes state:
   `BL-16775 D:/BL-16775-grade-branding-2: working -> waiting`;
 - every 15 minutes it runs `gather.mjs` again for the same board, replaces `facts.json`, and
-  writes each difference (`diff-facts.mjs` lists the kinds): a card's State, a new In Progress
+  writes each difference about a card on the board, meaning one assigned to the developer that is
+  or was In Progress or Has Comments, or about that card's PRs and worktrees (`diff-facts.mjs`
+  lists the kinds): a card's State, a new In Progress
   card, a PR's draft state, mergeability, review decision, CI checks or requested reviewers, a PR
   merged or closed, a new or changed preflight report, new commits, a push, a worktree added or removed;
 - when the page's Create button makes a worktree: `BL-16549 <path>: worktree created from the
