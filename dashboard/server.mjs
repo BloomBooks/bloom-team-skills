@@ -24,7 +24,6 @@ import { fileURLToPath } from "node:url";
 const execP = promisify(exec);
 const execFileP = promisify(execFile);
 const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
-const skillRepo = path.dirname(here);
 const dataDir = path.join(os.homedir(), ".claude", "bloom-dashboard");
 const rowsDir = path.join(dataDir, "rows");
 const eventsLog = path.join(dataDir, "events.log");
@@ -67,10 +66,13 @@ async function pollAgents() {
     for (const w of ps) {
       const list = w.agents || [];
       const q = list.find(a => a.state === "waiting" && a.programStatus?.kind === "question");
+      const working = list.find(a => a.state === "working");
       next[norm(w.path)] = {
-        working: list.some(a => a.state === "working"),
+        working: !!working,
         waiting: list.some(a => a.state === "waiting"),
         question: q ? String(q.programStatus.message || "").replace(/^answer:\s*/, "") : "",
+        // The skill a working agent was started on, from the prompt it was given.
+        skill: (String(working?.prompt || "").match(/^\/([\w-]+)/) || [])[1] || "",
       };
       const card = ((w.branch || "").match(CARD) || (w.path || "").match(CARD) || [])[0]?.toUpperCase();
       if (card) states.set(w.path, { card, s: list.map(a => a.state).sort().join("+") || "none" });
@@ -104,7 +106,10 @@ function readState() {
     if (!f.endsWith(".json")) continue;
     try { rows.push(JSON.parse(fs.readFileSync(path.join(rowsDir, f), "utf8"))); } catch {}
   }
-  return { board, rows, agents };
+  // The developer's first name, for the page's top bar.
+  let developer = "";
+  try { developer = (JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude", "bloom-developer.json"), "utf8")).name || "").split(" ")[0]; } catch {}
+  return { board, developer, rows, agents };
 }
 
 // ---- Orca actions ---------------------------------------------------------------------------
@@ -126,14 +131,22 @@ async function knownWorktree(p) {
   return w.path;
 }
 
+// The worktree's Claude terminal, if it has one: { handle, agent }.
+async function agentTerminal(wt) {
+  const terms = (await orca("terminal", "list", "--worktree", "path:" + wt)).terminals;
+  const ps = (await orca("worktree", "ps")).worktrees.find(x => norm(x.path) === norm(wt));
+  for (const a of ps?.agents || []) {
+    const t = terms.find(t => `${t.tabId}:${t.leafId}` === a.paneKey);
+    if (t) return { handle: t.handle, agent: a };
+  }
+  return null;
+}
+
 // Switches Orca to the worktree's agent terminal; with no agent there, starts Claude in it,
 // resuming that worktree's last conversation when there is one.
 async function openWorktree(p) {
   const wt = await knownWorktree(p);
-  const terms = (await orca("terminal", "list", "--worktree", "path:" + wt)).terminals;
-  const ps = (await orca("worktree", "ps")).worktrees.find(x => norm(x.path) === norm(wt));
-  const panes = (ps?.agents || []).map(a => a.paneKey);
-  const target = terms.find(t => panes.includes(`${t.tabId}:${t.leafId}`));
+  const target = await agentTerminal(wt);
   if (target) {
     await orca("terminal", "switch", "--terminal", target.handle);
     log("switched to agent " + target.handle + " in " + wt);
@@ -141,6 +154,30 @@ async function openWorktree(p) {
     await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude --continue || claude", "--focus");
     log("started Claude in " + wt);
   }
+}
+
+// Runs a skill in the worktree's Claude session: typed into its terminal when Claude is there and
+// idle, or in a new Claude terminal when there is none.
+const SKILLS = ["preflight", "pr-ready-for-human"];
+async function runSkill(p, skill) {
+  if (!SKILLS.includes(skill)) throw new Error("not a skill the dashboard runs: " + skill);
+  const wt = await knownWorktree(p);
+  const target = await agentTerminal(wt);
+  if (target) {
+    if (target.agent.state === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
+    await orca("terminal", "send", "--terminal", target.handle, "--text", "/" + skill, "--enter");
+    await orca("terminal", "switch", "--terminal", target.handle);
+    log(`sent /${skill} to ${target.handle} in ${wt}`);
+  } else {
+    await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude --continue /" + skill, "--focus");
+    log(`started Claude with /${skill} in ${wt}`);
+  }
+}
+
+async function openInVsCode(p) {
+  const wt = await knownWorktree(p);
+  await execP("code " + quote(wt), { windowsHide: true });
+  log("opened " + wt + " in VS Code");
 }
 
 // Makes a worktree for a card that has none and starts Claude in it. With a PR, the worktree
@@ -181,7 +218,8 @@ function send(res, code, body, type = "application/json") {
 }
 
 const server = http.createServer((req, res) => {
-  if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) return send(res, 200, page(), "text/html");
+  const pathname = req.url.split("?")[0];
+  if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) return send(res, 200, page(), "text/html");
   if (req.method === "GET" && req.url === "/api/state") return send(res, 200, readState());
   if (req.method === "GET" && req.url === "/api/health") return send(res, 200, { dashboard: true, pid: process.pid });
   if (req.method !== "POST" || !req.url.startsWith("/api/")) return send(res, 404, { ok: false });
@@ -195,7 +233,8 @@ const server = http.createServer((req, res) => {
       const b = body ? JSON.parse(body) : {};
       log("click " + req.url + " " + body);
       if (req.url === "/api/open") await openWorktree(String(b.path || ""));
-      else if (req.url === "/api/open-skill") await openWorktree(skillRepo);
+      else if (req.url === "/api/run-skill") await runSkill(String(b.path || ""), String(b.skill || ""));
+      else if (req.url === "/api/vscode") { await openInVsCode(String(b.path || "")); return send(res, 200, { ok: true }); }
       else if (req.url === "/api/create") await createWorktree({ card: String(b.card || ""), title: String(b.title || ""), pr: String(b.pr || "") });
       else return send(res, 404, { ok: false, error: "unknown action" });
       await bringOrcaToFront().catch(e => log("front: " + e.message));

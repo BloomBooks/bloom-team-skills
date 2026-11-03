@@ -84,11 +84,16 @@ the board.
 
 Order rows within a group (`order`) easiest first.
 
-**Who has it** (`who`): `you` when the card needs a decision only the developer can make, or an
+**Status** (`who`): `you` when the card needs a decision only the developer can make, or an
 agent is `done` and its result needs them (a reviewer to pick, a promotion to approve); state the
-decision in `next` as a question. Otherwise `idle`. The page overrides this live from Orca: a
-`waiting` agent in the row's worktree shows "Waiting for you" with the agent's question, and a
-`working` one shows "Agent working".
+decision in `next` as a question. Otherwise `idle`, which shows no pill. The page overrides this
+live from Orca: a `waiting` agent in the row's worktree shows "Claude has a question" with the
+question, and a `working` one shows "Preflighting" or "Readying for human review" when it was
+started on `/preflight` or `/pr-ready-for-human`, and "Agent working" otherwise.
+
+**Next skill** (`nextSkill`): when the next step is to run `preflight` or `pr-ready-for-human`,
+name it here as well as in `next`. The page then shows a "Preflight" or "Make ready for reviewer"
+button that runs it in the worktree's Claude session.
 
 ## 4. Write the rows
 
@@ -106,8 +111,9 @@ The rows live in `~/.claude/bloom-dashboard/`, which the server reads every few 
 | `group`, `order`, `who` | from step 3 |
 | `status` | one or two sentences on where it stands now |
 | `next` | the next step, or the developer's question |
+| `nextSkill` | `preflight` or `pr-ready-for-human`, when the next step is that skill |
 | `pr` | PR URL |
-| `worktree` | worktree path; the page turns it into an "Open in Orca" button |
+| `worktree` | worktree path; the page shows an "Orca Worktree" button and the path, which opens in VS Code |
 | `updated` | ISO timestamp of this write |
 
 Then give the developer the URL and a few lines on what changed, leading with what waits for them.
@@ -121,25 +127,28 @@ Start a Monitor on `tail -n 0 -F ~/.claude/bloom-dashboard/events.log` with `tim
 
 On a line, read what the agent said (`orca worktree ps --json`, that worktree's agents'
 `lastAssistantMessage` and `programStatus`), check the card's State, and rewrite that row's
-`status`, `next` and `who`. Remove the row when the card has left In Progress and Has Comments.
-Push a notification when an agent is waiting on the developer. The page already shows the change
-of Who on its own, so the row is about what the agent reported.
+`status`, `next`, `nextSkill` and `who`. Remove the row when the card has left In Progress and
+Has Comments. Push a notification when an agent is waiting on the developer. The page already
+shows the change of Status on its own, so the row is about what the agent reported.
 
 Match a worktree to a row by path, not by the card id in its branch: a PR's branch can name
 another card, and the server labels a worktree by the id in its branch.
 
 ## The buttons
 
-- **Open in Orca** (on a row with a worktree, and on its Who pill) switches Orca to the
+- **Orca Worktree** (on a row with a worktree, and on its Status pill) switches Orca to the
   worktree's agent terminal or, with no agent there, opens a "Claude" terminal running
   `claude --continue || claude`.
+- **The worktree's path** opens that folder in VS Code (`code <path>`).
+- **Preflight** and **Make ready for reviewer** type `/preflight` or `/pr-ready-for-human` into
+  the worktree's Claude terminal, or start one with `claude --continue /<skill>` when there is
+  none. When Claude is busy there, the server refuses and the page says so.
 - **Create & Open Orca Worktree** (on a row without one) makes a worktree and starts Claude in it.
   With a PR it checks out the PR's branch; without one it makes
   `<card>-<first three words of the title>` from the repo's default base. Once the worktree
   exists, write its path into the row's `worktree`.
-- **Work on this skill in Orca**, at the top, opens the bloom-team-skills clone the same way.
 
-Every button then launches `Orca.exe` again, which makes the running Orca bring its window to the
+Every Orca button then launches `Orca.exe` again, which makes the running Orca bring its window to the
 front; the CLI alone does not. The server logs each click and its result in
 `~/.claude/bloom-dashboard/server.log`. It refuses any request that does not carry the token it
 wrote into the page it served, so other web pages cannot drive Orca.
