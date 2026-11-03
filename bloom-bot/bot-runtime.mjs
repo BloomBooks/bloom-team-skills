@@ -1,4 +1,4 @@
-// What every Bloom bot job on the bot's Mac shares: logging, telling the developers on Zulip,
+// What every Bloom bot job on the bot's Mac shares: logging, telling the developers on Slack,
 // the lock that keeps a job from overlapping itself, BloomDesktop worktrees, and Claude runs
 // that can change nothing but YouTrack and the files a job allows. A job (poll-youtrack.mjs, ...) is a small script that calls runJob() with its own work.
 //
@@ -26,10 +26,9 @@ export const MODEL_NAME = "Claude Opus 5.5";
 const EFFORT = "low";
 export const CLAUDE_TIMEOUT_MINUTES = 15;
 
-const ZULIP_CHANNEL = "bot testing";
-const ZULIP_TOPIC = "Bloom bot";
-// The Slack channel for the same notes, by id. The bot must be a member of it.
-const SLACK_STATUS_CHANNEL_ID = "C0CEMAU8EBW";
+// #bloom-bot-status, by id: where notify() posts, and where slack-listener.mjs answers every
+// message. The bot must be a member of it.
+export const SLACK_STATUS_CHANNEL_ID = "C0CEMAU8EBW";
 const NOTIFY_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /** Logs a line with a timestamp; launchd sends stdout to the job's log file. */
@@ -48,9 +47,9 @@ function readZuliprc() {
     return values;
 }
 
-/** Tells the bot's maintainers: posts to the bot's Zulip topic and to its Slack status channel.
- * With `kind`, posts at most once a day per kind, so a problem that recurs every run (an expired
- * token) sends one message, not hundreds. Never throws: failing to notify must not stop a job. */
+/** Tells the bot's maintainers: posts to its Slack status channel. With `kind`, posts at most
+ * once a day per kind, so a problem that recurs every run (an expired token) sends one message,
+ * not hundreds. Never throws: failing to notify must not stop a job. */
 export async function notify(message, kind) {
     let state;
     let stateFile;
@@ -63,16 +62,7 @@ export async function notify(message, kind) {
         log(`notify failed: ${error.message}`);
         return;
     }
-    // Each place is tried even if the other fails.
     let sent = false;
-    try {
-        const zulip = readZuliprc();
-        if (!zulip) throw new Error("no ~/.zuliprc");
-        await postToZulip(ZULIP_CHANNEL, ZULIP_TOPIC, message);
-        sent = true;
-    } catch (error) {
-        log(`notify to Zulip failed: ${error.message}`);
-    }
     try {
         await postToSlack(SLACK_STATUS_CHANNEL_ID, message);
         sent = true;
@@ -118,9 +108,11 @@ export async function slack(method, params) {
 
 /** Posts Markdown (the same text a Zulip post takes) to a Slack channel. A `markdown` block renders
  * ordinary Markdown links, bold and lists; `text` is what notifications show. Link previews are
- * off, as they would dwarf a short post. */
-export async function postToSlack(channel, markdown) {
+ * off, as they would dwarf a short post. `extra` adds chat.postMessage arguments, such as
+ * `thread_ts` to reply in a thread. */
+export async function postToSlack(channel, markdown, extra = {}) {
     return slack("chat.postMessage", {
+        ...extra,
         channel,
         text: markdown,
         blocks: [{ type: "markdown", text: markdown }],
@@ -207,7 +199,7 @@ export function readStatuses() {
 }
 
 /** Runs one pass of a job: skips it if the previous pass is still going, pulls bloom-team-skills
- * first, records the outcome, and tells Zulip (at most daily) when the pass fails. A changed job
+ * first, records the outcome, and tells Slack #bloom-bot-status (at most daily) when the pass fails. A changed job
  * script takes effect on the next pass, since this one is already loaded. */
 export async function runJob(name, work) {
     fs.mkdirSync(WORK_DIR, { recursive: true });
@@ -289,7 +281,7 @@ function readBotShare(resetsAt) {
 }
 
 /** Returns null when the budget allows a run, or a sentence saying why not and until when. Tells
- * Zulip once per week and reason. */
+ * Slack #bloom-bot-status once per week and reason. */
 export async function budgetBlock() {
     const { usage, resetsAt } = await readWeeklyUsage();
     const botShare = readBotShare(resetsAt);
@@ -313,7 +305,7 @@ function recordBotUse(before, after) {
 
 /** Runs Claude in `cwd`, able to read and to change YouTrack through bot-tools, with BOT.md, then the job's skill, then the job's own text as
  * its prompt. Returns the text after the last "=== OUTPUT ===" line, and any note after a
- * "=== MAINTAINER ===" line before it, which is also sent to Zulip. Callers check budgetBlock()
+ * "=== MAINTAINER ===" line before it, which is also sent to Slack #bloom-bot-status. Callers check budgetBlock()
  * first; this records what the run used toward the bot's share. A run that goes past
  * CLAUDE_TIMEOUT_MINUTES throws an error with `timedOut` set.
  *

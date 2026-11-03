@@ -1,11 +1,13 @@
 // Prints the latest messages in a Zulip channel and topic, as the bot sees them. For whoever is
 // maintaining the bot, so they can read what it posted without someone pasting it to them.
 //
-//   node read-zulip.mjs ["<channel>" ["<topic>" [<count>]]]    defaults: "bot testing", any topic, 20
+//   node read-zulip.mjs ["<channel>" ["<topic>" [<count>]]]    defaults: "developers", any topic, 20
+//
+// The bot's own status channel is on Slack; read-slack.mjs reads it.
 
 import { zulipCredentials } from "./bot-runtime.mjs";
 
-const [channel = "bot testing", topic, count = "20"] = process.argv.slice(2);
+const [channel = "developers", topic, count = "20"] = process.argv.slice(2);
 const zulip = zulipCredentials();
 const narrow = [{ operator: "channel", operand: channel }];
 if (topic) narrow.push({ operator: "topic", operand: topic });

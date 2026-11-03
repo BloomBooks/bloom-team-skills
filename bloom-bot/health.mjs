@@ -1,6 +1,6 @@
 // Hourly check that the bot can still do its jobs (see com.bloom.bot.health.plist): disk space,
-// each token, and whether each job's last run succeeded. Problems go to Zulip at most once a day
-// each, through bot-runtime's notify().
+// each token, and whether each job's last run succeeded. Problems go to Slack #bloom-bot-status at
+// most once a day each, through bot-runtime's notify().
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -10,7 +10,7 @@ import { log, notify, readStatuses, runJob, slack } from "./bot-runtime.mjs";
 const MIN_FREE_GIB = 5;
 // A job whose last success is older than this has stopped working, even if no run reported an
 // error (launchd stopped starting it, or it hangs).
-const STALE_MS = { youtrack: 30 * 60 * 1000, zulip: 15 * 60 * 1000, nightly: 8 * 60 * 60 * 1000 };
+const STALE_MS = { youtrack: 30 * 60 * 1000, zulip: 15 * 60 * 1000, slack: 15 * 60 * 1000, nightly: 8 * 60 * 60 * 1000 };
 
 /**
  * Returns a problem naming the service unless a GET with this bearer token succeeds. A service

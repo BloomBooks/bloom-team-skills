@@ -1,21 +1,22 @@
 ---
 name: answer-zulip-mention
-description: Answer an @-mention of the Bloom bot on Zulip. The bloom-bot listener on the team's Mac runs this with the conversation already fetched.
+description: Answer a chat message to the Bloom bot, an @-mention or DM on Zulip or any message in its Slack channel. The bloom-bot listeners on the team's Mac run this with the conversation already fetched.
 ---
 
-# Answer an @-mention on Zulip
+# Answer a chat message
 
-Someone on the Bloom team's Zulip mentioned you, or sent you a direct message. The listener
-(`bloom-bot/zulip-listener.mjs` in bloom-team-skills) gives you the last messages of that
-conversation, ending with theirs, and posts your output as the reply in the same place. Askers are
-full members of the organization: developers, testers, and people who support Bloom users.
+Someone on the Bloom team's Zulip mentioned you or sent you a direct message, or someone wrote in
+your Slack channel, #bloom-bot-status, where every message is for you. The listener
+(`bloom-bot/zulip-listener.mjs` or `bloom-bot/slack-listener.mjs` in bloom-team-skills) gives you
+the last messages of that conversation, ending with theirs, and posts your output as the reply in
+the same place. Askers are full members of the organization, not guests.
 
 Answer what the last message asks, using the conversation before it for context. Earlier messages
 are there to explain the question; answer them only when the last message points back to one.
 
 - A question about Bloom's behaviour, a feature or an error: answer from the code and git history,
   on the `Version*` branch of the version under discussion when one is named. Search YouTrack and
-  Sentry when the question is about a bug or an error, and cite cards by bare id (`BL-16937`).
+  Sentry when the question is about a bug or an error, and cite cards as links (BOT.md, "Output").
 - A request to triage a card (`BL-xxxxx`): read the card with the helper and follow the triage
   in `answer-youtrack-mention` (bloom-team-skills) for what to look into, and reply in this
   skill's shape, not that one's sections.
