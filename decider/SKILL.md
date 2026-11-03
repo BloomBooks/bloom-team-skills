@@ -69,10 +69,39 @@ depends on who needs to read it** (see `../dev-process-artifacts.md`):
   tool is simpler — publish with it, with `capabilities: {"comments": {}}` so the Send to Claude
   button works (see Copy-back block). Declaring `comments` makes the page ask the user once for
   permission to comment.
+- Or serve it on this machine: start `node <this folder>/claude-decider.mjs --name <form-name>
+  <page.html>` in the background from the session's worktree. It opens the page, prints the
+  answers when the user sends them, and exits, so the session wakes as soon as they do. Its bar
+  shows the worktree's branch (e.g. `BL-16822-Inline-Fixes`) to say what the session is working
+  on; pass `--topic "<a few words>"` for a form that is about something else.
+
+- **Start with the first question.** No page title, no introduction, nothing about what the
+  form is: the served bar names the work, and the questions explain themselves. The one thing
+  that may come before the first question is the context block that several items share.
 
 - **Clean, light style — no dark mode.** Warm off-white ground, white bordered cards (no
-  heavy shadows), one restrained accent, system serif headings + system sans body (never link
-  webfonts — the artifact CSP blocks them). Follow the project's design system if one exists.
+  heavy shadows), system serif headings + system sans body (never link webfonts — the artifact
+  CSP blocks them). Follow the project's design system if one exists; otherwise use the
+  decider's palette, which matches its icon and the bar the server puts above a served form:
+
+  ```css
+  :root {
+    --ground: #FAF9F5;        /* page */
+    --card: #FFFFFF;          /* cards */
+    --line: #E8E4DA;          /* card borders, dividers */
+    --ink: #2F2F2F;           /* text */
+    --muted: #6B6760;         /* secondary text, option detail */
+    --accent: #D97757;        /* Claude orange: borders, focus rings, marks; never text */
+    --accent-strong: #B4532F; /* orange text, links, and filled buttons with white text */
+    --accent-tint: #FBEEE8;   /* the ground of a selected option and of "Recommended" */
+  }
+  ```
+
+  The orange is the one accent; green, blue and other hues have no place, a "Recommended"
+  badge included. `--accent` is too light for text (white on it is 3.1:1), so anything read in
+  orange uses `--accent-strong`. Theme the parts the browser draws as well:
+  `accent-color: var(--accent-strong)` on radios and checkboxes, `::selection` in
+  `--accent-tint`, and a 2px `--accent` focus ring offset from the control.
 - **Two columns on wide screens** when there is meaningful report/context material: context
   and status on the left, the interactive decisions on the right; one column when narrow or
   when the form is all there is.
@@ -85,12 +114,16 @@ depends on who needs to read it** (see `../dev-process-artifacts.md`):
 ## Copy-back block
 
 **Placement:** the copy-back lives as the **final card at the end of the decisions column**
-(the bottom of the right column on wide screens, directly after the last question) — its own
-titled card (e.g. "Send your answers back") with a one-line description, the buttons, and a
-readonly textarea beneath them that stays hidden until the user presses Copy. Do **not** make it a full-width sticky footer or a bar spanning
-under both columns — it must read as the last segment of the same column the questions are in.
+(the bottom of the right column on wide screens, directly after the last question): a card
+holding only the buttons, the status line, and a readonly textarea beneath them that stays
+hidden until the user presses Copy answers. The buttons sit at the right, Copy answers and then
+Send to Claude last at the far right; the status line sits at the left of the same row, so
+its changing text never moves them. Give it no heading and no description: the buttons
+name the action, and a "Send your answers back" title over a "Send to Claude" button says the
+same thing twice. Do **not** make it a full-width sticky footer or a bar spanning under both
+columns — it must read as the last segment of the same column the questions are in.
 
-**Two buttons, Send to Claude and Copy**, that both serialize every selection, every `Other:`
+**Two buttons, Send to Claude and Copy answers**, that both serialize every selection, every `Other:`
 text, and every non-empty note into the same clean plaintext block. Copy puts it on the
 clipboard for the user to paste into any session; Send to Claude posts it as an artifact comment
 that reaches the session that published the page.
