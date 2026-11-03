@@ -60,6 +60,15 @@ shared **"Bot"** account (never the developer's own login), so the tag is the *o
 reader gets. The `youtrack-api` skill carries the mechanics (`$YOUTRACK_BOT`, and only that token)
 and repeats this tag format.
 
+## Who the developer is on each service
+
+A skill that needs the developer's login on a service (their YouTrack login for an `Assignee:`
+search, their GitHub login) gets it from `developer.mjs` at the root of bloom-team-skills, never
+from a name written into the skill. `node developer.mjs` prints the record kept in
+`~/.claude/bloom-developer.json`, working out and saving whatever it lacks; a script can
+`import { developer } from "../developer.mjs"`. When it cannot settle a login it exits with code
+2 and lists the candidates: ask the developer, then save the answer with `--set`.
+
 ## Branch and worktree names start with the ticket id
 
 Name a branch **`<TICKET-ID>-<1–3 words>`** — the tracker id first, then just enough words to

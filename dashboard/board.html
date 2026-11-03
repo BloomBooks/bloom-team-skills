@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your Active Cards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the cards grouped by how close they are to review. */
+:root {
+  --bg: #f6f7f5;
+  --surface: #ffffff;
+  --fg: #1d2421;
+  --muted: #5f6b66;
+  --line: #dde2df;
+  --accent: #1f6f5c;
+  --you: #b4530f;
+  --you-bg: #fbeee3;
+  --agent: #2357a8;
+  --agent-bg: #e6eefb;
+  --idle: #6b7470;
+  --idle-bg: #eceeed;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141917; --surface: #1c2220; --fg: #e3e8e5; --muted: #95a29c; --line: #2c3431;
+    --accent: #5cc0a4; --you: #f0a46a; --you-bg: #3a2717; --agent: #8db4f0; --agent-bg: #1b2a42;
+    --idle: #a3aca8; --idle-bg: #262d2a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141917; --surface: #1c2220; --fg: #e3e8e5; --muted: #95a29c; --line: #2c3431;
+  --accent: #5cc0a4; --you: #f0a46a; --you-bg: #3a2717; --agent: #8db4f0; --agent-bg: #1b2a42;
+  --idle: #a3aca8; --idle-bg: #262d2a; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.45; }
+.wrap { max-width: 1040px; margin: 0 auto; padding-block: 24px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
+header h1 { margin: 0; font-size: 22px; font-weight: 600; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); }
+#note { color: var(--you); }
+section.group { display: grid; gap: 10px; }
+section.group > h2 { margin: 0; font-size: 15px; font-weight: 600; }
+section.group > p.sub { margin: -6px 0 0; color: var(--muted); font-size: 13px; }
+.table-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; min-width: 720px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 500; }
+td.card { width: 210px; }
+td.card .id { font-family: var(--font-mono); font-size: 12.5px; }
+td.card .title { display: block; color: var(--muted); font-size: 13px; }
+td.who { width: 120px; }
+td.links { width: 120px; font-size: 13px; }
+td.links a { display: block; }
+td.upd { width: 100px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.next { display: block; color: var(--muted); margin-top: 3px; font-size: 13px; }
+.next b { font-weight: 500; color: var(--fg); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.pill.you { color: var(--you); background: var(--you-bg); }
+.pill.agent { color: var(--agent); background: var(--agent-bg); }
+.pill.idle { color: var(--idle); background: var(--idle-bg); }
+a.orca { font-weight: 500; white-space: nowrap; }
+.yt { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; color: var(--fg); background: var(--idle-bg); box-shadow: inset 0 0 0 1px var(--muted); white-space: nowrap; vertical-align: 1px; }
+.yt.st-in-progress { color: var(--surface); background: var(--accent); box-shadow: none; }
+.yt.st-has-comments { color: var(--surface); background: var(--you); box-shadow: none; }
+.pill-link { font: inherit; font-size: 12px; font-weight: 500; border: 0; cursor: pointer; box-shadow: inset 0 0 0 1px currentColor; }
+.pill-link:hover { filter: brightness(0.95); }
+.pill-link::after { content: " \2197"; }
+.wt { font-family: var(--font-mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+button.orca { font: inherit; font-weight: 500; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; white-space: nowrap; }
+button.orca:hover { text-decoration: underline; }
+button.orca:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+td.links button.orca { display: block; }
+.question { display: block; margin-top: 3px; font-size: 13px; color: var(--you); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1 id="heading">Your active cards</h1>
+    <p>In-progress YouTrack cards, ordered by how little work stands between each one and human review. Claude updates this page as agents report.</p>
+    <p id="skill-link"></p>
+    <p id="note" hidden></p>
+  </header>
+
+  <div id="groups"></div>
+</div>
+
+<script>
+const GROUPS = [
+  { key: "near", name: "Nearly ready: re-check and promote", sub: "Small PRs with clean bot reviews; mostly a master merge and preflight away." },
+  { key: "nopr", name: "Work done, but no PR yet", sub: "Pushed branches that preflight would turn into PRs." },
+  { key: "large", name: "Large, or waiting on something else", sub: "Big diffs, or blocked on other work." },
+  { key: "cleanup", name: "Cleanup", sub: "Cards that have sat In Progress for years with nothing happening." },
+];
+const WHO = { you: "Waiting for you", agent: "Agent working" };
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v; else e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) e.append(k);
+  return e;
+}
+function link(href, text) {
+  return el("a", { href, target: "_blank", rel: "noopener" }, text);
+}
+// The server that served this page runs the orca commands. DASHBOARD_TOKEN is written into the
+// page by server.mjs; other web pages can't read it, so they can't post to the server.
+async function post(path, body) {
+  showNote("");
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json", "x-dashboard-token": window.DASHBOARD_TOKEN }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) showNote("Orca couldn't do that: " + (j.error || r.status));
+  } catch (e) {
+    showNote("The dashboard server isn't answering. Is its Claude session still open?");
+  }
+}
+function action(cls, title, text, onClick) {
+  const b = el("button", { type: "button", class: cls, title }, text);
+  b.addEventListener("click", onClick);
+  return b;
+}
+function orcaLink(path, text) {
+  return action("orca", "Show this worktree in Orca", text || "Open in Orca", () => post("/api/open", { path }));
+}
+// A card with no worktree gets a button that makes one and starts Claude in it.
+function createLink(d, text) {
+  return action("orca", d.pr ? "Make a worktree on this PR's branch and start Claude in it" : "Make a worktree on a new branch for this card and start Claude in it",
+    text || "Create & Open Orca Worktree", () => post("/api/create", { card: d.card, title: d.title || "", pr: d.pr || "" }));
+}
+// The link for a row: open its worktree, or create one when the row is a single card without one.
+function rowLink(d, text) {
+  if (d.worktree) return orcaLink(d.worktree, text);
+  if (/^BL-\d+$/.test(d.card || "")) return createLink(d, text);
+  return null;
+}
+// The Who pill carries the row's link whenever there is one.
+function whoPill(d) {
+  if (!WHO[d.who]) return null;
+  const cls = "pill " + d.who;
+  const text = WHO[d.who];
+  const a = rowLink(d, text);
+  if (!a) return el("span", { class: cls }, text);
+  a.className = cls + " pill-link";
+  return a;
+}
+function cardLabel(d) {
+  return d.cardUrl ? link(d.cardUrl, d.card) : document.createTextNode(d.card || "");
+}
+
+function render(items) {
+  const groups = document.getElementById("groups");
+  groups.replaceChildren();
+  for (const g of GROUPS) {
+    const rows = items.filter(d => d.group === g.key).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+    if (!rows.length) continue;
+    const tbody = el("tbody");
+    for (const d of rows) {
+      const links = el("td", { class: "links" });
+      if (d.pr) links.append(link(d.pr, "PR " + d.pr.split("/").pop()));
+      if (d.worktree) links.append(orcaLink(d.worktree), el("span", { class: "wt" }, d.worktree));
+      else { const c = rowLink(d); if (c) links.append(c); }
+      tbody.append(el("tr", {},
+        el("td", { class: "card" }, el("span", { class: "id" }, cardLabel(d)), d.ytState ? el("span", { class: "yt st-" + d.ytState.toLowerCase().replace(/\s+/g, "-") }, d.ytState) : null, el("span", { class: "title" }, d.title || "")),
+        el("td", { class: "who" }, whoPill(d)),
+        el("td", {}, d.status || "",
+          d.question ? el("span", { class: "question" }, el("b", {}, "The agent asks: "), d.question) : null,
+          d.next ? el("span", { class: "next" }, el("b", {}, "Next: "), d.next) : null),
+        links,
+        el("td", { class: "upd" }, (d.updated || "").replace("T", " ").slice(5, 16)),
+      ));
+    }
+    const table = el("table", {},
+      el("thead", {}, el("tr", {}, el("th", {}, "Card"), el("th", {}, "Who"), el("th", {}, "State"), el("th", {}, "Links"), el("th", {}, "Updated"))),
+      tbody);
+    groups.append(el("section", { class: "group" }, el("h2", {}, g.name), el("p", { class: "sub" }, g.sub), el("div", { class: "table-scroll" }, table)));
+  }
+}
+
+function showNote(text) {
+  const n = document.getElementById("note");
+  n.textContent = text || "";
+  n.hidden = !text;
+}
+
+// Orca's live agent states override the Who that Claude last wrote: a waiting agent means the
+// developer has a question, a working one means an agent has the card.
+function withLiveAgents(rows, agents) {
+  return rows.map(d => {
+    const a = d.worktree && agents[d.worktree.replace(/\\/g, "/").toLowerCase()];
+    if (!a) return d;
+    if (a.waiting) return { ...d, who: "you", question: a.question || "" };
+    if (a.working) return { ...d, who: "agent" };
+    return d;
+  });
+}
+
+let lastJson = "";
+async function refresh() {
+  let state;
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    state = await r.json();
+  } catch {
+    showNote("The dashboard server isn't answering. It runs only while its Claude session is open; run /dashboard to start it again.");
+    return;
+  }
+  const json = JSON.stringify(state);
+  if (json === lastJson) return;
+  lastJson = json;
+  showNote(state.rows.length ? "" : "No cards yet. Claude adds them after gathering.");
+  const version = (state.board || "").replace(/^Bloom\s+/i, "");
+  const text = version ? "Your active cards for version " + version : "Your active cards";
+  document.getElementById("heading").textContent = text;
+  document.title = text;
+  const skill = document.getElementById("skill-link");
+  skill.replaceChildren(action("orca", "Open the dashboard skill's folder in Orca and start Claude there", "Work on this skill in Orca", () => post("/api/open-skill", {})));
+  render(withLiveAgents(state.rows, state.agents));
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
