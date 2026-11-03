@@ -4,8 +4,9 @@
 //
 // For each mention it reacts with :eyes:, gives Claude the message and the recent conversation as
 // data, and replies in the same topic or DM. Claude never sees the Zulip key: this script posts.
-// When a pull brings a change to bloom-bot/, the script exits so launchd restarts it on the new
-// code.
+// It pulls bloom-team-skills before each answer and every two minutes while idle. When bloom-bot/
+// differs from the code it started on, whichever job pulled the change, it exits once no message
+// is in hand, so launchd restarts it on the new code.
 
 import path from "node:path";
 import {
@@ -139,6 +140,8 @@ async function handle(event) {
 const { user_id: botId, full_name: botName } = await api("GET", "/users/me");
 const typedMention = new RegExp(`(^|[^\\w@])@\\**${botName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
 let restartWanted = false;
+const IDLE_PULL_MS = 2 * 60_000;
+let lastPull = Date.now();
 // The chain of answers still to give, and how many messages are on it or being answered.
 let answering = Promise.resolve();
 let messagesInHand = 0;
@@ -181,6 +184,16 @@ for (;;) {
             .then(() => handle(event))
             .catch((error) => log(`handling message ${event.message.id}: ${error.stack}`))
             .finally(() => { messagesInHand--; });
+    }
+    // Pull while idle as well, so the listener moves to new code within a few minutes of a push
+    // instead of answering the next mention on the code it started with.
+    if (messagesInHand === 0 && Date.now() - lastPull > IDLE_PULL_MS) {
+        lastPull = Date.now();
+        try {
+            if (pullTeamSkills()) restartWanted = true;
+        } catch (error) {
+            log(`pull: ${error.message}`);
+        }
     }
     if (restartWanted && messagesInHand === 0) {
         log("bloom-bot/ changed; exiting so launchd restarts on the new code");

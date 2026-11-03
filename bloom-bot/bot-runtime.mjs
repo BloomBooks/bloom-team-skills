@@ -153,7 +153,13 @@ export function zulipCredentials() {
     return zulip;
 }
 
-/** Fast-forwards bloom-team-skills and returns true if that changed anything in bloom-bot/. */
+// The bloom-bot/ tree this process loaded its code from. Several jobs pull the same clone, so a
+// change may arrive through another job's pull; comparing with this, rather than with the tree
+// before this process's own pull, tells a long-running job that its loaded code is out of date.
+const STARTED_ON_TREE = execFileSync("git", ["-C", TEAM_SKILLS, "rev-parse", "HEAD:bloom-bot"], { encoding: "utf8" });
+
+/** Fast-forwards bloom-team-skills and returns true if bloom-bot/ now differs from the code this
+ * process started on. */
 export function pullTeamSkills() {
     // Every job pulls, and two at once in one clone corrupt each other's FETCH_HEAD ("Cannot
     // fast-forward to multiple branches"). So take a lock, and fetch and merge one named branch.
@@ -172,11 +178,10 @@ export function pullTeamSkills() {
         }
     }
     try {
-        const before = execFileSync("git", ["-C", TEAM_SKILLS, "rev-parse", "HEAD:bloom-bot"], { encoding: "utf8" });
         execFileSync("git", ["-C", TEAM_SKILLS, "fetch", "-q", "origin", "main"]);
         execFileSync("git", ["-C", TEAM_SKILLS, "merge", "-q", "--ff-only", "origin/main"]);
-        const after = execFileSync("git", ["-C", TEAM_SKILLS, "rev-parse", "HEAD:bloom-bot"], { encoding: "utf8" });
-        return before !== after;
+        const now = execFileSync("git", ["-C", TEAM_SKILLS, "rev-parse", "HEAD:bloom-bot"], { encoding: "utf8" });
+        return now !== STARTED_ON_TREE;
     } finally {
         fs.rmSync(lock, { recursive: true, force: true });
     }
