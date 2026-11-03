@@ -31,18 +31,28 @@ if (!pagePath || !name || !/^[a-z0-9][a-z0-9-]*$/.test(name) || !(timeoutMin > 0
 const token = crypto.randomBytes(16).toString("hex");
 const endpoint = "/answers/" + token;
 
-// A line at the top of every served form saying where it came from. Inline styles, so the
-// form's own CSS can't hide it and the form needs nothing to show it.
-const SERVED_BY = `<div style="font:600 14px/1.4 system-ui,sans-serif;color:#2f2a22;background:#eadfc8;` +
-  `border-bottom:1px solid #cdbd9c;` +
-  `padding:8px max(16px,env(safe-area-inset-right,0px)) 8px max(16px,env(safe-area-inset-left,0px))">` +
-  `Served by the Bloom Team Decider skill</div>`;
+// A bar at the top of every served form saying which tool it came from. Inline styles, so the
+// form's own CSS can't hide it and the form needs nothing to show it. Its content row is as wide
+// as a decider form's column. The dashboard's board.html carries the same bar.
+const PLEX = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@600&family=IBM+Plex+Mono&display=swap">`;
+const SERVED_BY = `<div role="banner" style="background:#15171C;color:#fff;margin:0">` +
+  `<div style="box-sizing:content-box;max-width:760px;min-height:40px;margin:0 auto;` +
+  `padding:10px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));` +
+  `display:flex;flex-wrap:wrap;align-items:center;gap:12px">` +
+  `<span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;` +
+  `border-radius:6px;background:#2563EB;flex:none">` +
+  `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">` +
+  `<path d="M16 3h5v5M8 3H3v5M12 22v-8.3a4 4 0 0 0-1.17-2.87L3 3M15 9l6-6"/></svg></span>` +
+  `<span style="font:600 16px/1.2 'IBM Plex Sans',system-ui,sans-serif;letter-spacing:-0.01em;color:#fff">Decider</span>` +
+  `<span style="font:400 12px/1.4 'IBM Plex Mono',ui-monospace,Consolas,monospace;color:#C9CDD4;` +
+  `border:1px solid #3A3E47;border-radius:999px;padding:2px 10px">bloom-team skill</span>` +
+  `</div></div>`;
 
 function page() {
   let html = fs.readFileSync(pagePath, "utf8");
-  const inject = `<script>window.DECIDER_ENDPOINT=${JSON.stringify(endpoint)};</script>`;
+  const inject = `<script>window.DECIDER_ENDPOINT=${JSON.stringify(endpoint)};</script>${PLEX}`;
   if (!/^\s*<!doctype/i.test(html)) {
-    html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${inject}</head><body>${SERVED_BY}${html}</body></html>`;
+    html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${inject}<style>body{margin:0}</style></head><body>${SERVED_BY}${html}</body></html>`;
   } else {
     html = html.replace(/<head[^>]*>/i, m => m + inject);
     html = /<body[^>]*>/i.test(html) ? html.replace(/<body[^>]*>/i, m => m + SERVED_BY) : SERVED_BY + html;
