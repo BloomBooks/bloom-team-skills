@@ -298,7 +298,7 @@ function runCommand(command, args, { cwd, env, input, timeoutMs }) {
 async function runClaudeOnce({ cwd, skillFile, task, label, test }) {
     const prompt = [fs.readFileSync(BOT_GUIDE, "utf8"), fs.readFileSync(skillFile, "utf8"), task].join("\n\n");
     const env = { ...process.env };
-    for (const key of ["YOUTRACK_BOT", "SENTRY_BOT_TOKEN"]) delete env[key];
+    for (const key of ["YOUTRACK_BOT", "SENTRY_BOT_TOKEN", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"]) delete env[key];
 
     const result = await runCommand(
         "claude",
