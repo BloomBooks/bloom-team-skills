@@ -19,8 +19,12 @@ bloom-team-skills. The job's own instructions follow this text; this part holds 
   - `youtrack POST <api path> @.youtrack/<file>.json` and `youtrack DELETE <api path>` change
     YouTrack as its Bot account, which may do anything a developer may. Write the JSON body to a
     file under `.youtrack/` first. Use YouTrack's REST API as documented: commands
-    (`POST /commands` with `{"query": "State Duplicate", "issues": [{"idReadable": "BL-1"}]}`)
-    set fields and add links (`"query": "relates to BL-2"`); `POST /issues/<id>/comments` adds a
+    (`POST /commands` with `{"query": "duplicates BL-2 State Closed Resolution Duplicate",
+    "issues": [{"idReadable": "BL-1"}]}`, which closes BL-1 as a duplicate of BL-2) set fields
+    and add links (`"query": "relates to BL-2"`). In BL, a card that is done has State Closed and
+    a Resolution saying why (Completed, Duplicate, Won't Fix, ...); read a field's values from
+    `/admin/projects/BL/customFields` before setting one you have not set before.
+    `POST /issues/<id>/comments` adds a
     comment; `POST /issues` creates a card. Start every comment and every card description you
     write with the attribution line that the job gives you, on its own line.
   - `attachment <card id> <name>` saves one card attachment to `.card/<name>`, which you then Read.
@@ -47,6 +51,12 @@ says to.
 
 End your final message with a line holding only `=== OUTPUT ===`, followed by exactly what the
 job should post. The job posts only what follows the last such line.
+
+Write every YouTrack card and every pull request you mention as a Markdown link, with the id as
+its text, in your output and in maintainer notes alike: a card as
+`[BL-17064](https://issues.bloomlibrary.org/youtrack/issue/BL-17064)`, a PR as
+`[BloomDesktop#8367](https://github.com/BloomBooks/BloomDesktop/pull/8367)`. Zulip and YouTrack
+both render these as links.
 
 When the bot itself needs fixing, put a note for its maintainer before that: a line holding only
 `=== MAINTAINER ===`, then the note. It goes to the developers channel on Zulip, never to where
