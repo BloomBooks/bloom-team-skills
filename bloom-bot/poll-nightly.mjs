@@ -13,6 +13,7 @@
 // To try it without committing, pushing or posting anything:
 //   node poll-nightly.mjs --test <run id>     prints the doc's diff and the summary instead
 //   node poll-nightly.mjs --test-fix          prints one fix's result, diff and compile instead
+// and to run one real fix pass by hand: node poll-nightly.mjs --fix
 // (BLOOM_BOT_FIX_SKILL=<path> points --test-fix at a nightly-fix skill not yet on master.)
 
 import { execFileSync } from "node:child_process";
@@ -186,6 +187,9 @@ if (process.argv[2] === "--test") {
     await triage(runById(process.argv[3]), true);
 } else if (process.argv[2] === "--test-fix") {
     await fixNightlies({ test: true });
+} else if (process.argv[2] === "--fix") {
+    // One real fix pass by hand, outside the morning schedule; it pushes, opens PRs and posts.
+    await runJob("nightly-fix", () => fixNightlies());
 } else {
     await runJob("nightly", async () => {
         const run = newestScheduledRun();
