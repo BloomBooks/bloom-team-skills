@@ -1,6 +1,6 @@
 ---
 name: decider
-description: Present a batch of decisions to the user as an interactive HTML artifact — radio options with a recommended pick, notes boxes, "Other:" free text, and a copy-back block that pastes the answers straight back into the session. Use whenever ≥2 non-trivial decisions need the user's judgment (instead of posing them as terminal questions or a chat list), when the user says "make a decider", "/decider", "decision form", "decision artifact", or "ask me properly", and as the shared spec other skills (e.g. preflight-style reports) reference for their decision sections.
+description: Present a batch of decisions to the user as an interactive HTML artifact — radio options with a recommended pick, notes boxes, "Other:" free text, and a copy-back block whose Copy and Send to Claude buttons return the answers to the session. Use whenever ≥2 non-trivial decisions need the user's judgment (instead of posing them as terminal questions or a chat list), when the user says "make a decider", "/decider", "decision form", "decision artifact", or "ask me properly", and as the shared spec other skills (e.g. preflight-style reports) reference for their decision sections.
 ---
 
 # Decision form
@@ -66,7 +66,9 @@ depends on who needs to read it** (see `../dev-process-artifacts.md`):
   Anthropic Artifact tool produces **subscriber-only** links, useless to a teammate without a
   Claude subscription.
 - If only the in-session developer needs it and a subscriber-only link is fine, the Artifact
-  tool is simpler — publish with it.
+  tool is simpler — publish with it, with `capabilities: {"comments": {}}` so the Send to Claude
+  button works (see Copy-back block). Declaring `comments` makes the page ask the user once for
+  permission to comment.
 
 - **Clean, light style — no dark mode.** Warm off-white ground, white bordered cards (no
   heavy shadows), one restrained accent, system serif headings + system sans body (never link
@@ -84,12 +86,14 @@ depends on who needs to read it** (see `../dev-process-artifacts.md`):
 
 **Placement:** the copy-back lives as the **final card at the end of the decisions column**
 (the bottom of the right column on wide screens, directly after the last question) — its own
-titled card (e.g. "Send your answers back") with a one-line description, the button, and the
-readonly textarea beneath it. Do **not** make it a full-width sticky footer or a bar spanning
+titled card (e.g. "Send your answers back") with a one-line description, the buttons, and a
+readonly textarea beneath them that stays hidden until the user presses Copy. Do **not** make it a full-width sticky footer or a bar spanning
 under both columns — it must read as the last segment of the same column the questions are in.
 
-**One copy-back button** that serializes every selection, every `Other:` text, and every
-non-empty note into a clean plaintext block the user pastes straight back into the session.
+**Two buttons, Send to Claude and Copy**, that both serialize every selection, every `Other:`
+text, and every non-empty note into the same clean plaintext block. Copy puts it on the
+clipboard for the user to paste into any session; Send to Claude posts it as an artifact comment
+that reaches the session that published the page.
 
 **The block must stand alone in a brand-new session.** The user may paste it to a fresh agent
 with zero conversation history, days later — a few label words that only made sense inside
@@ -116,8 +120,8 @@ the report ("Own small branch", "Enable on both") would be useless there. Theref
   been blocked because of a permissions policy") — you cannot rely on it, and you must never
   show "Copied" on a path that didn't verify a real copy. Wire the button as this ladder,
   driving the status text from what actually happened:
-  1. Always fill the visible readonly `<textarea>` and `select()` it **first**, so a manual
-     copy is one keystroke away no matter what follows.
+  1. Always fill the readonly `<textarea>`, unhide it, and `select()` it **first**, so a
+     manual copy is one keystroke away no matter what follows.
   2. `try { await navigator.clipboard.writeText(text) }` → on resolve, status = "Copied ✓".
   3. On reject (the normal case in the sandbox), fall back to `document.execCommand('copy')`
      on the still-selected textarea; if it returns `true`, status = "Copied ✓".
@@ -125,13 +129,41 @@ the report ("Own small branch", "Enable on both") would be useless there. Theref
      e.g. "Couldn't copy automatically — the text is selected below; press Ctrl+C (⌘C on
      Mac)." Do not style this green or say "Copied".
   Guard the whole handler in `try/catch` so a throw can't fall through to a success message.
+- **Send to Claude goes through the artifact's comments capability**, which exists only on an
+  Anthropic Artifact published with `comments`. On load, `const comments = await
+  window.claude?.use?.("comments")`; when that is null or undefined (a GitHub Pages copy, or a
+  view without the capability), hide the button and leave Copy as the only way back. On click:
+  1. Serialize the answers without filling or showing the textarea. Then, before any `await`,
+     change the button to "Sending…" and the status to "Sending your answers to Claude…":
+     `sendToClaude` takes several seconds, and a button that shows nothing for that long
+     looks broken.
+  2. A comment holds at most 4096 bytes of UTF-8 (`new TextEncoder().encode(text).length`).
+     Over that, say so with the byte count, suggest shorter notes or Copy, and stop.
+  3. `await comments.canSendToClaude()` returns `available`, `writers_only` (the viewer is not
+     an editor), `no_session` (no session is watching) or `off`. Anything but `available` →
+     say which in plain words, point at Copy, and stop. Check on every click: the answer
+     changes after load.
+  4. `const anchor = await comments.anchorFor(<the copy-back card element>)`, then
+     `await comments.sendToClaude({anchor, text})` → status = "Sent to Claude ✓" plus one line
+     saying Claude's reply will appear in the comment on this card.
+  5. On a rejection, branch on `e.code`: `consent_required` (the viewer hasn't allowed the
+     page to comment yet), `forbidden` (hide the button), `claude_unavailable` (nothing was
+     posted), else show the code. Every one of these points at Copy, in the same neutral
+     styling as the copy failure.
+  Disable the button while a send is in flight, so a double click sends one comment. The full
+  contract is `comments.d.ts` in the `artifact-capabilities` skill.
 - The URL must appear in the block. On the public `dev-process-artifacts` repo the Pages URL
   is **deterministic** (you choose the path), so bake it in before pushing — no round-trip
-  needed. With the Anthropic Artifact tool, publish first, then patch the URL into the file and
-  republish to the same path (same URL both times), or inject it via `location.href` at runtime.
+  needed. With the Anthropic Artifact tool, publish first, then patch the `claude.ai/artifact/…`
+  URL into the file and republish to the same path (same URL both times). `location.href`
+  inside an Artifact is the sandbox frame's `frame.claudeusercontent.com` address, which no
+  agent can open, so never use it for this line.
 
 ## Publishing & chat etiquette
 
+- After publishing an Anthropic Artifact, confirm with `ArtifactComments` `watch` that it lists
+  the page as connected with auto-replies armed; without that, Send to Claude posts a comment
+  that never wakes this session.
 - After publishing, **open the artifact in the user's default browser** (Windows:
   `Start-Process '<url>'`; macOS: `open <url>`; Linux: `xdg-open <url>`).
 - In the chat summary, print the artifact URL as a **bare plain-text URL, never a markdown
@@ -143,7 +175,13 @@ the report ("Own small branch", "Enable on both") would be useless there. Theref
 
 ## Processing the answers
 
-When the user pastes the copy-back block (or answers informally), that answer carries the
+A Send to Claude press posts the block as a comment, the platform posts an automatic reply in
+that thread (it answers but changes nothing), and this session gets a notification naming the
+thread. Read the thread with `ArtifactComments` and treat the user's comment as the pasted
+block. Act on it, then `resolve` the thread without posting another reply. End your turn after
+publishing the form, so the session is idle when the notification comes.
+
+When the user pastes the copy-back block, sends it, or answers informally, that answer carries the
 same authorization as the request that produced the form — execute the chosen options without
 re-asking. `Leave comment` ticked → also add the code comment near the relevant code, in the
 repo's normal commit flow. `Other:` text and notes are instructions — follow them; where they
