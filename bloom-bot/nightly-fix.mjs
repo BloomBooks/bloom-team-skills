@@ -53,7 +53,8 @@ function fixTask({ repoDir, botPrs, takenThisMorning, retry }) {
 
 You are running the nightly-fix skill unattended, as the Bloom bot, on a Mac that cannot run Bloom.
 BloomDesktop's master is checked out at ${repoDir}; make your change there (you may Edit and Write any
-file under it). Your result becomes a draft PR that any developer may pick up; nobody is waiting on you.
+file under it, and nowhere else, so write no helper scripts of your own: use Grep and Read to dig through
+logs and traces). Your result becomes a draft PR that any developer may pick up; nobody is waiting on you.
 
 Tools, instead of what the skill assumes:
 - The helper \`node ${BOT_TOOLS}\` reads runs and artifacts: \`nightly-runs\`, \`run <id>\`, \`run-log <id>\`,
@@ -296,12 +297,14 @@ async function fixOne({ botPrs, takenThisMorning, test }) {
                 }
                 if (master.failed === 0) {
                     deleteBranch(repoDir, branch);
-                    await post(`[Bloom bot] Could not reproduce: ${result.title}\nThe tests passed ${master.runs} of ${master.runs} runs on master, so there is nothing for a fix to prove. ${result.post}`);
+                    await post(`[Bloom bot] Could not reproduce: ${result.title}\nOn master, ${REPEAT} repeats of the tests all passed (${master.runs} test results), so there is nothing for a fix to prove. ${result.post}`);
                     return result;
                 }
-                proof = `On master: failed ${master.failed} of ${master.runs} runs (stopping at the first failure).\nOn this branch: passed ${fixSummary.runs} of ${fixSummary.runs} runs.\n\n${fixSummary.text}`;
+                // `runs` counts single test results, so a spec file of 13 tests repeated 10 times is 130.
+                proof = `On master: a test failed within ${REPEAT} repeats of the tests (${master.failed} failed of ${master.runs} test results before the run stopped at the first failure).\n`
+                    + `On this branch: every test passed in all ${REPEAT} repeats (${fixSummary.runs} test results).\n\n${fixSummary.text}`;
             } else {
-                proof = `On this branch: passed ${fixSummary.runs} of ${fixSummary.runs} runs.\n\n${fixSummary.text}`;
+                proof = `On this branch: every test passed (${fixSummary.runs} test results).\n\n${fixSummary.text}`;
             }
         }
         const url = openPr(repoDir, branch, result, proof);

@@ -28,6 +28,8 @@ export const CLAUDE_TIMEOUT_MINUTES = 15;
 
 const ZULIP_CHANNEL = "bot testing";
 const ZULIP_TOPIC = "Bloom bot";
+// The Slack channel for the same notes, by id. The bot must be a member of it.
+const SLACK_STATUS_CHANNEL_ID = "C0CEMAU8EBW";
 const NOTIFY_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /** Logs a line with a timestamp; launchd sends stdout to the job's log file. */
@@ -46,33 +48,41 @@ function readZuliprc() {
     return values;
 }
 
-/** Posts to the bot's topic in Zulip's developers channel. With `kind`, posts at most once a day
- * per kind, so a problem that recurs every run (an expired token) sends one message, not hundreds.
- * Never throws: failing to notify must not stop a job. */
+/** Tells the bot's maintainers: posts to the bot's Zulip topic and to its Slack status channel.
+ * With `kind`, posts at most once a day per kind, so a problem that recurs every run (an expired
+ * token) sends one message, not hundreds. Never throws: failing to notify must not stop a job. */
 export async function notify(message, kind) {
+    let state;
+    let stateFile;
     try {
         fs.mkdirSync(HOME_DIR, { recursive: true });
-        const stateFile = path.join(HOME_DIR, "notified.json");
-        const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
+        stateFile = path.join(HOME_DIR, "notified.json");
+        state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile, "utf8")) : {};
         if (kind && Date.now() - (state[kind] ?? 0) < NOTIFY_INTERVAL_MS) return;
-        const zulip = readZuliprc();
-        if (!zulip) {
-            log(`not notified (no ~/.zuliprc): ${message}`);
-            return;
-        }
-        const response = await fetch(`${zulip.site}/api/v1/messages`, {
-            method: "POST",
-            signal: AbortSignal.timeout(60_000),
-            headers: { Authorization: `Basic ${Buffer.from(`${zulip.email}:${zulip.key}`).toString("base64")}` },
-            body: new URLSearchParams({ type: "stream", to: ZULIP_CHANNEL, topic: ZULIP_TOPIC, content: message }),
-        });
-        if (!response.ok) throw new Error(`Zulip ${response.status}: ${await response.text()}`);
-        if (kind) {
-            state[kind] = Date.now();
-            fs.writeFileSync(stateFile, JSON.stringify(state));
-        }
     } catch (error) {
         log(`notify failed: ${error.message}`);
+        return;
+    }
+    // Each place is tried even if the other fails.
+    let sent = false;
+    try {
+        const zulip = readZuliprc();
+        if (!zulip) throw new Error("no ~/.zuliprc");
+        await postToZulip(ZULIP_CHANNEL, ZULIP_TOPIC, message);
+        sent = true;
+    } catch (error) {
+        log(`notify to Zulip failed: ${error.message}`);
+    }
+    try {
+        await postToSlack(SLACK_STATUS_CHANNEL_ID, message);
+        sent = true;
+    } catch (error) {
+        log(`notify to Slack failed: ${error.message}`);
+    }
+    if (!sent) log(`not notified anywhere: ${message}`);
+    if (sent && kind) {
+        state[kind] = Date.now();
+        fs.writeFileSync(stateFile, JSON.stringify(state));
     }
 }
 
@@ -358,7 +368,8 @@ async function runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeou
             "--permission-mode", "default",
             "--allowedTools",
             "Read", "Grep", "Glob",
-            ...["log", "show", "blame", "grep", "diff", "branch"].map((command) => `Bash(git -C * ${command} *)`),
+            // "*" after the subcommand with no space, so a bare `git -C repo diff` matches too.
+            ...["log", "show", "blame", "grep", "diff", "status", "branch"].map((command) => `Bash(git -C * ${command}*)`),
             `Bash(node ${BOT_TOOLS}:*)`,
             ...commands.map((command) => `Bash(${command}:*)`),
             // A leading "//" makes a permission path absolute.

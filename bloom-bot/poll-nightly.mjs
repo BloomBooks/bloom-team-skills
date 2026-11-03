@@ -25,8 +25,8 @@ import {
 } from "./bot-runtime.mjs";
 import { fixNightlies } from "./nightly-fix.mjs";
 
-// Off until BloomDesktop's master has the bot-verify workflow and the nightly-fix skill.
-const FIXES_ENABLED = false;
+// After the triage, fix what can be fixed of the open failures (nightly-fix.mjs).
+const FIXES_ENABLED = true;
 const REPO = "BloomBooks/BloomDesktop";
 const PUSH_URL = `https://github.com/${REPO}.git`;
 const DOC = "docs/nightly-failures/README.md";
