@@ -6,12 +6,14 @@
 //   - commits that doc to master, if Claude changed it;
 //   - posts Claude's summary to Zulip (developers > Nightly run) and to Slack
 //     (#bloom-team-developers).
+//   - when FIXES_ENABLED, goes on to fix what it can of the open failures (nightly-fix.mjs).
 // Each run is taken on once: the job records it before starting, so a triage that fails is
 // reported to the maintainer, not retried every 15 minutes.
 //
-// To try it without committing or posting anything:
-//   node poll-nightly.mjs --test <run id>
-// prints the doc's diff and the summary instead.
+// To try it without committing, pushing or posting anything:
+//   node poll-nightly.mjs --test <run id>     prints the doc's diff and the summary instead
+//   node poll-nightly.mjs --test-fix          prints one fix's result, diff and compile instead
+// (BLOOM_BOT_FIX_SKILL=<path> points --test-fix at a nightly-fix skill not yet on master.)
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -20,7 +22,10 @@ import {
     BOT_TOOLS, HOME_DIR, MODEL_NAME,
     budgetBlock, log, makeRunDir, postToSlack, postToZulip, removeRunDir, runClaude, runJob,
 } from "./bot-runtime.mjs";
+import { fixNightlies } from "./nightly-fix.mjs";
 
+// Off until BloomDesktop's master has the bot-verify workflow and the nightly-fix skill.
+const FIXES_ENABLED = false;
 const REPO = "BloomBooks/BloomDesktop";
 const PUSH_URL = `https://github.com/${REPO}.git`;
 const DOC = "docs/nightly-failures/README.md";
@@ -75,7 +80,18 @@ says:
   that the skill's "Post a brief summary to Zulip" section describes, in its format, and nothing else.
 - Nobody reads your report to the developer (the skill's last section). If something in the skill can't be
   done with your tools, or a step went wrong, say so in a maintainer note.
-- Keep to the skill's "first look" depth. You have ${TIMEOUT_MINUTES} minutes in all.`;
+- Keep to the skill's "first look" depth. You have ${TIMEOUT_MINUTES} minutes in all.
+- The bot also opens draft PRs that fix nightly failures, on bot/ branches. Open ones now:
+${openBotPrLines() || "  (none)"}
+  Treat these like any other PR in the doc: link each from the Status of the entries it fixes.`;
+}
+
+/** The open PRs on bot/ branches, one indented line each, for the triage to link. */
+function openBotPrLines() {
+    const prs = JSON.parse(execFileSync("gh", ["pr", "list", "--repo", REPO, "--state", "open", "--limit", "100",
+        "--json", "number,headRefName,title,url"], { encoding: "utf8" }));
+    return prs.filter((pr) => pr.headRefName.startsWith("bot/"))
+        .map((pr) => `  - [#${pr.number}](${pr.url}) ${pr.title}`).join("\n");
 }
 
 /** Commits the doc to master and pushes it, rebasing onto a master that moved meanwhile, and
@@ -138,7 +154,7 @@ async function triage(run, test) {
             test,
             effort: EFFORT,
             timeoutMinutes: TIMEOUT_MINUTES,
-            editableFiles: [docPath],
+            writable: [docPath],
         });
         if (!summary) throw new Error(`Claude gave no summary for ${run.url}`);
         const changed = execFileSync("git", ["-C", repoDir, "status", "--porcelain"], { encoding: "utf8" }).trim();
@@ -168,6 +184,8 @@ async function triage(run, test) {
 
 if (process.argv[2] === "--test") {
     await triage(runById(process.argv[3]), true);
+} else if (process.argv[2] === "--test-fix") {
+    await fixNightlies({ test: true });
 } else {
     await runJob("nightly", async () => {
         const run = newestScheduledRun();
@@ -185,5 +203,6 @@ if (process.argv[2] === "--test") {
         log(`triaging ${run.url}`);
         await triage(run, false);
         log(`triaged ${run.url}`);
+        if (FIXES_ENABLED) await fixNightlies();
     });
 }

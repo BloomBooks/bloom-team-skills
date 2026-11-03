@@ -300,11 +300,14 @@ function recordBotUse(before, after) {
  * its prompt. Returns the text after the last "=== OUTPUT ===" line, and any note after a
  * "=== MAINTAINER ===" line before it, which is also sent to Zulip. Callers check budgetBlock()
  * first; this records what the run used toward the bot's share. A run that goes past
- * CLAUDE_TIMEOUT_MINUTES throws an error with `timedOut` set. */
-export async function runClaude({ cwd, skillFile, task, label, test = false, effort = EFFORT, timeoutMinutes = CLAUDE_TIMEOUT_MINUTES, editableFiles = [] }) {
+ * CLAUDE_TIMEOUT_MINUTES throws an error with `timedOut` set.
+ *
+ * `writable` lists absolute paths Claude may Edit and Write: a file, or a folder as "<dir>/**".
+ * `commands` lists extra command prefixes it may run with Bash, e.g. "node /path/tool.mjs". */
+export async function runClaude({ cwd, skillFile, task, label, test = false, effort = EFFORT, timeoutMinutes = CLAUDE_TIMEOUT_MINUTES, writable = [], commands = [] }) {
     const usageBefore = await readWeeklyUsage();
     try {
-        return await runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeoutMinutes, editableFiles });
+        return await runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeoutMinutes, writable, commands });
     } finally {
         recordBotUse(usageBefore, await readWeeklyUsage());
     }
@@ -339,9 +342,8 @@ function runCommand(command, args, { cwd, env, input, timeoutMs }) {
     });
 }
 
-/** Runs Claude once; see runClaude(). `editableFiles` are absolute paths that Claude may Edit,
- * the only change to the file system it is allowed. */
-async function runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeoutMinutes, editableFiles }) {
+/** Runs Claude once; see runClaude(). */
+async function runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeoutMinutes, writable, commands }) {
     const prompt = [fs.readFileSync(BOT_GUIDE, "utf8"), fs.readFileSync(skillFile, "utf8"), task].join("\n\n");
     const env = { ...process.env };
     for (const key of ["YOUTRACK_BOT", "SENTRY_BOT_TOKEN", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"]) delete env[key];
@@ -358,8 +360,9 @@ async function runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeou
             "Read", "Grep", "Glob",
             ...["log", "show", "blame", "grep", "diff", "branch"].map((command) => `Bash(git -C * ${command} *)`),
             `Bash(node ${BOT_TOOLS}:*)`,
+            ...commands.map((command) => `Bash(${command}:*)`),
             // A leading "//" makes a permission path absolute.
-            ...editableFiles.map((file) => `Edit(/${file})`),
+            ...writable.flatMap((p) => [`Edit(/${p})`, `Write(/${p})`]),
             "--disallowedTools",
             // ~/.config holds the bot's tokens and gh's GitHub login.
             `Read(/${path.join(os.homedir(), ".config")}/**)`, `Read(/${path.join(os.homedir(), ".claude")}/**)`,
