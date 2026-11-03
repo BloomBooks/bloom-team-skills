@@ -51,7 +51,8 @@ td.card { width: 260px; }
 .card-cell .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 td.card .id { font-family: var(--font-mono); font-size: 12.5px; }
 td.card .title { color: var(--fg); font-weight: 600; line-height: 1.3; }
-td.who { width: 150px; }
+td.who { width: 170px; }
+.pills { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 td.upd { width: 100px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .next { display: block; color: var(--fg); margin-top: 3px; font-size: 13px; }
 .next b { font-weight: 600; }
@@ -59,7 +60,7 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
-.pill.you { color: var(--you); background: var(--you-bg); }
+.pill.you, .pill.asking { color: var(--you); background: var(--you-bg); }
 .pill.agent { color: var(--agent); background: var(--agent-bg); }
 .pill.idle { color: var(--idle); background: var(--idle-bg); }
 a.orca { font-weight: 500; white-space: nowrap; }
@@ -93,6 +94,7 @@ button.orca.skill:hover { text-decoration: none; background: var(--agent-bg); }
 <div class="wrap">
   <header>
     <h1 id="heading">Your active cards</h1>
+    <p id="fresh"></p>
     <p id="note" hidden></p>
   </header>
 
@@ -106,9 +108,10 @@ const GROUPS = [
   { key: "large", name: "Large, or waiting on something else", sub: "Big diffs, or blocked on other work." },
   { key: "cleanup", name: "Cleanup", sub: "Cards that have sat In Progress for years with nothing happening." },
 ];
-// The Status pill: "you" when Claude has asked the developer something, "agent" while an agent
-// works, labelled with the skill it was started on when that skill is one of these.
-const STATUS = { you: "Claude has a question", agent: "Agent working" };
+// The Status pill: "you" when the row's Next is a decision for the developer, "asking" when an
+// agent in the worktree is waiting on a question in its terminal, "agent" while an agent works,
+// labelled with the skill it was started on when that skill is one of these.
+const STATUS = { you: "Needs your decision", asking: "Claude has a question", agent: "Agent working" };
 const SKILL_STATUS = { "preflight": "Preflighting", "pr-ready-for-human": "Readying for human review" };
 // The skills a row's nextSkill may name, and the button that runs each in the worktree's session.
 const SKILL_BUTTON = { "preflight": "Preflight", "pr-ready-for-human": "Make ready for reviewer" };
@@ -165,6 +168,15 @@ function statusPill(d) {
   a.className = cls + " pill-link";
   return a;
 }
+// The pill that opens the PR's preflight report, in the developer's colour when the report lists
+// decisions waiting on them.
+function reportPill(d) {
+  if (!d.report) return null;
+  const n = d.reportDecisions;
+  const a = link(d.report, n > 0 ? `${n} decision${n > 1 ? "s" : ""} in preflight report` : "Preflight report");
+  a.className = "pill pill-link " + (n > 0 ? "you" : "idle");
+  return a;
+}
 function skillButton(d) {
   if (!d.worktree || !SKILL_BUTTON[d.nextSkill]) return null;
   return action("orca skill", "Run /" + d.nextSkill + " in this worktree's Claude session", SKILL_BUTTON[d.nextSkill],
@@ -172,6 +184,14 @@ function skillButton(d) {
 }
 function cardLabel(d) {
   return d.cardUrl ? link(d.cardUrl, d.card) : document.createTextNode(d.card || "");
+}
+
+// A row's ISO timestamp as "11-03 14:02" in the viewer's own time zone.
+function localTime(iso) {
+  const t = new Date(iso || "");
+  if (isNaN(t)) return "";
+  const two = n => String(n).padStart(2, "0");
+  return `${two(t.getMonth() + 1)}-${two(t.getDate())} ${two(t.getHours())}:${two(t.getMinutes())}`;
 }
 
 function render(items) {
@@ -198,11 +218,11 @@ function render(items) {
       if (links.childNodes.length) cell.append(links);
       tbody.append(el("tr", {},
         card,
-        el("td", { class: "who" }, statusPill(d)),
+        el("td", { class: "who" }, el("span", { class: "pills" }, statusPill(d), reportPill(d))),
         el("td", {}, d.status || "",
           d.question ? el("span", { class: "question" }, el("b", {}, "Claude asks: "), d.question) : null,
           d.next || d.nextSkill ? el("span", { class: "next" }, el("b", {}, "Next: "), d.next || "", " ", skillButton(d)) : null),
-        el("td", { class: "upd" }, (d.updated || "").replace("T", " ").slice(5, 16)),
+        el("td", { class: "upd" }, localTime(d.updated)),
       ));
     }
     const table = el("table", {},
@@ -219,12 +239,12 @@ function showNote(text) {
 }
 
 // Orca's live agent states override the Status that Claude last wrote: a waiting agent means
-// Claude has a question, a working one means an agent has the card.
+// Claude has a question in its terminal, a working one means an agent has the card.
 function withLiveAgents(rows, agents) {
   return rows.map(d => {
     const a = d.worktree && agents[d.worktree.replace(/\\/g, "/").toLowerCase()];
     if (!a) return d;
-    if (a.waiting) return { ...d, who: "you", question: a.question || "" };
+    if (a.waiting) return { ...d, who: "asking", question: a.question || "" };
     if (a.working) return { ...d, who: "agent", skill: a.skill || "" };
     return d;
   });
@@ -248,6 +268,12 @@ async function refresh() {
   const text = version ? "Your active cards for version " + version : "Your active cards";
   document.getElementById("heading").textContent = text;
   document.getElementById("bar-who").textContent = [state.developer, version].filter(Boolean).join(" · ");
+  // The server gathers YouTrack, GitHub and git facts again every 15 minutes; live agent states
+  // come every few seconds and are not part of this time.
+  const at = state.gatheredAt ? new Date(state.gatheredAt) : null;
+  document.getElementById("fresh").textContent = at
+    ? "Cards, PRs and branches checked at " + at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + "; agents are live."
+    : "";
   render(withLiveAgents(state.rows, state.agents));
 }
 refresh();

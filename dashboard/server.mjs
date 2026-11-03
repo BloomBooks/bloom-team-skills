@@ -1,14 +1,18 @@
 // Serves the dashboard page on http://127.0.0.1:<port>/ for as long as the Claude session that
 // started it is open, and does what the page's buttons ask in Orca.
 //
-// Usage: node server.mjs [--port N]      (default port 47321)
+// Usage: node server.mjs [--port N] [--gather-minutes M]   (defaults 47321 and 15)
 //
-// Data lives in ~/.claude/bloom-dashboard/, which the session writes and this server only reads:
+// Data lives in ~/.claude/bloom-dashboard/:
 //   board.json     { "board": "Bloom 6.6" }  the Kanban Board the rows were gathered for
-//   rows/<id>.json one row per card (fields in SKILL.md, step 3)
+//   rows/<id>.json one row per card (fields in SKILL.md, step 4); the session writes these
+//   facts.json     the last output of gather.mjs; the session writes the first, and this server
+//                  replaces it every M minutes
 //   events.log     this server appends a line whenever an agent in a card's worktree changes
-//                  state, e.g. "BL-16775 D:/BL-16775-grade-branding-2: working -> waiting";
-//                  the session watches it with a Monitor
+//                  state, e.g. "BL-16775 D:/BL-16775-grade-branding-2: working -> waiting", for
+//                  each change between one facts.json and the next (see diff-facts.mjs), and for
+//                  each worktree the page's Create button makes; the session watches it with
+//                  watch-events.mjs
 //
 // stdout: "DASHBOARD_URL <url>" once listening, or "ALREADY_RUNNING <url> pid <pid>" (exit 3)
 // when another session's server holds the port.
@@ -20,6 +24,7 @@ import crypto from "node:crypto";
 import { exec, execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { diffFacts } from "./diff-facts.mjs";
 
 const execP = promisify(exec);
 const execFileP = promisify(execFile);
@@ -33,6 +38,9 @@ fs.appendFileSync(eventsLog, "");
 
 const portArg = process.argv.indexOf("--port");
 const port = portArg > 0 ? Number(process.argv[portArg + 1]) : 47321;
+const minutesArg = process.argv.indexOf("--gather-minutes");
+const gatherMinutes = minutesArg > 0 ? Number(process.argv[minutesArg + 1]) : 15;
+const factsFile = path.join(dataDir, "facts.json");
 const origin = `http://127.0.0.1:${port}`;
 const token = crypto.randomBytes(16).toString("hex");
 const CARD = /\bBL-\d+/i;
@@ -97,6 +105,33 @@ async function pollAgents() {
   }
 }
 
+// ---- YouTrack, GitHub and git facts ---------------------------------------------------------
+// Runs gather.mjs again for the board of the last facts.json, and appends each difference to
+// events.log, so that card States, PR reviews, CI and pushes reach the session the same way agent
+// states do. Skipped until the session has written a first facts.json.
+const readFacts = () => { try { return JSON.parse(fs.readFileSync(factsFile, "utf8")); } catch { return null; } };
+let gathering = false;
+async function regather() {
+  const prev = readFacts();
+  if (!prev || gathering) return;
+  gathering = true;
+  const tmp = factsFile + ".next";
+  try {
+    await execFileP(process.execPath, [path.join(here, "gather.mjs"), tmp, prev.board || "all"], { windowsHide: true, maxBuffer: 16 << 20 });
+    const next = JSON.parse(fs.readFileSync(tmp, "utf8"));
+    // The session may have replaced facts.json while gather ran; compare with what is there now.
+    const lines = diffFacts(readFacts() || prev, next);
+    fs.renameSync(tmp, factsFile);
+    if (lines.length) fs.appendFileSync(eventsLog, lines.join("\n") + "\n");
+    log(`regathered: ${lines.length} changes`);
+  } catch (e) {
+    fs.appendFileSync(eventsLog, "gather error: " + String(e.stderr || e.message).trim().split("\n").pop() + "\n");
+    fs.rmSync(tmp, { force: true });
+  } finally {
+    gathering = false;
+  }
+}
+
 // ---- state for the page ---------------------------------------------------------------------
 function readState() {
   let board = "";
@@ -109,7 +144,7 @@ function readState() {
   // The developer's first name, for the page's top bar.
   let developer = "";
   try { developer = (JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude", "bloom-developer.json"), "utf8")).name || "").split(" ")[0]; } catch {}
-  return { board, developer, rows, agents };
+  return { board, developer, rows, agents, gatheredAt: readFacts()?.gatheredAt || "" };
 }
 
 // ---- Orca actions ---------------------------------------------------------------------------
@@ -131,11 +166,13 @@ async function knownWorktree(p) {
   return w.path;
 }
 
-// The worktree's Claude terminal, if it has one: { handle, agent }.
+// The worktree's Claude terminal, if it has one: { handle, agent }. With several agents, a waiting
+// one comes first, then a working one, so the Status pill opens the terminal it describes.
 async function agentTerminal(wt) {
   const terms = (await orca("terminal", "list", "--worktree", "path:" + wt)).terminals;
   const ps = (await orca("worktree", "ps")).worktrees.find(x => norm(x.path) === norm(wt));
-  for (const a of ps?.agents || []) {
+  const rank = a => ({ waiting: 0, working: 1 })[a.state] ?? 2;
+  for (const a of [...(ps?.agents || [])].sort((x, y) => rank(x) - rank(y))) {
     const t = terms.find(t => `${t.tabId}:${t.leafId}` === a.paneKey);
     if (t) return { handle: t.handle, agent: a };
   }
@@ -204,7 +241,10 @@ async function createWorktree({ card, title, pr }) {
     args.push("--name", name, "--branch", name);
   }
   const r = await orca(...args);
-  log("created " + (r.worktree?.path || r.worktreeId) + " for " + card);
+  const made = r.worktree?.path || r.worktreeId;
+  log("created " + made + " for " + card);
+  // The row has no worktree path yet, so this line names the card the row is filed under.
+  fs.appendFileSync(eventsLog, `${card} ${made}: worktree created from the dashboard\n`);
 }
 
 // ---- HTTP -----------------------------------------------------------------------------------
@@ -262,6 +302,7 @@ server.on("error", async e => {
 server.listen(port, "127.0.0.1", async () => {
   await pollAgents();
   setInterval(pollAgents, 5000);
+  setInterval(regather, gatherMinutes * 60000);
   log("listening on " + origin + " pid " + process.pid);
   console.log(`DASHBOARD_URL ${origin}/`);
 });

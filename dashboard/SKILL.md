@@ -1,7 +1,7 @@
 ---
 name: dashboard
 description: Build or refresh the developer's dashboard of their in-progress YouTrack cards, a local web page that groups each card by how close it is to review, shows live which ones agents are working and which are waiting for the developer, and opens each worktree in Orca. Use when the developer says "dashboard", "/dashboard", asks which cards to finish first, or asks to keep the board up to date while agents work.
-argument-hint: "[Kanban Board, e.g. 6.6]"
+argument-hint: "[Kanban Board, e.g. 6.6, or all; default: the current version]"
 ---
 
 # Dashboard
@@ -15,7 +15,10 @@ and writes it to a file.
 
 `/dashboard <board>` limits the board to cards whose YouTrack `Kanban Board` field is that value,
 for example `/dashboard 6.6` (a bare version number means `Bloom 6.6`) or `/dashboard "Bloom 6.7"`.
-With no argument the board shows cards from every Kanban Board. Keep using the same board for
+`/dashboard all` shows cards from every Kanban Board. With no argument, `gather.mjs` picks the
+current version: of the unarchived `Kanban Board` values named `Bloom <version>`, the one with
+the most BL cards (anyone's) updated in the last 14 days. It prints the counts; tell the developer
+which board it chose and that `/dashboard <board>` picks another. Keep using the same board for
 every refresh in the session, unless the developer names another.
 
 ## 0. Check the install and find the developer
@@ -52,8 +55,9 @@ The server stops when this session ends, and the page then says so.
 
 ## 2. Gather
 
-Run `node gather.mjs <scratchpad>/facts.json [board]` from this folder (about 15 s), passing the
-board from "Which board" when there is one. It writes:
+Run `node gather.mjs ~/.claude/bloom-dashboard/facts.json [board]` from this folder (about 15 s),
+passing the board from "Which board" when there is one. The server compares its own later gathers
+with this file (step 5), so write it there. It writes:
 
 - `cards`: every unresolved card assigned to the developer, plus every card named by a worktree's
   branch, with its State;
@@ -61,7 +65,11 @@ board from "Which board" when there is one. It writes:
   commits, commits behind the base branch, its own commits, its Orca comment, and its agents, each
   `working`, `waiting` (with the question it is asking) or `done` (with its last message);
 - `prs`: the developer's open PRs in the repos those worktrees belong to, with draft state, size,
-  mergeability, review decision and requested reviewers.
+  mergeability, review decision, requested reviewers, `checks` (`SUCCESS`, `FAILURE`,
+  `PENDING`, or `""` with no CI), `report` (the preflight report linked from the PR description)
+  and `reportDecisions` (how many decision items that report has; `null` when it could not be
+  read);
+- `board`: the board it kept, or `null` for every board.
 
 It needs Orca running, `gh` signed in as the developer, and `YOUTRACK_BOT` in the User
 environment. The search for the developer's cards relies on the Bot holding YouTrack's "Read User
@@ -84,11 +92,13 @@ the board.
 
 Order rows within a group (`order`) easiest first.
 
-**Status** (`who`): `you` when the card needs a decision only the developer can make, or an
-agent is `done` and its result needs them (a reviewer to pick, a promotion to approve); state the
-decision in `next` as a question. Otherwise `idle`, which shows no pill. The page overrides this
-live from Orca: a `waiting` agent in the row's worktree shows "Claude has a question" with the
-question, and a `working` one shows "Preflighting" or "Readying for human review" when it was
+**Status** (`who`): `you` only when something names a choice that the developer has to make: the
+PR's preflight report has `reportDecisions` above 0, or an agent's last message asks them to
+choose between options. State the choice in `next`; the pill reads "Needs your decision". The
+next step being theirs is not a decision: a clean preflight report means the PR waits for their
+own review, so the row is `idle` and `next` says to review the PR and then run
+pr-ready-for-human. Otherwise `idle`, which shows no Status pill. The page overrides this live from Orca: a `waiting` agent in the row's worktree
+shows "Claude has a question" with the question, and a `working` one shows "Preflighting" or "Readying for human review" when it was
 started on `/preflight` or `/pr-ready-for-human`, and "Agent working" otherwise.
 
 **Next skill** (`nextSkill`): when the next step is to run `preflight` or `pr-ready-for-human`,
@@ -99,10 +109,11 @@ button that runs it in the worktree's Claude session.
 
 The rows live in `~/.claude/bloom-dashboard/`, which the server reads every few seconds:
 
-- `board.json`: `{ "board": "<the Kanban Board value, e.g. Bloom 6.6>" }`, or `""` when no board
-  was given. The page's heading reads "Your active cards for version 6.6" from it.
+- `board.json`: `{ "board": "<the facts' board, e.g. Bloom 6.6>" }`, or `""` for every board.
+  The page's heading reads "Your active cards for version 6.6" from it.
 - `rows/<card id>.json`: one file per card (or a short slug for one cleanup row that lists
-  several stale cards). Delete the file of a card that left the board.
+  several stale cards). Delete the file of a card that left the board. Rows left by an earlier
+  session are claims from then: check every one against the new facts and rewrite it.
 
 | field | content |
 | --- | --- |
@@ -113,6 +124,7 @@ The rows live in `~/.claude/bloom-dashboard/`, which the server reads every few 
 | `next` | the next step, or the developer's question |
 | `nextSkill` | `preflight` or `pr-ready-for-human`, when the next step is that skill |
 | `pr` | PR URL |
+| `report`, `reportDecisions` | the PR's `report` and `reportDecisions` from the facts; the page shows a pill linking to the report |
 | `worktree` | worktree path; the page shows an "Orca Worktree" button and the path, which opens in VS Code |
 | `updated` | ISO timestamp of this write |
 
@@ -120,19 +132,33 @@ Then give the developer the URL and a few lines on what changed, leading with wh
 
 ## 5. Keep it current
 
-The server appends a line to `~/.claude/bloom-dashboard/events.log` whenever an agent in a card's
-worktree changes state, such as `BL-16775 D:/BL-16775-grade-branding-2: working -> waiting`.
-Start a Monitor on `tail -n 0 -F ~/.claude/bloom-dashboard/events.log` with `timeout_ms`
-1800000, and re-arm it when it expires, for as long as the developer wants the board kept live.
+The server appends lines to `~/.claude/bloom-dashboard/events.log`, each starting with a card id:
 
-On a line, read what the agent said (`orca worktree ps --json`, that worktree's agents'
-`lastAssistantMessage` and `programStatus`), check the card's State, and rewrite that row's
-`status`, `next`, `nextSkill` and `who`. Remove the row when the card has left In Progress and
-Has Comments. Push a notification when an agent is waiting on the developer. The page already
-shows the change of Status on its own, so the row is about what the agent reported.
+- every 5 s, when an agent in a card's worktree changes state:
+  `BL-16775 D:/BL-16775-grade-branding-2: working -> waiting`;
+- every 15 minutes it runs `gather.mjs` again for the same board, replaces `facts.json`, and
+  writes each difference (`diff-facts.mjs` lists the kinds): a card's State, a new In Progress
+  card, a PR's draft state, mergeability, review decision, CI checks or requested reviewers, a PR
+  merged or closed, a new or changed preflight report, new commits, a push, a worktree added or removed;
+- when the page's Create button makes a worktree: `BL-16549 <path>: worktree created from the
+  dashboard`;
+- `orca error`, `orca answers again` and `gather error` lines, when Orca or the gather fails.
 
-Match a worktree to a row by path, not by the card id in its branch: a PR's branch can name
-another card, and the server labels a worktree by the id in its branch.
+Start a Monitor on `node <this folder>/watch-events.mjs` with `timeout_ms` 1800000, and re-arm it
+when it expires, for as long as the developer wants the board kept live. It saves its place in
+the log, so lines written between expiry and re-arm arrive when it starts again.
+
+On an agent line, read what the agent said (`orca worktree ps --json`, that worktree's agents'
+`lastAssistantMessage` and `programStatus`) and check the card's State. On a fact line, read the
+change from `facts.json`. Then rewrite that row's `status`, `next`, `nextSkill`, `who` and
+`group`, and add a row for a card that has become In Progress or Has Comments. Remove the row when
+the card has left In Progress and Has Comments. Push a notification when an agent is waiting on
+the developer. The page already shows the change of Status on its own, so the row is about what
+the agent reported.
+
+Match a worktree line to a row by path, not by the card id in its branch: a PR's branch can name
+another card, and the server labels a worktree by the id in its branch. A "created from the
+dashboard" line names the row's own card; write its path into that row's `worktree`.
 
 ## The buttons
 
@@ -145,8 +171,8 @@ another card, and the server labels a worktree by the id in its branch.
   none. When Claude is busy there, the server refuses and the page says so.
 - **Create & Open Orca Worktree** (on a row without one) makes a worktree and starts Claude in it.
   With a PR it checks out the PR's branch; without one it makes
-  `<card>-<first three words of the title>` from the repo's default base. Once the worktree
-  exists, write its path into the row's `worktree`.
+  `<card>-<first three words of the title>` from the repo's default base. The server then writes
+  a "created from the dashboard" line to `events.log` (step 5).
 
 Every Orca button then launches `Orca.exe` again, which makes the running Orca bring its window to the
 front; the CLI alone does not. The server logs each click and its result in
