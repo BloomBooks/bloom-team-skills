@@ -26,7 +26,12 @@ export function diffFacts(prev, next) {
   for (const [id, c] of nextCards) {
     const p = prevCards.get(id);
     if (!p) { if (ACTIVE.includes(c.state)) lines.push(`${id} card: new, State ${c.state}`); }
-    else if (p.state !== c.state) lines.push(`${id} card: State ${p.state} -> ${c.state}`);
+    else {
+      if (p.state !== c.state) lines.push(`${id} card: State ${p.state} -> ${c.state}`);
+      // A card that a worktree names is listed whoever it is assigned to, so the assignment itself
+      // can change while it stays listed.
+      if (p.assignedToDeveloper !== c.assignedToDeveloper) lines.push(`${id} card: ${c.assignedToDeveloper ? "now assigned to you" : "no longer assigned to you"}, State ${c.state}`);
+    }
   }
   for (const [id, p] of prevCards) {
     if (!nextCards.has(id) && ACTIVE.includes(p.state)) lines.push(`${id} card: no longer listed (resolved, reassigned or moved to another board)`);
