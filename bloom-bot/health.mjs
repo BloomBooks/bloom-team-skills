@@ -5,12 +5,12 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
-import { log, notify, readStatuses, runJob } from "./bot-runtime.mjs";
+import { log, notify, readStatuses, runJob, slack } from "./bot-runtime.mjs";
 
 const MIN_FREE_GIB = 5;
 // A job whose last success is older than this has stopped working, even if no run reported an
 // error (launchd stopped starting it, or it hangs).
-const STALE_MS = { youtrack: 30 * 60 * 1000, zulip: 15 * 60 * 1000 };
+const STALE_MS = { youtrack: 30 * 60 * 1000, zulip: 15 * 60 * 1000, nightly: 2 * 60 * 60 * 1000 };
 
 /**
  * Returns a problem naming the service unless a GET with this bearer token succeeds. A service
@@ -44,6 +44,12 @@ await runJob("health", async () => {
             "https://sentry.io/api/0/organizations/bloom-app/", process.env.SENTRY_BOT_TOKEN)],
     ]) {
         if (problem) problems.push([kind, problem]);
+    }
+    // Slack answers a bad token with HTTP 200 and ok: false, which slack() turns into an error.
+    try {
+        await slack("auth.test", {});
+    } catch (error) {
+        problems.push(["token:slack", `Slack token: ${error.message}`]);
     }
     try {
         const reply = execFileSync("claude", ["-p", "--model", "haiku", "Reply with just: ok"],

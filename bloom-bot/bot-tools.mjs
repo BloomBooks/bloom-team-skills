@@ -9,6 +9,13 @@
 //   node bot-tools.mjs sentry-status                   what https://status.sentry.io/ reports now
 //   node bot-tools.mjs repos                           lists the BloomBooks repos
 //   node bot-tools.mjs checkout <repo>                 puts a worktree of a BloomBooks repo at ./<repo>
+//   node bot-tools.mjs nightly-runs                    lists BloomDesktop's recent nightly.yml runs
+//   node bot-tools.mjs run <run id>                    a BloomDesktop run's jobs and failed steps
+//   node bot-tools.mjs run-log <run id>                saves the failed steps' log to ./.nightly/ and
+//                                                      prints the parts that say what failed
+//   node bot-tools.mjs run-artifact <run id> <name>    saves a run's artifact to ./.nightly/<run id>/<name>,
+//                                                      with each trace.zip in it unzipped
+//   node bot-tools.mjs pr <number>                     a BloomDesktop PR's state, title and merge date
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -60,6 +67,107 @@ function listRepos() {
     fs.mkdirSync(path.dirname(cache), { recursive: true });
     fs.writeFileSync(cache, json);
     return JSON.parse(json);
+}
+
+const BLOOM_DESKTOP = "BloomBooks/BloomDesktop";
+// An artifact bigger than this would crowd the bot's Mac, whose disk is nearly full.
+const MAX_ARTIFACT_BYTES = 300 * 1024 * 1024;
+// About what a Claude run can take in at once from one command.
+const MAX_LOG_PRINT_CHARS = 25_000;
+
+/** Runs gh with the bot Mac's GitHub login and returns its stdout. */
+function gh(args) {
+    return execFileSync("gh", args, { encoding: "utf8", maxBuffer: 512 * 1024 * 1024 });
+}
+
+/** Rejects anything but a run id, so it can't be taken for another gh argument. */
+function runId(id) {
+    if (!/^\d+$/.test(id ?? "")) throw new Error(`expected a numeric run id, got ${id}`);
+    return id;
+}
+
+/**
+ * Saves the failed steps' log of a run to ./.nightly/<id>.log and returns the lines that say what
+ * failed: Playwright's numbered failures with the 40 lines after each, C# "Failed" lines, and the
+ * "##[error]" lines. The [WebServer] lines from the component tests are dropped as noise.
+ */
+function failedLog(id) {
+    const dir = path.join(process.cwd(), ".nightly");
+    fs.mkdirSync(dir, { recursive: true });
+    // Asked for the whole run, gh gives up on the run's summary check jobs, which have no steps and
+    // no log ("log not found"). So ask for each failed job that has steps.
+    const { jobs } = JSON.parse(gh(["run", "view", id, "--repo", BLOOM_DESKTOP, "--json", "jobs"]));
+    const raw = jobs.filter((job) => job.conclusion === "failure" && job.steps.length > 0)
+        .map((job) => gh(["run", "view", "--job", String(job.databaseId), "--repo", BLOOM_DESKTOP, "--log-failed"]))
+        .join("\n");
+    // gh prints "job<TAB>step<TAB>timestamp text"; keep the job and step once, then the text.
+    const lines = raw.split(/\r?\n/)
+        .map((line) => line.split("\t"))
+        .filter((parts) => parts.length >= 3)
+        // Drops the timestamp and the terminal colour codes, which Playwright's output on the runner
+        // carries both as escape characters and spelled out as the text "^[[2m".
+        .map(([job, step, ...rest]) => ({
+            where: `${job} / ${step}`,
+            text: rest.join("\t").replace(/^\S+Z /, "").replace(/(\x1b|\^\[)\[[0-9;]*m/g, ""),
+        }))
+        .filter((line) => !line.text.includes("[WebServer]"));
+    const file = path.join(dir, `${id}.log`);
+    fs.writeFileSync(file, lines.map((line) => `${line.where}\t${line.text}`).join("\n"));
+    const keep = new Set();
+    lines.forEach((line, i) => {
+        if (/^\s+\d+\) /.test(line.text)) {
+            for (let j = i; j < Math.min(i + 41, lines.length); j++) keep.add(j);
+        } else if (/^\s*Failed /.test(line.text) || line.text.includes("##[error]")) {
+            keep.add(i);
+        }
+    });
+    const out = [`full log (${lines.length} lines): ${file}`];
+    let where = "";
+    let previous = -2;
+    for (const i of [...keep].sort((a, b) => a - b)) {
+        if (lines[i].where !== where) {
+            where = lines[i].where;
+            out.push(`--- ${where}`);
+        } else if (i !== previous + 1) {
+            out.push("...");
+        }
+        out.push(lines[i].text);
+        previous = i;
+    }
+    if (keep.size === 0) out.push("no Playwright, C# or ##[error] failure lines; read the full log");
+    let text = out.join("\n");
+    if (text.length > MAX_LOG_PRINT_CHARS) {
+        text = `${text.slice(0, MAX_LOG_PRINT_CHARS)}\n... cut at ${MAX_LOG_PRINT_CHARS} characters; Grep the full log for the rest`;
+    }
+    return text;
+}
+
+/** Saves one artifact of a run under ./.nightly/<id>/<name>, unzips each Playwright trace in it
+ * (a zip holding test.trace, whatever its name) into a folder beside it named <zip>-trace, and
+ * lists the files, leaving out the test collections and the report viewer's own files. */
+function downloadArtifact(id, name) {
+    const artifacts = JSON.parse(gh(["api", `repos/${BLOOM_DESKTOP}/actions/runs/${id}/artifacts`])).artifacts;
+    const artifact = artifacts.find((a) => a.name === name);
+    if (!artifact) throw new Error(`run ${id} has no artifact named ${name}; it has: ${artifacts.map((a) => a.name).join(", ")}`);
+    if (artifact.size_in_bytes > MAX_ARTIFACT_BYTES) {
+        throw new Error(`${name} is ${Math.round(artifact.size_in_bytes / 1024 / 1024)} MB, over the ${MAX_ARTIFACT_BYTES / 1024 / 1024} MB the bot's Mac can spare`);
+    }
+    const dir = path.join(process.cwd(), ".nightly", id, path.basename(name));
+    fs.rmSync(dir, { recursive: true, force: true });
+    gh(["run", "download", id, "--repo", BLOOM_DESKTOP, "--name", name, "--dir", dir]);
+    for (const zip of fs.readdirSync(dir, { recursive: true }).map(String).filter((f) => f.endsWith(".zip"))) {
+        const zipPath = path.join(dir, zip);
+        if (!execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf8" }).split("\n").includes("test.trace")) continue;
+        execFileSync("unzip", ["-q", "-o", zipPath, "-d", `${zipPath.slice(0, -4)}-trace`]);
+    }
+    const files = fs.readdirSync(dir, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => path.relative(dir, path.join(entry.parentPath, entry.name)))
+        // A trace's resources folder holds hundreds of snapshots and sources by hash; the trace
+        // files beside it name the ones that matter.
+        .filter((f) => !f.split(path.sep).some((part) => part === "collection" || part === "resources"))
+        .filter((f) => !f.startsWith(path.join("playwright-report", "trace")));
+    return `${dir}\n${files.join("\n")}`;
 }
 
 /** Rejects anything but an API path, so a caller can't point the token at another host. */
@@ -151,8 +259,37 @@ async function main() {
             console.log(`${target}: ${name} at origin/${repo.defaultBranchRef.name}`);
             break;
         }
+        case "nightly-runs": {
+            const runs = JSON.parse(gh(["run", "list", "--repo", BLOOM_DESKTOP, "--workflow", "nightly.yml", "--limit", "15",
+                "--json", "databaseId,createdAt,event,headBranch,headSha,status,conclusion,url"]));
+            for (const r of runs) {
+                console.log([r.databaseId, r.createdAt, r.event, r.headBranch, r.headSha.slice(0, 10), r.status, r.conclusion || "-", r.url].join(" | "));
+            }
+            break;
+        }
+        case "run": {
+            const { jobs } = JSON.parse(gh(["run", "view", runId(args[0]), "--repo", BLOOM_DESKTOP, "--json", "jobs"]));
+            for (const job of jobs) {
+                const failed = job.steps.filter((s) => s.conclusion === "failure").map((s) => s.name);
+                console.log(`${job.name} | ${job.conclusion}${failed.length ? ` | failed steps: ${failed.join(", ")}` : ""}`);
+            }
+            break;
+        }
+        case "run-log":
+            console.log(failedLog(runId(args[0])));
+            break;
+        case "run-artifact":
+            console.log(downloadArtifact(runId(args[0]), args[1]));
+            break;
+        case "pr": {
+            if (!/^\d+$/.test(args[0] ?? "")) throw new Error(`expected a PR number, got ${args[0]}`);
+            const pr = JSON.parse(gh(["pr", "view", args[0], "--repo", BLOOM_DESKTOP, "--json", "number,title,state,mergedAt,closedAt,url"]));
+            const when = pr.mergedAt ? `merged ${pr.mergedAt}` : `closed ${pr.closedAt ?? "-"}`;
+            console.log([`#${pr.number}`, pr.state, when, pr.url, pr.title].join(" | "));
+            break;
+        }
         default:
-            throw new Error("usage: bot-tools.mjs youtrack <path> | attachment <issue> <name> | sentry <path> | sentry-status | repos | checkout <repo>");
+            throw new Error("usage: bot-tools.mjs youtrack <path> | attachment <issue> <name> | sentry <path> | sentry-status | repos | checkout <repo> | nightly-runs | run <id> | run-log <id> | run-artifact <id> <name> | pr <number>");
     }
 }
 

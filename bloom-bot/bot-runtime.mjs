@@ -11,7 +11,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export const TEAM_SKILLS = path.join(os.homedir(), "dev", "bloom-team-skills");
+// BLOOM_BOT_TEAM_SKILLS points a test at a copy of bloom-team-skills holding unpushed changes.
+export const TEAM_SKILLS = process.env.BLOOM_BOT_TEAM_SKILLS ?? path.join(os.homedir(), "dev", "bloom-team-skills");
 export const BOT_DIR = path.join(TEAM_SKILLS, "bloom-bot");
 export const BOT_TOOLS = path.join(BOT_DIR, "bot-tools.mjs");
 export const HOME_DIR = path.join(os.homedir(), "bloom-bot");
@@ -73,6 +74,49 @@ export async function notify(message, kind) {
     } catch (error) {
         log(`notify failed: ${error.message}`);
     }
+}
+
+/** Posts a message to a Zulip channel and topic as the bot, and throws if Zulip refuses it. */
+export async function postToZulip(channel, topic, content) {
+    const zulip = zulipCredentials();
+    const response = await fetch(`${zulip.site}/api/v1/messages`, {
+        method: "POST",
+        signal: AbortSignal.timeout(60_000),
+        headers: { Authorization: `Basic ${Buffer.from(`${zulip.email}:${zulip.key}`).toString("base64")}` },
+        body: new URLSearchParams({ type: "stream", to: channel, topic, content }),
+    });
+    if (!response.ok) throw new Error(`Zulip ${response.status}: ${await response.text()}`);
+}
+
+/** Calls a Slack Web API method as the bot (SLACK_BOT_TOKEN) and returns its reply, throwing when
+ * Slack says it failed. Slack answers HTTP 200 even then, with `ok: false` and an `error`. */
+export async function slack(method, params) {
+    if (!process.env.SLACK_BOT_TOKEN) throw new Error("SLACK_BOT_TOKEN is not in ~/.config/bloom-bot/env");
+    const response = await fetch(`https://slack.com/api/${method}`, {
+        method: "POST",
+        signal: AbortSignal.timeout(60_000),
+        headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` },
+        // Form-encoded, which every Slack method takes (not all take JSON). A value that is an
+        // object or array (blocks) goes as a JSON string, as Slack expects.
+        body: new URLSearchParams(Object.entries(params).map(([key, value]) =>
+            [key, typeof value === "object" ? JSON.stringify(value) : String(value)])),
+    });
+    const reply = await response.json();
+    if (!reply.ok) throw new Error(`Slack ${method}: ${reply.error}`);
+    return reply;
+}
+
+/** Posts Markdown (the same text a Zulip post takes) to a Slack channel. A `markdown` block renders
+ * ordinary Markdown links, bold and lists; `text` is what notifications show. Link previews are
+ * off, as they would dwarf a short post. */
+export async function postToSlack(channel, markdown) {
+    return slack("chat.postMessage", {
+        channel,
+        text: markdown,
+        blocks: [{ type: "markdown", text: markdown }],
+        unfurl_links: false,
+        unfurl_media: false,
+    });
 }
 
 /** Takes the job's lock file, or returns false if another run of the job is still going. */
@@ -257,10 +301,10 @@ function recordBotUse(before, after) {
  * "=== MAINTAINER ===" line before it, which is also sent to Zulip. Callers check budgetBlock()
  * first; this records what the run used toward the bot's share. A run that goes past
  * CLAUDE_TIMEOUT_MINUTES throws an error with `timedOut` set. */
-export async function runClaude({ cwd, skillFile, task, label, test = false }) {
+export async function runClaude({ cwd, skillFile, task, label, test = false, effort = EFFORT, timeoutMinutes = CLAUDE_TIMEOUT_MINUTES, editableFiles = [] }) {
     const usageBefore = await readWeeklyUsage();
     try {
-        return await runClaudeOnce({ cwd, skillFile, task, label, test });
+        return await runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeoutMinutes, editableFiles });
     } finally {
         recordBotUse(usageBefore, await readWeeklyUsage());
     }
@@ -295,7 +339,9 @@ function runCommand(command, args, { cwd, env, input, timeoutMs }) {
     });
 }
 
-async function runClaudeOnce({ cwd, skillFile, task, label, test }) {
+/** Runs Claude once; see runClaude(). `editableFiles` are absolute paths that Claude may Edit,
+ * the only change to the file system it is allowed. */
+async function runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeoutMinutes, editableFiles }) {
     const prompt = [fs.readFileSync(BOT_GUIDE, "utf8"), fs.readFileSync(skillFile, "utf8"), task].join("\n\n");
     const env = { ...process.env };
     for (const key of ["YOUTRACK_BOT", "SENTRY_BOT_TOKEN", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"]) delete env[key];
@@ -305,23 +351,25 @@ async function runClaudeOnce({ cwd, skillFile, task, label, test }) {
         [
             "-p",
             "--model", MODEL,
-            "--effort", EFFORT,
+            "--effort", effort,
             "--setting-sources", "project",
             "--permission-mode", "default",
             "--allowedTools",
             "Read", "Grep", "Glob",
             ...["log", "show", "blame", "grep", "diff", "branch"].map((command) => `Bash(git -C * ${command} *)`),
             `Bash(node ${BOT_TOOLS}:*)`,
+            // A leading "//" makes a permission path absolute.
+            ...editableFiles.map((file) => `Edit(/${file})`),
             "--disallowedTools",
             // ~/.config holds the bot's tokens and gh's GitHub login.
             `Read(/${path.join(os.homedir(), ".config")}/**)`, `Read(/${path.join(os.homedir(), ".claude")}/**)`,
             `Read(/${ZULIPRC})`,
             "WebFetch", "WebSearch",
         ],
-        { cwd, env, input: prompt, timeoutMs: CLAUDE_TIMEOUT_MINUTES * 60 * 1000 },
+        { cwd, env, input: prompt, timeoutMs: timeoutMinutes * 60 * 1000 },
     );
     if (result.timedOut) {
-        const error = new Error(`Claude ran past ${CLAUDE_TIMEOUT_MINUTES} minutes on ${label} and was stopped`);
+        const error = new Error(`Claude ran past ${timeoutMinutes} minutes on ${label} and was stopped`);
         error.timedOut = true;
         throw error;
     }
