@@ -9,7 +9,7 @@
 
 import path from "node:path";
 import {
-    BOT_TOOLS, CLAUDE_TIMEOUT_MINUTES, TEAM_SKILLS,
+    BOT_TOOLS, CLAUDE_TIMEOUT_MINUTES, MODEL_NAME, TEAM_SKILLS,
     budgetBlock, log, makeRunDir, notify, pullTeamSkills, removeRunDir, runClaude, writeStatus, zulipCredentials,
 } from "./bot-runtime.mjs";
 
@@ -95,7 +95,8 @@ async function answer(message) {
         if (pullTeamSkills()) restartWanted = true;
         dir = makeRunDir(`zulip-${message.id}`);
         const task = [
-            `The read-only helper is \`node ${BOT_TOOLS}\`.`,
+            `The helper is \`node ${BOT_TOOLS}\`. The attribution line for anything you write on YouTrack is`,
+            `\`[${MODEL_NAME} on the Bloom bot Mac, asked by ${message.sender_full_name} on Zulip]\`.`,
             `${message.sender_full_name} mentioned you in ${where}. Their message is the last one below.`,
             "",
             "<conversation>",

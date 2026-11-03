@@ -3,11 +3,11 @@
 //
 // The YouTrack workflow in ./youtrack-workflow adds a Bot comment "[YouTrack workflow] Queued for
 // the Bloom bot." right after a Developers-group member's comment that mentions @Bot. This script
-// finds those comments, answers the comment just before each one with a read-only Claude run, and
-// replaces the queued comment's text with the answer.
+// finds those comments, answers the comment just before each one with a Claude run, and replaces
+// the queued comment's text with the answer.
 //
-// Claude never gets the YouTrack token or any tool that can write: this script fetches the card,
-// hands it over as data, and posts the answer itself.
+// Claude never gets the YouTrack token. It reads and changes YouTrack through bot-tools.mjs, and
+// this script posts the answer itself.
 
 import path from "node:path";
 import {
@@ -133,7 +133,9 @@ async function answer(issue, { queuedComment, request }) {
     try {
         dir = makeRunDir(`${issue.idReadable}-${queuedComment.id}`);
         const task = [
-            `The card is ${issue.idReadable}. The read-only helper is \`node ${BOT_TOOLS}\`.`,
+            `The card is ${issue.idReadable}. The helper is \`node ${BOT_TOOLS}\`.`,
+            `The attribution line for anything you write on YouTrack is \`[${MODEL_NAME} on the Bloom bot Mac during bloom-bot]\`.`,
+            "The job posts your output as the answer comment; don't post that comment yourself.",
             `Its attachments: ${issue.attachments.map((a) => `${a.name} (${a.size} bytes)`).join(", ") || "none"}.`,
             `The comment you are answering is comment ${request.id}:`,
             "",

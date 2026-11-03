@@ -1,9 +1,13 @@
-// Read-only access to YouTrack, Sentry and the BloomBooks GitHub repos for the bot's Claude runs.
+// Access to YouTrack, Sentry and the BloomBooks GitHub repos for the bot's Claude runs.
 // Claude can run this script but cannot read the tokens it uses: they come from ~/.config, which
-// bot-runtime denies to Claude's file tools, and they are not in Claude's environment. Every call
-// is a GET or a clone/fetch, so nothing here can change any of those services.
+// bot-runtime denies to Claude's file tools, and they are not in Claude's environment. YouTrack is
+// the one service it can change, with any request the Bot account may make; Sentry and GitHub
+// calls only read.
 //
-//   node bot-tools.mjs youtrack <api path>             e.g. /issues?query=...&fields=idReadable,summary
+//   node bot-tools.mjs youtrack <api path>             a GET, e.g. /issues?query=...&fields=idReadable,summary
+//   node bot-tools.mjs youtrack <method> <api path> [@<file>]
+//                                                      POST or DELETE, with the JSON body read from a
+//                                                      file under the working directory
 //   node bot-tools.mjs attachment <issue id> <name>    saves the attachment to ./.card/<name>
 //   node bot-tools.mjs sentry <api path>               e.g. /organizations/bloom-app/issues/?query=...
 //   node bot-tools.mjs sentry-status                   what https://status.sentry.io/ reports now
@@ -37,14 +41,17 @@ function readTokens() {
 }
 
 /**
- * GETs a URL with a bearer token and fails loudly on any non-2xx status. A timeout or a 5xx
- * says that the service is down, so the caller doesn't take it for a problem with its request.
+ * Sends a request (a GET unless `method` says otherwise) with a bearer token and fails loudly on
+ * any non-2xx status. A timeout or a 5xx says that the service is down, so the caller doesn't take
+ * it for a problem with its request.
  */
-async function get(url, token) {
+async function get(url, token, method = "GET", body = undefined) {
     const host = new URL(url).host;
+    const headers = { Accept: "application/json", Authorization: `Bearer ${token}` };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
     let response;
     try {
-        response = await fetch(url, { signal: AbortSignal.timeout(120_000), headers: { Accept: "application/json", Authorization: `Bearer ${token}` } });
+        response = await fetch(url, { method, body, signal: AbortSignal.timeout(120_000), headers });
     } catch (error) {
         if (error.name === "TimeoutError") throw new Error(`${host} is down: no reply within 120 s to ${url}`);
         throw error;
@@ -176,13 +183,29 @@ function apiPath(p) {
     return p;
 }
 
+/** Reads a request body from "@<file>". The file must be inside the working directory, so the
+ * helper can't be used to send one of the bot's own files, such as its tokens, to YouTrack. */
+function requestBody(arg) {
+    if (arg === undefined) return undefined;
+    if (!arg.startsWith("@")) throw new Error(`expected the body as @<file>, got ${arg.slice(0, 80)}`);
+    const file = fs.realpathSync(path.resolve(arg.slice(1)));
+    const root = fs.realpathSync(process.cwd());
+    if (!file.startsWith(root + path.sep)) throw new Error(`the body file must be inside ${root}, not ${file}`);
+    const body = fs.readFileSync(file, "utf8");
+    JSON.parse(body);
+    return body;
+}
+
 async function main() {
     const [command, ...args] = process.argv.slice(2);
     const tokens = readTokens();
     switch (command) {
         case "youtrack": {
-            const response = await get(`${YOUTRACK}/api${apiPath(args[0])}`, tokens.YOUTRACK_BOT);
-            console.log(JSON.stringify(await response.json(), null, 1));
+            const [method, p, bodyArg] = /^(GET|POST|DELETE)$/.test(args[0]) ? args : ["GET", ...args];
+            const response = await get(`${YOUTRACK}/api${apiPath(p)}`, tokens.YOUTRACK_BOT, method, requestBody(bodyArg));
+            // A DELETE answers with no body.
+            const text = await response.text();
+            console.log(text ? JSON.stringify(JSON.parse(text), null, 1) : `${method} ${p}: HTTP ${response.status}`);
             break;
         }
         case "attachment": {
@@ -289,7 +312,7 @@ async function main() {
             break;
         }
         default:
-            throw new Error("usage: bot-tools.mjs youtrack <path> | attachment <issue> <name> | sentry <path> | sentry-status | repos | checkout <repo> | nightly-runs | run <id> | run-log <id> | run-artifact <id> <name> | pr <number>");
+            throw new Error("usage: bot-tools.mjs youtrack [POST|DELETE] <path> [@<file>] | attachment <issue> <name> | sentry <path> | sentry-status | repos | checkout <repo> | nightly-runs | run <id> | run-log <id> | run-artifact <id> <name> | pr <number>");
     }
 }
 

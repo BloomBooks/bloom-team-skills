@@ -1,6 +1,6 @@
 // What every Bloom bot job on the bot's Mac shares: logging, telling the developers on Zulip,
-// the lock that keeps a job from overlapping itself, BloomDesktop worktrees, and read-only Claude
-// runs. A job (poll-youtrack.mjs, ...) is a small script that calls runJob() with its own work.
+// the lock that keeps a job from overlapping itself, BloomDesktop worktrees, and Claude runs
+// that can change nothing but YouTrack and the files a job allows. A job (poll-youtrack.mjs, ...) is a small script that calls runJob() with its own work.
 //
 // Secrets live in ~/.config/bloom-bot/env (loaded by the login zsh that launchd starts) and
 // ~/.zuliprc. Claude runs never see either: runClaude() strips the tokens from its environment
@@ -306,7 +306,7 @@ function recordBotUse(before, after) {
     fs.writeFileSync(BUDGET_FILE, JSON.stringify({ resetsAt: after.resetsAt.toISOString(), botShare }));
 }
 
-/** Runs Claude read-only in `cwd` with BOT.md, then the job's skill, then the job's own text as
+/** Runs Claude in `cwd`, able to read and to change YouTrack through bot-tools, with BOT.md, then the job's skill, then the job's own text as
  * its prompt. Returns the text after the last "=== OUTPUT ===" line, and any note after a
  * "=== MAINTAINER ===" line before it, which is also sent to Zulip. Callers check budgetBlock()
  * first; this records what the run used toward the bot's share. A run that goes past
@@ -372,8 +372,9 @@ async function runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeou
             ...["log", "show", "blame", "grep", "diff", "status", "branch"].map((command) => `Bash(git -C * ${command}*)`),
             `Bash(node ${BOT_TOOLS}:*)`,
             ...commands.map((command) => `Bash(${command}:*)`),
-            // A leading "//" makes a permission path absolute.
-            ...writable.flatMap((p) => [`Edit(/${p})`, `Write(/${p})`]),
+            // A leading "//" makes a permission path absolute. Every run may write the bodies of its
+            // YouTrack requests under .youtrack, where bot-tools reads them.
+            ...[...writable, `${cwd}/.youtrack/**`].flatMap((p) => [`Edit(/${p})`, `Write(/${p})`]),
             "--disallowedTools",
             // ~/.config holds the bot's tokens and gh's GitHub login.
             `Read(/${path.join(os.homedir(), ".config")}/**)`, `Read(/${path.join(os.homedir(), ".claude")}/**)`,
