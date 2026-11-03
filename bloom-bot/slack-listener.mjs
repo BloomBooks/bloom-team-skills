@@ -1,19 +1,27 @@
-// Answers every message people write in the bot's Slack channel (#bloom-bot-status, the channel
-// that notify() posts to), with no mention needed. Runs continuously under launchd
-// (com.bloom.bot.slack.plist, KeepAlive), holding a Socket Mode connection to Slack.
+// Answers people on Slack. Runs continuously under launchd (com.bloom.bot.slack.plist,
+// KeepAlive), holding a Socket Mode connection to Slack. It answers:
+//   - every new message in the bot's own channel, #bloom-bot-status (where notify() posts), with
+//     no mention needed;
+//   - an @-mention of the bot, in any channel the bot is in;
+//   - a reply in a thread the bot is part of (any thread in #bloom-bot-status, or one elsewhere
+//     where it has replied), as a person would: with one person in the thread, everything they
+//     say is for the bot; with several, it reads along and replies only when it has something to
+//     add (see reason()).
+// Slack sends every message in every channel the bot is in; the rest are dropped unread.
 //
-// For each message it reacts with :eyes:, gives Claude the message and the conversation before it
-// (the thread, or the channel's recent messages) as data, and replies in the message's thread.
-// Claude never sees the Slack tokens: this script posts. It ignores the bot's own posts, other
-// bots and Slack guests.
+// For each message it answers, it reacts with :eyes:, gives Claude the message and the
+// conversation before it (the thread, or the channel's recent messages) as data, and replies in
+// the message's thread. Claude never sees the Slack tokens: this script posts. It ignores the
+// bot's own posts, other bots and Slack guests.
 //
 // Like the Zulip listener, it pulls bloom-team-skills before each answer and every two minutes
 // while idle, and exits once no message is in hand when bloom-bot/ differs from the code it
 // started on, so launchd restarts it on the new code.
 //
 // The Slack app needs Socket Mode on (SLACK_APP_TOKEN, connections:write), the bot event
-// message.groups (message.channels if the channel is public), and the bot scopes chat:write,
-// groups:history (channels:history for a public channel), users:read and reactions:write.
+// message.groups (add message.channels to be reachable in public channels too), and the bot scopes
+// chat:write, groups:history (channels:history for public channels), users:read and
+// reactions:write.
 
 import path from "node:path";
 import {
@@ -77,8 +85,22 @@ async function readConversation(event) {
     return parts.join("\n\n");
 }
 
+// What the run is told about where the message is, by the reason it is being answered.
+const WHERE = {
+    "its channel": "wrote in your Slack channel, #bloom-bot-status, where every message is for you without a mention.",
+    "a mention": "mentioned you in a Slack channel.",
+    "its thread": "wrote in a Slack thread that you are part of, where they are the only person; their message is for you.",
+    listening: [
+        "wrote in a Slack thread that you are part of, with other people in it. Take part as a person",
+        "in the conversation would: reply when the message is addressed to you, asks something you can",
+        "answer, or says something about Bloom that is wrong. When people are talking to each other",
+        "and you have nothing to add, stay quiet: end with an `=== OUTPUT ===` line and nothing after",
+        "it, and nothing is posted.",
+    ].join(" "),
+};
+
 /** Answers one message in its thread, replying with a short failure note if the run fails. */
-async function answer(event, sender) {
+async function answer(event, sender, why) {
     const thread = { thread_ts: event.thread_ts || event.ts };
     const blocked = await budgetBlock();
     if (blocked) {
@@ -86,8 +108,10 @@ async function answer(event, sender) {
         await postToSlack(event.channel, `Sorry, I can't answer right now. ${blocked} Ask me again after that.`, thread);
         return;
     }
-    log(`answering ${sender.name} in #bloom-bot-status`);
-    await slack("reactions.add", { channel: event.channel, timestamp: event.ts, name: "eyes" }).catch(() => {});
+    log(`answering ${sender.name} (${why})`);
+    // :eyes: says "I'm answering you"; while only listening, the bot may not answer at all.
+    const react = why !== "listening";
+    if (react) await slack("reactions.add", { channel: event.channel, timestamp: event.ts, name: "eyes" }).catch(() => {});
     let dir;
     try {
         if (pullTeamSkills()) restartWanted = true;
@@ -95,14 +119,18 @@ async function answer(event, sender) {
         const task = [
             `The helper is \`node ${BOT_TOOLS}\`. The attribution line for anything you write on YouTrack is`,
             `\`[${MODEL_NAME} on the Bloom bot Mac, asked by ${sender.name} on Slack]\`.`,
-            `${sender.name} wrote in the bot's Slack channel, #bloom-bot-status, where every message is for you`,
-            "without a mention. Their message is the last one below. Your reply goes in that message's thread.",
+            `${sender.name} ${WHERE[why]}`,
+            "Their message is the last one below. Your reply goes in that message's thread.",
             "",
             "<conversation>",
             await readConversation(event),
             "</conversation>",
         ].join("\n");
-        const text = await runClaude({ cwd: dir, skillFile: SKILL, task, label: "Slack #bloom-bot-status" });
+        const text = await runClaude({ cwd: dir, skillFile: SKILL, task, label: `Slack (${why})` });
+        if (!text && why === "listening") {
+            log("stayed quiet");
+            return;
+        }
         await postToSlack(event.channel, text, thread);
         log("answered");
     } catch (error) {
@@ -114,22 +142,45 @@ async function answer(event, sender) {
         await postToSlack(event.channel, apology, thread).catch(() => {});
     } finally {
         if (dir) removeRunDir(dir);
-        await slack("reactions.remove", { channel: event.channel, timestamp: event.ts, name: "eyes" }).catch(() => {});
+        if (react) await slack("reactions.remove", { channel: event.channel, timestamp: event.ts, name: "eyes" }).catch(() => {});
     }
 }
 
-/** Decides whether an event is a person's new message in the bot's channel, and answers it if so. */
+/**
+ * Why the bot should take this message up, or null to drop it:
+ *   "its channel"  a new message (not a thread reply) in #bloom-bot-status;
+ *   "a mention"    the message mentions the bot;
+ *   "its thread"   a reply in a thread the bot is part of, where the sender is the only person:
+ *                  everything they say is for the bot;
+ *   "listening"    a reply in a thread the bot is part of, with more than one person in it: the
+ *                  bot replies only when it has something to add.
+ * The bot is part of a thread in #bloom-bot-status, and of one elsewhere where it has replied.
+ * Its own post that starts a thread doesn't count, so a nightly summary alone doesn't draw it in.
+ */
+async function reason(event) {
+    if ((event.text || "").includes(`<@${botUserId}>`)) return "a mention";
+    const isReply = event.thread_ts && event.thread_ts !== event.ts;
+    if (!isReply) return event.channel === SLACK_STATUS_CHANNEL_ID ? "its channel" : null;
+    const { messages } = await slack("conversations.replies", { channel: event.channel, ts: event.thread_ts, limit: 200 });
+    const botIsIn = event.channel === SLACK_STATUS_CHANNEL_ID || messages.some((m) => m.ts !== event.thread_ts && m.user === botUserId);
+    if (!botIsIn) return null;
+    const people = new Set([...messages, event].filter((m) => m.user && m.user !== botUserId && !m.bot_id).map((m) => m.user));
+    return people.size === 1 ? "its thread" : "listening";
+}
+
+/** Decides whether an event is a person's new message for the bot, and answers it if so. */
 async function handle(event) {
     // A subtype marks edits, deletions, joins and bot posts; a person's new message has none.
-    if (event.type !== "message" || event.subtype || event.bot_id || !event.user) return;
-    if (event.channel !== SLACK_STATUS_CHANNEL_ID || event.user === botUserId) return;
+    if (event.type !== "message" || event.subtype || event.bot_id || !event.user || event.user === botUserId) return;
+    const why = await reason(event);
+    if (!why) return;
     const sender = await user(event.user);
     if (sender.guest || sender.bot) {
         log(`ignored a message from ${sender.name}, who is a guest or a bot`);
         return;
     }
-    log(`message in #bloom-bot-status from ${sender.name}`);
-    await answer(event, sender);
+    log(`message for the bot (${why}) in ${event.channel} from ${sender.name}`);
+    await answer(event, sender, why);
 }
 
 let restartWanted = false;

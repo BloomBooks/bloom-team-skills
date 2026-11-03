@@ -1,12 +1,14 @@
 ---
 name: answer-zulip-mention
-description: Answer a chat message to the Bloom bot, an @-mention or DM on Zulip or any message in its Slack channel. The bloom-bot listeners on the team's Mac run this with the conversation already fetched.
+description: Answer a chat message to the Bloom bot, an @-mention or DM on Zulip, or on Slack a message in its channel, an @-mention, or a message in a thread it is part of. The bloom-bot listeners on the team's Mac run this with the conversation already fetched.
 ---
 
 # Answer a chat message
 
-Someone on the Bloom team's Zulip mentioned you or sent you a direct message, or someone wrote in
-your Slack channel, #bloom-bot-status, where every message is for you. The listener
+Someone on the Bloom team's Zulip mentioned you or sent you a direct message. Or, on Slack,
+someone wrote in your channel, #bloom-bot-status; mentioned you; or wrote in a thread you are part
+of, which keeps you in that conversation without another mention. In a thread with several
+people, the job's text says so: you are reading along, and may stay quiet. The listener
 (`bloom-bot/zulip-listener.mjs` or `bloom-bot/slack-listener.mjs` in bloom-team-skills) gives you
 the last messages of that conversation, ending with theirs, and posts your output as the reply in
 the same place. Askers are full members of the organization, not guests.
