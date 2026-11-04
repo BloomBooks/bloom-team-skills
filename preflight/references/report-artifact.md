@@ -160,14 +160,16 @@ that link. Two rules keep it honest:
 ### 1. What this PR is about — the first thing on the page, on every run
 
 **Required, always, from the very first run.** The report's opening card is the **PR narrative**:
-what problem the PR set out to solve, the cause that was diagnosed where that isn't already
-obvious from the problem, and what the **whole PR** changes to fix it. SKILL.md's "The PR
+for a bug fix, what problem the PR set out to solve, the cause that was diagnosed where that isn't
+already obvious from the problem, and what the **whole PR** changes to fix it; for a feature or an
+improvement, what it adds or improves and why, and what the whole PR changes. SKILL.md's "The PR
 narrative" section defines it — its content, its length budget (~150–250 words), and how it is
 maintained across runs. Follow that; this file only says where it goes: first, above the quality
 gate, in the left column, as its own card.
 
 Give the card sub-headings so it can be skimmed — **Problem**, **Cause** (omit the heading
-entirely when there is no separate cause to state), **What the PR does**. Prose and short
+entirely when there is no separate cause to state), **What the PR does**; or, for a feature or an
+improvement, **Purpose** and **What the PR does**. Prose and short
 bullets, in behavior terms, not a commit log and not a file list.
 
 This card is the reason someone can open the report cold — a reviewer, or the developer's

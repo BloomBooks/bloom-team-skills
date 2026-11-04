@@ -1,6 +1,6 @@
 ---
 name: preflight
-description: Run the automated pre-review checklist on the current branch — the work before the "flight" of human review. Local quality gate, commit & push, draft PR, then trigger and WAIT for every async reviewer (Devin, other review bots, CI) to actually finish — auto-fixing and auto-replying to bots — refresh the QA test-ideas comment on the tracker card, and finish with a report that leads with the problem the PR solves and what the whole PR changes to fix it, plus the decisions that genuinely need the user. Local review level -- light single-sub-agent pass by default; "thorough review"/"expensive review" = full /code-review + fix loop; "without review" = skip it. Never marks the PR ready-for-review and never requests a teammate's review (that's pr-ready-for-human).
+description: Run the automated pre-review checklist on the current branch — the work before the "flight" of human review. Local quality gate, commit & push, draft PR, then trigger and WAIT for every async reviewer (Devin, other review bots, CI) to actually finish — auto-fixing and auto-replying to bots — refresh the QA test-ideas comment on the tracker card, and finish with a report that leads with why the PR exists (the problem it solves, or what it adds or improves) and what the whole PR changes, plus the decisions that genuinely need the user. Local review level -- light single-sub-agent pass by default; "thorough review"/"expensive review" = full /code-review + fix loop; "without review" = skip it. Never marks the PR ready-for-review and never requests a teammate's review (that's pr-ready-for-human).
 argument-hint: "optional: PR number or branch name — defaults to the current branch/worktree. Review level: 'thorough review' or 'without review'."
 ---
 # Preflight
@@ -30,21 +30,34 @@ So "this run" is *everything since the previous preflight report on this branch*
 latest commit. And a PR is usually several runs' worth of work, which is why the report cannot
 be a description of the current run: see the next two sections.
 
-## The PR narrative — problem, cause, fix
+## The PR narrative — why, then what the PR does
 
 **Every** preflight report and chat summary — the first run and the fifth alike — opens with a
-short, current answer to the three questions a reviewer or a decision-maker asks first:
+short, current answer to the questions a reviewer or a decision-maker asks first. Its shape
+depends on what kind of PR it is; a ticket's Type (Bug, Feature, Task…) usually says which.
+
+**A bug fix** answers three questions:
 
 1. **Problem** — what is wrong, in terms of what a user hits or what breaks. Two to four
 sentences. Where a ticket describes it, this is that, tightened.
 2. **Cause** — the root cause that was diagnosed. **Include it only when it is not already
 obvious from the problem statement.** "The button does nothing because its handler was never
 wired up" needs no separate cause paragraph; "joining a Team Collection silently fails" does.
-3. **Fix** — what the **whole PR** changes in order to fix it. Not commit by commit: one short
-paragraph, or up to about six bullets, one per coherent *group* of changes — "the path is now
-normalized at the single place every caller passes through", not "edited ProjectContext.cs".
+3. **Fix** — what the **whole PR** changes in order to fix it.
 
-**Keep it short, and keep it in behavior terms.** The three together should fit on one screen —
+**A new feature or an improvement** (a new page, a faster path, a refactor, tooling) answers two:
+
+1. **Purpose** — what the PR adds or improves, and why a user or the team wants it. Two to four
+sentences. Don't frame a feature as a problem with a fix: "the dialog showed a placeholder"
+is not a bug, it is the work not done yet.
+2. **What the PR does** — what the **whole PR** changes to get there.
+
+Either way, the last part is not commit by commit: one short paragraph, or up to about six
+bullets, one per coherent *group* of changes — "the path is now normalized at the single place
+every caller passes through", not "edited ProjectContext.cs". A PR that is both (a feature that
+also fixes a bug it ran into) leads with its main purpose and mentions the fix as one bullet.
+
+**Keep it short, and keep it in behavior terms.** The parts together should fit on one screen —
 roughly 150–250 words. Someone who knows nothing about the branch should finish it knowing what
 the PR is for and what it does. Say "opening a collection whose name ends in a period", not
 "`GetRealSettingsPath` now calls `GetPathAsOnDisk`". Name symbols only where a reviewer needs
@@ -115,7 +128,7 @@ test-ideas comment on the card.
 
 All of these sit **inside** the narrative markers (Phase 3), because they describe the PR as it
 now stands and a later run has to be able to refresh them. The **report** opens with the narrative
-alone (problem, cause, fix), not these sections.
+alone (problem, cause, fix; or purpose, what the PR does), not these sections.
 
 ## What the report is for — and what does not belong in it
 
@@ -428,7 +441,7 @@ Everything is already committed in Phase 2; this phase only pushes and opens the
   - None → create one: write the body to a temp file and
   `gh pr create --draft --base <base> --title "<summary> (<TICKET>)" --body-file <file>` (a
   literal `--body "...\n..."` won't expand `\n` in PowerShell — always use `--body-file`). The
-  body is **the PR narrative** — problem, cause where it isn't obvious, and what the whole PR
+  body is **the PR narrative** — the problem and cause, or the purpose, and what the whole PR
   changes (see "The PR narrative") — followed by the reviewer sections (see "The PR description
   — the narrative, then the reviewer sections"), then the `Preflight report:` line (Phase 5), all
   wrapped in the marker lines below, followed by `Ref: <tracker-url-if-known>`.
@@ -462,7 +475,7 @@ anything else:
 
   ```
   <!-- preflight-narrative:begin -->
-  … problem / cause / fix, then the reviewer sections …
+  … the narrative, then the reviewer sections …
   Preflight report: <report URL>
   <!-- preflight-narrative:end -->
   ```
@@ -610,7 +623,7 @@ or replied), branch mergeable, and only human-decision items (if any) remain.
 - **Make the test decision check** (see "The test decision") before settling the narrative, since
 the Automated Tests section reports its outcome.
 - **Settle the PR narrative — everything else in this phase quotes it.** Re-derive
-problem / cause / fix from the full diff at HEAD, folding in anything worth taking from Devin's
+the narrative from the full diff at HEAD, folding in anything worth taking from Devin's
 Overview (see "The PR narrative"). Then write that one text into both homes: the PR description
 (Phase 3's marker rules — and leave a human-written description alone) and the top of the
 report. Do this before the test-ideas refresh, which is grounded in the same understanding.
@@ -658,7 +671,7 @@ request a teammate's review and never mark the PR ready.
 ### Final summary (always)
 
 **Open with the narrative, compressed to two or three sentences:** the problem (with the cause
-where it isn't obvious) and what the whole PR does about it. That is the first thing the user
+where it isn't obvious) or the purpose, and what the whole PR does about it. That is the first thing the user
 reads, on every run.
 
 Then: the branch, and the **PR URL as a bare plain-text URL on its own line** (never a markdown
@@ -731,8 +744,8 @@ places, where the person who needs it is already looking.
 - Every report links to the PR's own page from its header, and every chat summary prints the PR
 URL bare on its own line. A PR number in plain text, or a link only to the files view or a commit,
 is not that link (`references/report-artifact.md`, block 0 and the render check).
-- Every report and chat summary **opens with the current problem / cause / fix narrative for the
-whole PR**, maintained across runs — never replaced by notes on the latest run, and never
+- Every report and chat summary **opens with the current narrative for the whole PR** (problem /
+cause / fix, or purpose / what the PR does), maintained across runs — never replaced by notes on the latest run, and never
 omitted because "the user knows what this PR is" (someone else may pick up the card).
 - What changed *this run* is a **brief** note, not the report's substance. A settled decision or
 a difficulty we worked around belongs in the code, on the review thread, or in the test ideas —
