@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="1 -4 62 62">
+  <!-- Three cards fanned from a point below their centre, like a hand of playing cards. -->
+  <g stroke="#1d1f23" stroke-width="3" stroke-linejoin="round">
+    <rect x="18" y="4" width="28" height="44" rx="4" fill="#b7791f" transform="rotate(-16 32 60)"/>
+    <rect x="18" y="4" width="28" height="44" rx="4" fill="#2f7d4f"/>
+    <g transform="rotate(16 32 60)">
+      <rect x="18" y="4" width="28" height="44" rx="4" fill="#ffffff"/>
+      <path d="M25 15h14M25 23h14M25 31h9" stroke="#3d63dd" stroke-width="4" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

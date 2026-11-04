@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card Sorter</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand"><span id="title">Card Sorter</span><span id="progress"></span></div>
+  <div class="controls">
+    <label>Group <select id="group"></select></label>
+    <label>Sort <select id="sort"></select></label>
+    <input id="search" type="search" placeholder="Search  ( / )" autocomplete="off">
+    <button id="syncBtn" title="Pull fresh cards from YouTrack, then review and push your changes">Synchronize</button>
+  </div>
+</header>
+<main>
+  <section id="board" tabindex="-1"></section>
+  <div id="split" class="resizer" title="Drag to resize; double-click to reset"></div>
+  <section id="detail"></section>
+</main>
+<footer id="keys"></footer>
+<div id="help" hidden></div>
+<div id="sync" hidden><div class="box"></div></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
