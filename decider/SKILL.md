@@ -27,7 +27,10 @@ from the conversation or the code. For each item:
 - **Context paragraph(s) first:** what the situation is, what the user would actually see or
   experience, why it happens, and why it may or may not matter.
 - **Options as a radio group** (checkboxes only when genuinely non-exclusive), the
-  recommended option pre-selected and visibly tagged (e.g. "Recommended").
+  recommended option tagged "Recommended" and on the `--accent-tint` ground, but **not
+  selected**: every radio starts empty, so a question the user has not got to yet stays
+  undecided, and choosing the recommendation takes a click like any other choice. A long form
+  can then be answered a few questions at a time.
 - **Effort/risk footnote on every concrete option** — a short parenthetical ("~10 lines,
   localized, low risk", "moderate — changes the public API", "no code — just a doc note") so
   benefit can be weighed against cost at a glance.
@@ -36,13 +39,16 @@ from the conversation or the code. For each item:
 - **Standard option order, identical on every item:** the concrete option(s) first; then —
   always second-to-last — an option labeled **exactly `Leave as is`** (this exact wording,
   never a variant; it carries NO footnote and no editorializing), even when it is the
-  recommendation (then it's the pre-selected one and the rationale moves into the context
-  paragraph); then — always last — **`Other:`** with an inline text box.
+  recommendation (then it carries the Recommended tag and the rationale moves into the context
+  paragraph); then — always last, on the same row as `Leave as is` — a radio labeled
+  **`Other:`** with no text box of its own. Choosing it puts the cursor in the item's notes box
+  and changes that box's placeholder to "What should happen instead?"; what the user writes
+  there is the Other answer.
 - **For code-related items, a `Leave comment` checkbox on the far right of the `Leave as is`
   row** — ticked means the user wants the decision durably recorded as a code comment near
   the relevant code. Omit the checkbox on items with no code to anchor to.
 - **Every item also gets a separate notes text box**, so the user can pick an option *and
-  still* add caveats or constraints.
+  still* add caveats or constraints, or describe their `Other:` answer.
 - FYI items that could plausibly trigger action get the same controls; purely informational
   notes may stay prose.
 - End the form with a **"next step" question** (e.g. "implement my recommendations now" vs
@@ -93,13 +99,15 @@ depends on who needs to read it** (see `../dev-process-artifacts.md`):
     --muted: #6B6760;         /* secondary text, option detail */
     --accent: #D97757;        /* Claude orange: borders, focus rings, marks; never text */
     --accent-strong: #B4532F; /* orange text, links, and filled buttons with white text */
-    --accent-tint: #FBEEE8;   /* the ground of a selected option and of "Recommended" */
+    --accent-tint: #FBEEE8;   /* the ground of the recommended option and of its tag */
   }
   ```
 
   The orange is the one accent; green, blue and other hues have no place, a "Recommended"
   badge included. `--accent` is too light for text (white on it is 3.1:1), so anything read in
-  orange uses `--accent-strong`. Theme the parts the browser draws as well:
+  orange uses `--accent-strong`. The option the user chose gets a 1px `--accent` outline as well
+  as its filled radio, so a chosen option and the recommended one stay distinct, the
+  recommended one chosen included. Theme the parts the browser draws as well:
   `accent-color: var(--accent-strong)` on radios and checkboxes, `::selection` in
   `--accent-tint`, and a 2px `--accent` focus ring offset from the control.
 - **Two columns on wide screens** when there is meaningful report/context material: context
@@ -108,23 +116,23 @@ depends on who needs to read it** (see `../dev-process-artifacts.md`):
 - **Plain headings** — no decorative eyebrows, kickers, or numbered section labels.
 - **No instructional preamble** about how the controls work; the questions and buttons speak
   for themselves.
-- Give every control — each radio, each `Leave comment` checkbox, each `Other:` input, each
-  notes box — a `data-q` attribute so the whole form serializes mechanically.
+- Give every control — each radio, `Other:` included, each `Leave comment` checkbox, each notes
+  box — a `data-q` attribute so the whole form serializes mechanically.
 
 ## Copy-back block
 
-**Placement:** the copy-back lives as the **final card at the end of the decisions column**
-(the bottom of the right column on wide screens, directly after the last question): a card
-holding only the buttons, the status line, and a readonly textarea beneath them that stays
-hidden until the user presses Copy answers. The buttons sit at the right, Copy answers and then
+**Placement:** the copy-back lives at the **end of the decisions column** (the bottom of the
+right column on wide screens, directly after the last question): a row on the page itself, in
+no card or box of its own, holding only the buttons and the status line, with a readonly
+textarea beneath them that stays hidden until the user presses Copy answers. The buttons sit at the right, Copy answers and then
 Send to Claude last at the far right; the status line sits at the left of the same row, so
 its changing text never moves them. Give it no heading and no description: the buttons
 name the action, and a "Send your answers back" title over a "Send to Claude" button says the
 same thing twice. Do **not** make it a full-width sticky footer or a bar spanning under both
 columns — it must read as the last segment of the same column the questions are in.
 
-**Two buttons, Send to Claude and Copy answers**, that both serialize every selection, every `Other:`
-text, and every non-empty note into the same clean plaintext block. Copy puts it on the
+**Two buttons, Send to Claude and Copy answers**, that both serialize every selection and every
+non-empty note (an `Other:` answer's text included) into the same clean plaintext block. Copy puts it on the
 clipboard for the user to paste into any session; Send to Claude posts it as an artifact comment
 that reaches the session that published the page.
 
@@ -143,8 +151,16 @@ the report ("Own small branch", "Enable on both") would be useless there. Theref
 - **Header block** at the top: what this is ("Decisions from a decider form"), the
   project/repos and branches concerned, the date, and **the artifact's URL** so a
   zero-context agent can read the full report if anything is still unclear.
-- Per question: the full question title, then the chosen instruction, `Other: <text>` when
-  chosen, `Notes: <text>` when non-empty.
+- Per question: the full question title, then the chosen instruction, or `Other: <the notes
+  text>` when Other is chosen; otherwise `Notes: <text>` when non-empty. Other with empty notes
+  is not an answer yet: it counts as unanswered and serializes as below. A question with nothing chosen serializes as "No
+  decision yet — ask again later about: <one-line restatement of the question>", and its notes
+  still follow when non-empty. Both buttons work with any number of questions still undecided,
+  except that Send to Claude stays disabled until at least one question has a choice, since
+  there is nothing to send before then. Just above the buttons, right-aligned in `--muted`, a
+  line counts the questions with no choice yet ("2 unanswered"), so it is read before the user
+  sends; it updates on every change, and is empty (keeping its height, so the buttons don't
+  jump) once every question has one. A note alone does not answer a question.
 - **`Leave comment` is serialized only when ticked** (a line spelling out what to do: record
   the decision as a code comment near the named code); when unticked the copy-back text must
   not mention comments at all for that item.
