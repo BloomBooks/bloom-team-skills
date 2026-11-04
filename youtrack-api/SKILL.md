@@ -237,7 +237,17 @@ curl -s -H "Authorization: Bearer $YOUTRACK_BOT" \
   "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/attachments?fields=name,url,size"
 ```
 
-### Add an attachment
+### Download an attachment
+The `url` that the listing returns already starts with `/youtrack/api/files/…?sign=…`, so put only
+the host in front of it:
+
+```bash
+curl -s -o image.png "https://issues.bloomlibrary.org<url>"
+```
+
+Prefixing it with the API base (`https://issues.bloomlibrary.org/youtrack`) doubles the
+`/youtrack` and returns YouTrack's web app page as HTML, still with status 200, so the saved file
+starts with `<!doctype html>`. The `sign` parameter authorizes the request; no header is needed.
 ```bash
 curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/attachments?fields=id,name,size" \
   -H "Authorization: Bearer $YOUTRACK_BOT" \
