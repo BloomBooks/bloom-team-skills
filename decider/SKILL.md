@@ -75,7 +75,7 @@ to change every form.
           "recommended": true,
           "why": "Recommended because it covers docs while closing the way out for card text.",
           "effort": "~10 lines in bot-runtime.mjs, low risk",
-          "instruction": "In D:\\bloom-team-skills\\bloom-bot\\bot-runtime.mjs, stop disallowing WebSearch ..."
+          "instruction": "In D:\\bloom-bot-repo\\bot-runtime.mjs (BloomBooks/bloom-bot, branch main), stop disallowing WebSearch ..."
         }
       ],
       "leaveAsIs": "the bot has no web access.",
