@@ -1,8 +1,8 @@
-// Access to YouTrack, Sentry and the BloomBooks GitHub repos for the bot's Claude runs.
+// Access to YouTrack, Sentry, the BloomBooks GitHub repos and more for the bot's Claude runs.
 // Claude can run this script but cannot read the tokens it uses: they come from ~/.config, which
-// bot-runtime denies to Claude's file tools, and they are not in Claude's environment. YouTrack is
-// the one service it can change, with any request the Bot account may make; Sentry and GitHub
-// calls only read.
+// bot-runtime denies to Claude's file tools, and they are not in Claude's environment. It can
+// change YouTrack (any request the Bot account may make), Sentry issues and GitHub comments; the
+// rest only reads.
 //
 //   node bot-tools.mjs youtrack <api path>             a GET, e.g. /issues?query=...&fields=idReadable,summary
 //   node bot-tools.mjs youtrack <method> <api path> [@<file>]
@@ -20,11 +20,15 @@
 //   node bot-tools.mjs run-artifact <run id> <name>    saves a run's artifact to ./.nightly/<run id>/<name>,
 //                                                      with each trace.zip in it unzipped
 //   node bot-tools.mjs pr <number>                     a BloomDesktop PR's state, title and merge date
+//
+// bot-sources.mjs adds more: Slack history, Bloom Library books, the community forum, Notion,
+// TeamCity, Cloudflare, Mixpanel, Sentry writes and GitHub comments.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { sourceCommands } from "./bot-sources.mjs";
 
 const YOUTRACK = "https://issues.bloomlibrary.org/youtrack";
 const SENTRY = "https://sentry.io/api/0";
@@ -312,7 +316,11 @@ async function main() {
             break;
         }
         default:
-            throw new Error("usage: bot-tools.mjs youtrack [POST|DELETE] <path> [@<file>] | attachment <issue> <name> | sentry <path> | sentry-status | repos | checkout <repo> | nightly-runs | run <id> | run-log <id> | run-artifact <id> <name> | pr <number>");
+            if (sourceCommands[command]) {
+                console.log(await sourceCommands[command](args, tokens));
+                break;
+            }
+            throw new Error(`usage: bot-tools.mjs youtrack [POST|DELETE] <path> [@<file>] | attachment <issue> <name> | sentry <path> | sentry-status | repos | checkout <repo> | nightly-runs | run <id> | run-log <id> | run-artifact <id> <name> | pr <number> | ${Object.keys(sourceCommands).join(" | ")} (see bot-sources.mjs)`);
     }
 }
 

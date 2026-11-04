@@ -20,9 +20,10 @@ import {
     budgetBlock, log, makeRunDir, postToSlack, postToZulip, removeRunDir, runClaude,
 } from "./bot-runtime.mjs";
 import { compileCSharp } from "./bot-checks.mjs";
+import {
+    REPO, deleteBranch, dispatchVerify, freeBranchName, gh, openDraftPr, pushBranch, refuseDependencyChanges, refuseWorkflowChanges, totals, verifyResults,
+} from "./bot-github.mjs";
 
-const REPO = "BloomBooks/BloomDesktop";
-const PUSH_URL = `https://github.com/${REPO}.git`;
 const DOC = "docs/nightly-failures/README.md";
 const SKILL = ".claude/skills/nightly-fix/SKILL.md";
 const BOT_CHECKS = path.join(BOT_DIR, "bot-checks.mjs");
@@ -34,11 +35,8 @@ const MAX_PRS_PER_MORNING = 3;
 const REPEAT = 10;
 const EFFORT = "high";
 const TIMEOUT_MINUTES = 60;
-const VERIFY_TIMEOUT_MINUTES = 120;
 
-const gh = (args, options = {}) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, ...options });
 const gitIn = (repoDir) => (args, input) => execFileSync("git", ["-C", repoDir, ...args], { encoding: "utf8", input });
-const PUSH_CREDENTIALS = ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential"];
 
 /** The open PRs on bot/ branches, as "#123 bot/x: title" lines, for Claude to leave alone. */
 function openBotPrs() {
@@ -121,56 +119,6 @@ function hasWindowsTests(result) {
     return Object.values(result.verify ?? {}).some((value) => String(value).trim());
 }
 
-/** Starts bot-verify on `ref` and returns its run id, found by the unique label it is given. */
-async function dispatchVerify(ref, result, { repeat, stopAtFirstFailure, label }) {
-    const inputs = { ...result.verify, repeat: String(repeat), stop_at_first_failure: String(stopAtFirstFailure), label };
-    gh(["workflow", "run", "bot-verify.yml", "--repo", REPO, "--ref", ref,
-        ...Object.entries(inputs).flatMap(([key, value]) => ["-f", `${key}=${value ?? ""}`])]);
-    for (let i = 0; i < 30; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 10_000));
-        const runs = JSON.parse(gh(["run", "list", "--repo", REPO, "--workflow", "bot-verify.yml", "--limit", "20",
-            "--json", "databaseId,displayTitle"]));
-        const run = runs.find((r) => r.displayTitle === label);
-        if (run) return run.databaseId;
-    }
-    throw new Error(`bot-verify run "${label}" did not appear within 5 minutes of being started`);
-}
-
-/** Waits for a bot-verify run, downloads its results to `dir`, and returns its summary.json. */
-async function verifyResults(runId, dir) {
-    const deadline = Date.now() + VERIFY_TIMEOUT_MINUTES * 60 * 1000;
-    for (;;) {
-        const { status } = JSON.parse(gh(["run", "view", String(runId), "--repo", REPO, "--json", "status"]));
-        if (status === "completed") break;
-        if (Date.now() > deadline) throw new Error(`bot-verify run ${runId} took more than ${VERIFY_TIMEOUT_MINUTES} minutes`);
-        await new Promise((resolve) => setTimeout(resolve, 60_000));
-    }
-    fs.rmSync(dir, { recursive: true, force: true });
-    gh(["run", "download", String(runId), "--repo", REPO, "--name", "verify-results", "--dir", dir]);
-    return JSON.parse(fs.readFileSync(path.join(dir, "summary.json"), "utf8"));
-}
-
-/** Totals a bot-verify summary: { runs, failed, problems, text } with a line per suite and failure.
- * `problems` lists suites whose tests never ran or never reported (a build failed, no test matched
- * the filter): such a run proves nothing either way. */
-function totals(summary) {
-    let runs = 0;
-    let failed = 0;
-    const problems = [];
-    const lines = [];
-    for (const suite of summary.suites ?? []) {
-        runs += suite.runs;
-        failed += suite.failed;
-        lines.push(`${suite.suite}: ${suite.passed} passed, ${suite.failed} failed, of ${suite.runs} runs`);
-        if (suite.problem) {
-            problems.push(`${suite.suite}: ${suite.problem}`);
-            lines.push(`  problem: ${suite.problem}`);
-        }
-        for (const failure of suite.failures ?? []) lines.push(`  - ${failure.test}: ${failure.error}`);
-    }
-    return { runs, failed, problems, text: lines.join("\n") };
-}
-
 /** Posts to the nightly's Zulip topic and Slack channel; both are tried even if one fails. */
 async function post(message) {
     const failures = [];
@@ -188,37 +136,16 @@ function commitFix(repoDir, branch, result, attempt) {
     git(["add", "-A"]);
     git(["commit", "-q", "-F", "-"],
         `${result.title}\n\n[${MODEL_NAME} from Hatton's machine during nightly-fix]\n\nFixes the nightly failure(s): ${result.entries.join("; ")}.\n`);
-}
-
-/** Pushes the bot/ branch, over whatever a previous attempt pushed. */
-function pushBranch(repoDir, branch) {
-    if (!branch.startsWith("bot/")) throw new Error(`refusing to push ${branch}: the bot pushes only bot/ branches`);
-    execFileSync("git", ["-C", repoDir, ...PUSH_CREDENTIALS, "push", "-q", "--force", PUSH_URL, `HEAD:refs/heads/${branch}`]);
-}
-
-/** Deletes a bot/ branch that will not become a PR. */
-function deleteBranch(repoDir, branch) {
-    if (!branch.startsWith("bot/")) throw new Error(`refusing to delete ${branch}`);
-    execFileSync("git", ["-C", repoDir, ...PUSH_CREDENTIALS, "push", "-q", PUSH_URL, `:refs/heads/${branch}`], { stdio: "ignore" });
-}
-
-/** A branch name under bot/ that no open or closed branch has used yet. */
-function freeBranchName(slug) {
-    const base = `bot/${slug.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "nightly-fix"}`;
-    const taken = new Set(gh(["api", `repos/${REPO}/git/matching-refs/heads/bot/`, "--jq", ".[].ref"]).split("\n").map((r) => r.replace("refs/heads/", "")));
-    if (!taken.has(base)) return base;
-    for (let n = 2; ; n++) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
+    refuseWorkflowChanges(repoDir, "origin/master");
+    refuseDependencyChanges(repoDir, "origin/master", "HEAD");
 }
 
 /** Opens the draft PR and returns its URL. */
-function openPr(repoDir, branch, result, proof) {
+function openPr(branch, result, proof) {
     const parts = [`[${MODEL_NAME} from Hatton's machine during nightly-fix]`, result.body.trim()];
     if (proof) parts.push(`## Proof\n\n${proof}`);
     parts.push(`Nightly failures doc: [${DOC}](https://github.com/${REPO}/blob/master/${DOC})`);
-    const bodyFile = path.join(path.dirname(repoDir), "pr-body.md");
-    fs.writeFileSync(bodyFile, parts.join("\n\n"));
-    return gh(["pr", "create", "--repo", REPO, "--draft", "--base", "master", "--head", branch,
-        "--title", result.title, "--body-file", bodyFile]).trim();
+    return openDraftPr({ branch, base: "master", title: result.title, body: parts.join("\n\n") });
 }
 
 /**
@@ -264,13 +191,13 @@ async function fixOne({ botPrs, takenThisMorning, test }) {
             const flaky = result.kind !== "deliberate-change";
             // On master, a flaky failure must show itself, or there is nothing to prove fixed.
             const masterRun = flaky
-                ? await dispatchVerify("master", result, { repeat: REPEAT, stopAtFirstFailure: true, label: `${branch} master ${stamp}` })
+                ? await dispatchVerify("master", result.verify, { repeat: REPEAT, stopAtFirstFailure: true, label: `${branch} master ${stamp}` })
                 : null;
             let fixSummary;
             for (let attempt = 1; ; attempt++) {
                 commitFix(repoDir, branch, result, attempt);
                 pushBranch(repoDir, branch);
-                const fixRun = await dispatchVerify(branch, result, {
+                const fixRun = await dispatchVerify(branch, result.verify, {
                     repeat: flaky ? REPEAT : 1, stopAtFirstFailure: false, label: `${branch} fix ${attempt} ${stamp}`,
                 });
                 fixSummary = totals(await verifyResults(fixRun, path.join(dir, `verify-fix-${attempt}`)));
@@ -307,7 +234,7 @@ async function fixOne({ botPrs, takenThisMorning, test }) {
                 proof = `On this branch: every test passed (${fixSummary.runs} test results).\n\n${fixSummary.text}`;
             }
         }
-        const url = openPr(repoDir, branch, result, proof);
+        const url = openPr(branch, result, proof);
         log(`opened ${url}`);
         const flag = result.changesExistingTests ? " It changes what an existing test checks; see the top of the PR." : "";
         await post(`[Bloom bot] Draft PR for anyone to pick up: [${result.title}](${url})\n${result.post}${flag}`);

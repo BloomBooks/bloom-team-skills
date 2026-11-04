@@ -7,12 +7,24 @@
 // the worktree's changes as a patch against master, and bloom-tests applies it to its own clone
 // (~bloom-tests/BloomDesktop, which has its own node_modules, lib/dotnet and .NET SDK).
 //
+// The windows command instead runs chosen tests, e2e tests that drive Bloom among them, on a
+// GitHub Windows runner with BloomDesktop's bot-verify workflow: it pushes the worktree's files as
+// a commit on a short-lived bot/try-... branch, waits for the run, saves its results under
+// ./.verify/, and deletes the branch. Each check is recorded in ./.verify/checks.json against the
+// files it ran on, so a PR made from those same files can cite it.
+//
 //   node bot-checks.mjs compile               from the folder holding ./BloomDesktop
 //   node bot-checks.mjs vitest <file>...      paths relative to src/BloomBrowserUI
+//   node bot-checks.mjs windows [--master] [--e2e "<specs>"] [--visual "<pattern>"]
+//        [--csharp "<filter>"] [--component "<filters>"] [--repeat N] [--stop-at-first-failure]
 
 import { execFileSync, spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+    deleteBranch, dispatchVerify, pushCommit, recordCheck, refuseDependencyChanges, totals, verifyResults, worktreeTree,
+} from "./bot-github.mjs";
 
 const TEST_USER = "bloom-tests";
 const MAX_PRINT_CHARS = 20_000;
@@ -82,16 +94,84 @@ export function runVitest(repoDir, files) {
     return { ok: status === 0, report: tail(output) };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+const WINDOWS_OPTIONS = { "--e2e": "e2e_specs", "--visual": "visual_specs", "--csharp": "csharp_filter", "--component": "component_specs" };
+
+/**
+ * Runs chosen tests on a GitHub Windows runner, on the worktree's files (or on master with
+ * --master), and returns { ok, report }. The results, Playwright report and traces included, are
+ * saved under ./.verify/<label>/.
+ */
+export async function runOnWindows(runDir, repoDir, args) {
+    const tests = {};
+    let repeat = 1;
+    let stopAtFirstFailure = false;
+    let onMaster = false;
+    for (let i = 0; i < args.length; i++) {
+        if (WINDOWS_OPTIONS[args[i]]) tests[WINDOWS_OPTIONS[args[i]]] = args[++i] ?? "";
+        else if (args[i] === "--repeat") repeat = Number(args[++i]);
+        else if (args[i] === "--stop-at-first-failure") stopAtFirstFailure = true;
+        else if (args[i] === "--master") onMaster = true;
+        else throw new Error(`unknown windows option ${args[i]}`);
+    }
+    if (!Object.values(tests).some((v) => v.trim())) throw new Error("name at least one test: --e2e, --visual, --csharp or --component");
+    if (!(repeat >= 1 && repeat <= 20)) throw new Error("--repeat takes 1 to 20");
+
+    const stamp = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15);
+    const label = `bot try ${stamp}`;
+    let ref = "master";
+    let branch = null;
+    let tree = null;
+    if (!onMaster) {
+        // The worktree's files as one commit on top of HEAD, made without touching its index or HEAD.
+        tree = worktreeTree(repoDir);
+        const commit = execFileSync("git", ["-C", repoDir, "commit-tree", tree, "-p", "HEAD", "-m", `Bot try ${stamp}`], { encoding: "utf8" }).trim();
+        const changed = execFileSync("git", ["-C", repoDir, "diff", "--name-only", "origin/master", commit], { encoding: "utf8" })
+            .split("\n").filter((f) => f.startsWith(".github/"));
+        if (changed.length) throw new Error(`the bot does not push changes under .github/ (${changed.join(", ")})`);
+        branch = `bot/try-${stamp.toLowerCase()}`;
+        pushCommit(repoDir, commit, branch);
+        ref = branch;
+    }
+    try {
+        const runId = await dispatchVerify(ref, tests, { repeat, stopAtFirstFailure, label });
+        const dir = path.join(runDir, ".verify", label.replace(/ /g, "-"));
+        const sum = totals(await verifyResults(runId, dir));
+        const runUrl = `https://github.com/BloomBooks/BloomDesktop/actions/runs/${runId}`;
+        const ok = sum.failed === 0 && sum.runs > 0 && sum.problems.length === 0;
+        recordCheck(runDir, { kind: "windows", tree, onMaster, tests, repeat, ok, runs: sum.runs, failed: sum.failed, text: sum.text, runUrl });
+        return { ok, report: `${runUrl}\nresults, reports and traces: ${dir}\n${sum.text}` };
+    } finally {
+        if (branch) deleteBranch(repoDir, branch);
+    }
+}
+
+// Real paths, since macOS's /tmp is a link to /private/tmp.
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
     const [command, ...args] = process.argv.slice(2);
-    const repoDir = path.join(process.cwd(), "BloomDesktop");
+    const runDir = process.cwd();
+    const repoDir = path.join(runDir, "BloomDesktop");
+    if (!fs.existsSync(repoDir)) {
+        console.error(`no BloomDesktop in ${runDir}: check it out first (bot-tools.mjs checkout BloomDesktop)`);
+        process.exit(1);
+    }
     let result;
-    if (command === "compile") {
-        result = compileCSharp(repoDir);
-    } else if (command === "vitest") {
-        result = runVitest(repoDir, args);
-    } else {
-        console.error("usage: bot-checks.mjs compile | vitest <file>...");
+    try {
+        // A change to dependencies is never checked, pushed or proposed (see bot-github.mjs).
+        refuseDependencyChanges(repoDir, "origin/master", worktreeTree(repoDir));
+        if (command === "compile") {
+            result = compileCSharp(repoDir);
+            recordCheck(runDir, { kind: "compile", tree: worktreeTree(repoDir), ok: result.ok });
+        } else if (command === "vitest") {
+            result = runVitest(repoDir, args);
+            recordCheck(runDir, { kind: "vitest", tree: worktreeTree(repoDir), files: args, ok: result.ok });
+        } else if (command === "windows") {
+            result = await runOnWindows(runDir, repoDir, args);
+        } else {
+            console.error("usage: bot-checks.mjs compile | vitest <file>... | windows [--master] [--e2e ...] [--visual ...] [--csharp ...] [--component ...] [--repeat N] [--stop-at-first-failure]");
+            process.exit(1);
+        }
+    } catch (error) {
+        console.error(error.message);
         process.exit(1);
     }
     console.log(result.report);

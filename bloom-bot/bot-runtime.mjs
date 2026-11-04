@@ -1,6 +1,7 @@
 // What every Bloom bot job on the bot's Mac shares: logging, telling the developers on Slack,
 // the lock that keeps a job from overlapping itself, BloomDesktop worktrees, and Claude runs
-// that can change nothing but YouTrack and the files a job allows. A job (poll-youtrack.mjs, ...) is a small script that calls runJob() with its own work.
+// that reach other services only through bot-tools.mjs and bot-checks.mjs, which hold the tokens.
+// A job (poll-youtrack.mjs, ...) is a small script that calls runJob() with its own work.
 //
 // Secrets live in ~/.config/bloom-bot/env (loaded by the login zsh that launchd starts) and
 // ~/.zuliprc. Claude runs never see either: runClaude() strips the tokens from its environment
@@ -24,7 +25,19 @@ const BOT_GUIDE = path.join(BOT_DIR, "BOT.md");
 export const MODEL = "claude-opus-5-5";
 export const MODEL_NAME = "Claude Opus 5.5";
 const EFFORT = "low";
-export const CLAUDE_TIMEOUT_MINUTES = 15;
+// Long enough for one run of chosen tests on the Windows runner (bot-checks.mjs windows), which
+// takes 10 to 20 minutes.
+export const CLAUDE_TIMEOUT_MINUTES = 45;
+const BOT_CHECKS = path.join(BOT_DIR, "bot-checks.mjs");
+const ENV_FILE = path.join(os.homedir(), ".config", "bloom-bot", "env");
+// The sites a Claude run may fetch pages from: documentation and bug trackers. Add one here when
+// the bot needs it; never a site where a URL's text ends up somewhere others could read it.
+const FETCH_SITES = [
+    "learn.microsoft.com", "developer.microsoft.com", "github.com", "raw.githubusercontent.com",
+    "issues.chromium.org", "chromium.googlesource.com", "developer.chrome.com", "developer.mozilla.org",
+    "playwright.dev", "vitest.dev", "react.dev", "mui.com", "www.npmjs.com", "www.nuget.org",
+    "docs.bloomlibrary.org", "community.software.sil.org", "stackoverflow.com",
+];
 
 // #bloom-bot-status, by id: where notify() posts, and where slack-listener.mjs answers every
 // message. The bot must be a member of it.
@@ -303,21 +316,89 @@ function recordBotUse(before, after) {
     fs.writeFileSync(BUDGET_FILE, JSON.stringify({ resetsAt: after.resetsAt.toISOString(), botShare }));
 }
 
-/** Runs Claude in `cwd`, able to read and to change YouTrack through bot-tools, with BOT.md, then the job's skill, then the job's own text as
- * its prompt. Returns the text after the last "=== OUTPUT ===" line, and any note after a
- * "=== MAINTAINER ===" line before it, which is also sent to Slack #bloom-bot-status. Callers check budgetBlock()
- * first; this records what the run used toward the bot's share. A run that goes past
- * CLAUDE_TIMEOUT_MINUTES throws an error with `timedOut` set.
+/** Runs Claude in `cwd` with BOT.md, then the job's skill, then the job's own text as its prompt.
+ * Returns the text after the last "=== OUTPUT ===" line. Before that line, a "=== MAINTAINER ==="
+ * note is sent to Slack #bloom-bot-status, and a "=== PR ===" request makes this open a draft PR of
+ * a repo Claude changed in `cwd` (see openRequestedPr()), adding its link or the reason it failed
+ * to the output. Callers check budgetBlock() first; this records what the run used toward the
+ * bot's share. A run that goes past its timeout throws an error with `timedOut` set.
  *
- * `writable` lists absolute paths Claude may Edit and Write: a file, or a folder as "<dir>/**".
+ * Every run may write anywhere under `cwd`, run bot-tools.mjs and bot-checks.mjs, and use the web.
+ * `writable` lists more absolute paths it may Edit and Write: a file, or a folder as "<dir>/**".
  * `commands` lists extra command prefixes it may run with Bash, e.g. "node /path/tool.mjs". */
 export async function runClaude({ cwd, skillFile, task, label, test = false, effort = EFFORT, timeoutMinutes = CLAUDE_TIMEOUT_MINUTES, writable = [], commands = [] }) {
     const usageBefore = await readWeeklyUsage();
     try {
-        return await runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeoutMinutes, writable, commands });
+        const { output, prRequest } = await runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeoutMinutes, writable, commands });
+        if (!prRequest) return output;
+        if (test) {
+            log(`PR request (not opened in a test): ${prRequest}`);
+            return output;
+        }
+        try {
+            const url = await openRequestedPr(cwd, JSON.parse(prRequest), label);
+            log(`opened ${url}`);
+            return `${output}\n\nDraft PR: ${url}`;
+        } catch (error) {
+            log(`PR request failed: ${error.stack}`);
+            await notify(`While working on ${label}, the bot asked for a draft PR, and opening it failed:\n\`\`\`\n${error.message.slice(0, 1500)}\n\`\`\``);
+            return `${output}\n\n(I meant to open a draft PR with this change, but that failed: ${error.message.split("\n")[0]})`;
+        }
     } finally {
         recordBotUse(usageBefore, await readWeeklyUsage());
     }
+}
+
+/**
+ * Opens the draft PR that a run asked for and returns its URL. `request` is
+ * { repo, base, title, body, changesExistingTests }: `repo` names a BloomBooks repo checked out
+ * at <cwd>/<repo> (BloomDesktop when left out), `base` its branch to merge into (the repo's
+ * default branch when left out). The changes go on a new bot/ branch. For BloomDesktop, the PR's
+ * Proof section lists the bot-checks.mjs checks that ran on exactly these files.
+ */
+async function openRequestedPr(cwd, request, label) {
+    const { freeBranchName, gh, openDraftPr, pushBranch, refuseDependencyChanges, refuseWorkflowChanges, worktreeTree, checksFile } = await import("./bot-github.mjs");
+    const name = request.repo || "BloomDesktop";
+    if (!/^[\w.-]+$/.test(name)) throw new Error(`unexpected repo name ${name}`);
+    const repo = `BloomBooks/${name}`;
+    const repoDir = path.join(cwd, name);
+    if (!fs.existsSync(path.join(repoDir, ".git"))) throw new Error(`${name} is not checked out in the run's folder`);
+    if (!request.title || !request.body) throw new Error("the PR request needs a title and a body");
+    const base = request.base || JSON.parse(gh(["repo", "view", repo, "--json", "defaultBranchRef"])).defaultBranchRef.name;
+    const git = (...args) => execFileSync("git", ["-C", repoDir, ...args], { encoding: "utf8" });
+    git("fetch", "-q", "origin", base);
+    const tree = worktreeTree(repoDir);
+    const branch = freeBranchName(request.title, repo);
+    git("checkout", "-q", "-b", branch);
+    git("add", "-A");
+    const attribution = `[${MODEL_NAME} on the Bloom bot Mac during ${label}]`;
+    execFileSync("git", ["-C", repoDir, "commit", "-q", "-F", "-"], { input: `${request.title}\n\n${attribution}\n` });
+    refuseWorkflowChanges(repoDir, `origin/${base}`);
+    refuseDependencyChanges(repoDir, `origin/${base}`, "HEAD");
+    if (git("diff", "--name-only", `origin/${base}`, "HEAD").trim() === "") throw new Error(`there are no changes against ${base}`);
+
+    const parts = [attribution, request.body.trim()];
+    if (name === "BloomDesktop") {
+        const file = checksFile(cwd);
+        const checks = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : [];
+        const lines = checks.filter((c) => c.tree === tree || (c.onMaster && c.kind === "windows")).map((c) => {
+            if (c.kind === "compile") return `- C# compiled on the bot's Mac: ${c.ok ? "succeeded" : "failed"}`;
+            if (c.kind === "vitest") return `- vitest on the bot's Mac (${c.files.join(", ")}): ${c.ok ? "passed" : "failed"}`;
+            const what = Object.entries(c.tests).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join("; ");
+            return `- On Windows${c.onMaster ? ", on master" : ""} (${what}, ${c.repeat} repeat${c.repeat === 1 ? "" : "s"}): ${c.failed} failed of ${c.runs} test results. [Run](${c.runUrl})`;
+        });
+        parts.push(`## Proof\n\n${lines.length ? lines.join("\n") : "No check ran on exactly these files."}`);
+    }
+    pushBranch(repoDir, branch, repo);
+    return openDraftPr({ repo, branch, base, title: request.title, body: parts.join("\n\n") });
+}
+
+/** The names of the variables in the bot's env file, which are kept from Claude, all but Claude
+ * Code's own login, which the `claude` process needs to start. */
+function secretNames() {
+    if (!fs.existsSync(ENV_FILE)) return [];
+    return fs.readFileSync(ENV_FILE, "utf8").split(/\r?\n/).map((l) => l.match(/^(?:export\s+)?(\w+)=/)?.[1])
+        .filter((name) => name && name !== "CLAUDE_CODE_OAUTH_TOKEN");
 }
 
 /**
@@ -353,7 +434,9 @@ function runCommand(command, args, { cwd, env, input, timeoutMs }) {
 async function runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeoutMinutes, writable, commands }) {
     const prompt = [fs.readFileSync(BOT_GUIDE, "utf8"), fs.readFileSync(skillFile, "utf8"), task].join("\n\n");
     const env = { ...process.env };
-    for (const key of ["YOUTRACK_BOT", "SENTRY_BOT_TOKEN", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"]) delete env[key];
+    for (const key of ["YOUTRACK_BOT", "SENTRY_BOT_TOKEN", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", ...secretNames()]) delete env[key];
+    // Lets a command such as `bot-checks.mjs windows` run as long as the run itself may.
+    env.BASH_MAX_TIMEOUT_MS = String(timeoutMinutes * 60 * 1000);
 
     const result = await runCommand(
         "claude",
@@ -368,15 +451,20 @@ async function runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeou
             // "*" after the subcommand with no space, so a bare `git -C repo diff` matches too.
             ...["log", "show", "blame", "grep", "diff", "status", "branch"].map((command) => `Bash(git -C * ${command}*)`),
             `Bash(node ${BOT_TOOLS}:*)`,
+            `Bash(node ${BOT_CHECKS}:*)`,
             ...commands.map((command) => `Bash(${command}:*)`),
-            // A leading "//" makes a permission path absolute. Every run may write the bodies of its
-            // YouTrack requests under .youtrack, where bot-tools reads them.
-            ...[...writable, `${cwd}/.youtrack/**`].flatMap((p) => [`Edit(/${p})`, `Write(/${p})`]),
+            // A leading "//" makes a permission path absolute. The run's own folder holds its
+            // checkouts, the request bodies that bot-tools reads, and anything else it makes. An
+            // Edit rule covers Write too; Claude Code refuses to start when given a Write rule.
+            ...[...writable, `${cwd}/**`].map((p) => `Edit(/${p})`),
+            "WebSearch",
+            // Fetching only from these sites: text the bot reads can steer it, and a fetch from any
+            // site would let steered text send what the bot can read out in a URL.
+            ...FETCH_SITES.map((site) => `WebFetch(domain:${site})`),
             "--disallowedTools",
             // ~/.config holds the bot's tokens and gh's GitHub login.
             `Read(/${path.join(os.homedir(), ".config")}/**)`, `Read(/${path.join(os.homedir(), ".claude")}/**)`,
             `Read(/${ZULIPRC})`,
-            "WebFetch", "WebSearch",
         ],
         { cwd, env, input: prompt, timeoutMs: timeoutMinutes * 60 * 1000 },
     );
@@ -389,12 +477,18 @@ async function runClaudeOnce({ cwd, skillFile, task, label, test, effort, timeou
         throw new Error(`claude exited ${result.status}: ${result.stderr.slice(-2000)}`);
     }
     const parts = result.stdout.split(/^=== OUTPUT ===\s*$/m);
-    const noteParts = parts.slice(0, -1).join("\n").split(/^=== MAINTAINER ===\s*$/m);
-    const maintainerNote = noteParts.length > 1 ? noteParts[noteParts.length - 1].trim() : "";
+    const before = parts.slice(0, -1).join("\n");
+    // Each marked section runs to the next "=== ... ===" line.
+    const section = (marker) => {
+        const pieces = before.split(new RegExp(`^=== ${marker} ===\\s*$`, "m"));
+        return pieces.length > 1 ? pieces[pieces.length - 1].split(/^=== [A-Z]+ ===\s*$/m)[0].trim() : "";
+    };
+    const maintainerNote = section("MAINTAINER");
+    const prRequest = section("PR");
     // A test run (test: true) prints its note instead, for whoever is running the test.
     if (maintainerNote && test) log(`maintainer note: ${maintainerNote}`);
     if (maintainerNote && !test) {
         await notify(`While working on ${label}, the bot left this note for its maintainer:\n\n${maintainerNote}`);
     }
-    return parts[parts.length - 1].trim();
+    return { output: parts[parts.length - 1].trim(), prRequest: prRequest ? prRequest.slice(prRequest.indexOf("{"), prRequest.lastIndexOf("}") + 1) : "" };
 }
