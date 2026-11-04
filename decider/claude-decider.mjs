@@ -2,7 +2,10 @@
 // page to POST its answers. Prints the answers to stdout and exits, so the agent that started
 // this in the background is notified the moment the user sends.
 //
-// Usage: node claude-decider.mjs --name <form-name> <page.html> [--topic "<few words>"] [--no-open] [--timeout-min N]
+// Usage: node claude-decider.mjs --name <form-name> <form.json | page.html> [--topic "<few words>"] [--no-open] [--timeout-min N]
+//
+// A form.json (see SKILL.md) is built into a page with form.html, whose script POSTs the answers
+// as plain text to window.DECIDER_ENDPOINT, which this server sets.
 //
 // The file name and --name are what a person sees in Task Manager's "Command line" column,
 // so keep this file named claude-decider.mjs and pass a short name for the form. The bar and the
@@ -12,8 +15,9 @@ import http from "node:http";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
+import { buildForm } from "./build-form.mjs";
 
-const USAGE = 'usage: node claude-decider.mjs --name <form-name> <page.html> [--topic "<few words>"] [--no-open] [--timeout-min N]';
+const USAGE = 'usage: node claude-decider.mjs --name <form-name> <form.json | page.html> [--topic "<few words>"] [--no-open] [--timeout-min N]';
 let pagePath = null, name = null, topic = null, noOpen = false, timeoutMin = 115;
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
@@ -72,7 +76,11 @@ const FAVICON = `<link rel="icon" href="${ICON}">`;
 const TITLE = `<title>${escapeHtml(topic)} · Decider</title>`;
 
 function page() {
-  let html = fs.readFileSync(pagePath, "utf8").replace(/<title>[\s\S]*?<\/title>/i, "");
+  // A .json file is the form's questions, built into a page with form.html on every load.
+  const source = pagePath.toLowerCase().endsWith(".json")
+    ? buildForm(JSON.parse(fs.readFileSync(pagePath, "utf8")))
+    : fs.readFileSync(pagePath, "utf8");
+  let html = source.replace(/<title>[\s\S]*?<\/title>/i, "");
   const inject = `${TITLE}<script>window.DECIDER_ENDPOINT=${JSON.stringify(endpoint)};</script>${PLEX}${FAVICON}`;
   if (!/^\s*<!doctype/i.test(html)) {
     html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${inject}<style>body{margin:0}</style></head><body>${SERVED_BY}${html}</body></html>`;
