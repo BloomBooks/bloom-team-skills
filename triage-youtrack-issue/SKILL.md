@@ -9,8 +9,8 @@ argument-hint: "the card id (BL-xxxxx); optionally a label for the caller, e.g. 
 Input: one card id like `BL-16915`. Output: one comment on that card, and a one-line result for
 the caller (commented / skipped and why / error).
 
-Every tracker call goes through the `youtrack-api` skill, with `$YOUTRACK_BOT` and no other
-token. Never print the token.
+Every tracker call goes through the `youtrack-api` skill, as the Bot account, and no other
+way.
 
 ## 1. Check it still needs triage
 
@@ -22,9 +22,9 @@ already did.
 ## 2. Read the report
 
 Fetch `idReadable,summary,description,reporter(login,name),customFields(name,value(name))` and
-the attachment list (`youtrack-api`, "List an issue's attachments"). Attachment `url` values are relative:
-prefix them with `https://issues.bloomlibrary.org/youtrack` and send the same Authorization
-header. Download log and text attachments and read them. Look at screenshots if you can.
+the attachment list (`youtrack-api`, "List an issue's attachments"). Download log and text
+attachments with the `attachment` command (`youtrack-api`, "Download an attachment") and read
+them. Look at screenshots if you can.
 
 If the card is not a bug report (a feature request, an internal task, a question), stop without
 commenting and report "skipped: not a bug report (<what it is>)".
@@ -45,8 +45,8 @@ Do not modify code, create branches, or open PRs.
 ## 4. Post the comment
 
 Build the body `{"text": "<markdown>"}` with a JSON-aware tool (`jq -n --arg t "$text"
-'{text:$t}'` or Python `json.dumps`) and write it to a file, then post it with `curl -d @file`
-(`youtrack-api`, "Post a comment"). Markdown with quotes breaks an inline `-d '…'`.
+'{text:$t}'` or Python `json.dumps`) and write it to a file, then post it with `yt POST "/issues/<issue-id>/comments" @<file>`
+(`youtrack-api`, "Post a comment").
 
 The text:
 

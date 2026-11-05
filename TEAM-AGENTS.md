@@ -57,8 +57,13 @@ together on one line, the tag reads as the start of the first sentence.
 
 **YouTrack is a special case:** all of its traffic — reads and writes alike — goes through a
 shared **"Bot"** account (never the developer's own login), so the tag is the *only* provenance a
-reader gets. The `youtrack-api` skill carries the mechanics (`$YOUTRACK_BOT`, and only that token)
-and repeats this tag format.
+reader gets. The `youtrack-api` skill carries the mechanics and repeats this tag format.
+
+## The team's services need no token of your own
+
+YouTrack, Sentry, Slack history, Notion, Cloudflare and Mixpanel are reached through the
+`bloom-services` skill, which signs in with the developer's GitHub login. Use it rather than asking
+the developer for a service token.
 
 ## Who the developer is on each service
 

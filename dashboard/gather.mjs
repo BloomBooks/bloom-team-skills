@@ -7,12 +7,12 @@
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { developer } from "../developer.mjs";
+import { callService } from "../bloom-services/sources.mjs";
 
 const out = process.argv[2];
 if (!out) throw new Error("usage: node gather.mjs <out.json> [board|all]");
 const boardArg = process.argv[3]?.trim() || null;
 
-const YT = "https://issues.bloomlibrary.org/youtrack/api";
 const CARD = /\bBL-\d+/i;
 
 function run(cmd, args, opts = {}) {
@@ -22,34 +22,28 @@ function run(cmd, args, opts = {}) {
     return null;
   }
 }
-function userEnv(name) {
-  return process.env[name] || run("powershell.exe", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable('${name}','User')`]) || "";
-}
 function orca(...args) {
   const text = run("orca", [...args, "--json"], { shell: true });
   if (!text) throw new Error("orca " + args.join(" ") + " failed; is Orca running?");
   return JSON.parse(text.slice(text.indexOf("{"))).result;
 }
-async function yt(token, path, params) {
-  const url = new URL(YT + path);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const r = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
-  if (!r.ok) throw new Error(`YouTrack ${path}: ${r.status} ${await r.text()}`);
-  return r.json();
+// YouTrack, through the team's tool server (bloom-services), as the Bot account.
+async function yt(path, params) {
+  return (await callService("youtrack", `${path}?${new URLSearchParams(params)}`)).json();
 }
 const field = (issue, name) => issue.customFields?.find(c => c.name === name)?.value?.name ?? null;
 
 // The current version's board: of the Kanban Board values named "Bloom <version>" that are not
 // archived, the one with the most BL cards (anyone's) updated in the last 14 days; on a tie, the
 // lower version. Returns { board, activity } where activity counts the cards per candidate.
-async function currentVersionBoard(token) {
-  const fields = await yt(token, "/admin/projects/BL/customFields", { fields: "field(name),bundle(values(name,archived))", $top: "100" });
+async function currentVersionBoard() {
+  const fields = await yt("/admin/projects/BL/customFields", { fields: "field(name),bundle(values(name,archived))", $top: "100" });
   const values = fields.find(f => f.field.name === "Kanban Board").bundle.values;
   const candidates = values.filter(v => !v.archived && /^Bloom \d+(\.\d+)*$/.test(v.name)).map(v => v.name);
   if (!candidates.length) throw new Error("no unarchived Kanban Board value is named Bloom <version>");
   const activity = Object.fromEntries(candidates.map(c => [c, 0]));
   for (let skip = 0; ; skip += 500) {
-    const page = await yt(token, "/issues", { query: "project: BL updated: {minus 14d} .. Today", fields: "customFields(name,value(name))", $top: "500", $skip: String(skip) });
+    const page = await yt("/issues", { query: "project: BL updated: {minus 14d} .. Today", fields: "customFields(name,value(name))", $top: "500", $skip: String(skip) });
     for (const i of page) { const b = field(i, "Kanban Board"); if (b in activity) activity[b]++; }
     if (page.length < 500) break;
   }
@@ -109,17 +103,16 @@ for (const w of list) {
 
 // Cards: everything unresolved assigned to the developer, plus every card a worktree names.
 const dev = await developer();
-const bot = userEnv("YOUTRACK_BOT");
 let board = null, boardActivity = null;
-if (!boardArg) ({ board, activity: boardActivity } = await currentVersionBoard(bot));
+if (!boardArg) ({ board, activity: boardActivity } = await currentVersionBoard());
 else if (boardArg.toLowerCase() !== "all") board = /^\d/.test(boardArg) ? "Bloom " + boardArg : boardArg;
 const FIELDS = "idReadable,summary,updated,customFields(name,value(name))";
 // Searching by assignee needs the Bot's global "Read User Basic Role".
-const assigned = await yt(bot, "/issues", { query: `Assignee: {${dev.youtrack.login}} #Unresolved`, fields: FIELDS, $top: "500" });
+const assigned = await yt("/issues", { query: `Assignee: {${dev.youtrack.login}} #Unresolved`, fields: FIELDS, $top: "500" });
 const ids = new Set([...assigned.map(i => i.idReadable), ...worktrees.map(w => w.card)]);
 const cards = [];
 for (const id of ids) {
-  const i = assigned.find(a => a.idReadable === id) ?? (await yt(bot, "/issues/" + id, { fields: FIELDS }).catch(() => null));
+  const i = assigned.find(a => a.idReadable === id) ?? (await yt("/issues/" + id, { fields: FIELDS }).catch(() => null));
   if (!i) continue;
   cards.push({
     id,
