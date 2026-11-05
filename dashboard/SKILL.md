@@ -163,6 +163,21 @@ Match a worktree line to a row by path, not by the card id in its branch: a PR's
 another card, and the server labels a worktree by the id in its branch. A "created from the
 dashboard" line names the row's own card; write its path into that row's `worktree`.
 
+## Finished cards
+
+Below the groups, the page lists the developer's finished cards one line each (title, State, card
+id, when it was finished) so they can report them at standup. The session writes nothing for
+these: `gather.mjs` puts them in `facts.json` as `finished` (from `finished.mjs`, every board),
+and the server shows them. A card is finished when it is in Ready For UI Review, Ready For Code
+Review, Ready For Testing or Closed, and the developer is its Assignee or was removed as its
+Assignee in the last 30 days. Cards in review stay however long the review takes; cards in testing
+or closed drop off 7 days after they were finished. Its time is when it last left In Progress or
+Has Comments for one of those States.
+
+The **Done** button records the card and that time in `~/.claude/bloom-dashboard/finished-done.json`,
+which outlasts server restarts, and hides the card. It comes back if it is finished again later;
+going back to In Progress or Has Comments forgets the Done. `node finished.mjs` prints the list.
+
 ## The buttons
 
 - **Orca Worktree** (on a row with a worktree, and on its Status pill) switches Orca to the
@@ -173,9 +188,11 @@ dashboard" line names the row's own card; write its path into that row's `worktr
   the worktree's Claude terminal, or start one with `claude --continue /<skill>` when there is
   none. When Claude is busy there, the server refuses and the page says so.
 - **Create & Open Orca Worktree** (on a row without one) makes a worktree and starts Claude in it.
-  With a PR it checks out the PR's branch; without one it makes
-  `<card>-<first three words of the title>` from the repo's default base. The server then writes
-  a "created from the dashboard" line to `events.log` (step 5).
+  With a PR it checks out the PR's branch; without one Orca makes a branch named
+  `<card>-<first three words of the title>` from the repo's default base, with Orca's branch
+  prefix in front (e.g. `JohnThomson/`). The server then writes a "created from the dashboard"
+  line to `events.log` (step 5).
+- **Done** (on a finished card) hides that card; see "Finished cards".
 
 Every Orca button then launches `Orca.exe` again, which makes the running Orca bring its window to the
 front; the CLI alone does not. The server logs each click and its result in

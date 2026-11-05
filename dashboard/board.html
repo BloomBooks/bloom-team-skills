@@ -81,6 +81,18 @@ button.orca.wt { font-family: var(--font-mono); font-size: 12px; font-weight: 40
 button.orca.skill { display: inline-block; padding: 1px 8px; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px currentColor; }
 button.orca.skill:hover { text-decoration: none; background: var(--agent-bg); }
 .question { display: block; margin-top: 3px; font-size: 13px; color: var(--you); }
+/* Finished cards: one line each, quieter than the active groups. */
+ul.finished { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+ul.finished li { display: flex; align-items: center; gap: 12px; padding: 7px 12px; border-bottom: 1px solid var(--line); min-width: 0; }
+ul.finished li:last-child { border-bottom: 0; }
+ul.finished .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ul.finished .id { font-family: var(--font-mono); font-size: 12.5px; flex: none; }
+ul.finished .when { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+ul.finished .yt { flex: none; }
+button.done { font: inherit; font-size: 12px; font-weight: 500; color: var(--muted); background: none; border: 0; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--line); padding: 2px 10px; cursor: pointer; flex: none; }
+button.done:hover { color: var(--fg); box-shadow: inset 0 0 0 1px var(--muted); }
+button.done:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) { ul.finished li { flex-wrap: wrap; } ul.finished .title { flex-basis: 100%; white-space: normal; } }
 </style>
 </head>
 <body>
@@ -101,6 +113,12 @@ button.orca.skill:hover { text-decoration: none; background: var(--agent-bg); }
   </header>
 
   <div id="groups"></div>
+
+  <section class="group" id="finished" hidden>
+    <h2>Finished</h2>
+    <p class="sub">Cards you handed on to review, testing or closing. Click Done once you no longer need to see one, e.g. after standup; it comes back if the card is finished again.</p>
+    <ul class="finished" id="finished-list"></ul>
+  </section>
 </div>
 
 <script>
@@ -131,12 +149,13 @@ function link(href, text) {
 }
 // The server that served this page runs the orca commands. DASHBOARD_TOKEN is written into the
 // page by server.mjs; other web pages can't read it, so they can't post to the server.
-async function post(path, body) {
+async function post(path, body, failure = "Orca couldn't do that") {
   showNote("");
   try {
     const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json", "x-dashboard-token": window.DASHBOARD_TOKEN }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j.ok) showNote("Orca couldn't do that: " + (j.error || r.status));
+    if (r.status === 403) showNote("The dashboard server has restarted since this page loaded. Reload the page.");
+    else if (!r.ok || !j.ok) showNote(failure + ": " + (j.error || r.status));
   } catch (e) {
     showNote("The dashboard server isn't answering. Is its Claude session still open?");
   }
@@ -234,6 +253,28 @@ function render(items) {
   }
 }
 
+// A finish time as "Thu 11-05 14:02", so "since last standup" reads at a glance; a year other than
+// this one goes in front ("2024 Thu 04-25 13:30").
+function finishedTime(iso) {
+  const t = new Date(iso || "");
+  if (isNaN(t)) return "";
+  const year = t.getFullYear() === new Date().getFullYear() ? "" : t.getFullYear() + " ";
+  return year + t.toLocaleDateString([], { weekday: "short" }) + " " + localTime(iso);
+}
+function renderFinished(list) {
+  const ul = document.getElementById("finished-list");
+  ul.replaceChildren(...(list || []).map(f => el("li", {},
+    el("span", { class: "title", title: f.summary }, f.summary),
+    el("span", { class: "yt" }, f.state),
+    el("span", { class: "id" }, link(f.url, f.id)),
+    el("span", { class: "when", title: "Finished " + new Date(f.finishedAt).toLocaleString() }, finishedTime(f.finishedAt)),
+    action("done", "Stop showing this card until it is finished again", "Done", async () => {
+      await post("/api/finished-done", { card: f.id, finishedAt: f.finishedAt }, "Couldn't mark it done");
+      refresh();
+    }))));
+  document.getElementById("finished").hidden = !ul.childNodes.length;
+}
+
 function showNote(text) {
   const n = document.getElementById("note");
   n.textContent = text || "";
@@ -277,6 +318,7 @@ async function refresh() {
     ? "Cards, PRs and branches checked at " + at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + "; agents are live."
     : "";
   render(withLiveAgents(state.rows, state.agents));
+  renderFinished(state.finished);
 }
 refresh();
 setInterval(refresh, 3000);

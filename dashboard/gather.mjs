@@ -7,6 +7,7 @@
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { developer } from "../developer.mjs";
+import { finishedCards } from "./finished.mjs";
 
 const out = process.argv[2];
 if (!out) throw new Error("usage: node gather.mjs <out.json> [board|all]");
@@ -167,7 +168,13 @@ await Promise.all(prs.filter(p => p.report).map(async p => {
 
 // board is null when every board was kept; boardActivity is set only when the board was chosen
 // by currentVersionBoard.
-const result = { gatheredAt: new Date().toISOString(), board, boardActivity, cards: kept, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };
+// The developer's finished cards, from every board (finished.mjs). null when YouTrack would not
+// give them, so the page keeps no stale list and the rest of the gather still counts.
+let finished = null;
+try { finished = await finishedCards((p, params) => yt(bot, p, params), dev.youtrack.login); }
+catch (e) { console.warn("could not list finished cards: " + e.message); }
+
+const result = { gatheredAt: new Date().toISOString(), board, boardActivity, cards: kept, finished, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };
 writeFileSync(out, JSON.stringify(result, null, 2));
 if (boardActivity) console.log(`chose ${board}, the board with the most cards updated in the last 14 days: ${Object.entries(boardActivity).map(([b, n]) => `${b} ${n}`).join(", ")}`);
 console.log(`wrote ${out}${board ? ` for ${board}` : " for every board"}:${result.cards.length} cards, ${result.worktrees.length} worktrees, ${result.prs.length} PRs`);

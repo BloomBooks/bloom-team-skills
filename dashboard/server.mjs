@@ -13,6 +13,9 @@
 //                  each change between one facts.json and the next (see diff-facts.mjs), and for
 //                  each worktree the page's Create button makes; the session watches it with
 //                  watch-events.mjs
+//   finished-done.json  { "BL-16722": "<finishedAt>" }  the finished cards the developer cleared
+//                  with the page's Done button, and the finish each one cleared; this server
+//                  writes it
 //
 // stdout: "DASHBOARD_URL <url>" once listening, or "ALREADY_RUNNING <url> pid <pid>" (exit 3)
 // when another session's server holds the port.
@@ -132,6 +135,7 @@ async function regather() {
     // The session may have replaced facts.json while gather ran; compare with what is there now.
     const lines = diffFacts(readFacts() || prev, next);
     fs.renameSync(tmp, factsFile);
+    pruneDone(next);
     if (gatherFailing) lines.unshift("gather works again");
     gatherFailing = null;
     if (lines.length) fs.appendFileSync(eventsLog, lines.join("\n") + "\n");
@@ -150,6 +154,29 @@ async function regather() {
   }
 }
 
+// ---- finished cards -------------------------------------------------------------------------
+// facts.finished lists the developer's finished cards (finished.mjs). Done hides one until it is
+// finished again: a later finishedAt shows it again, and so does going back to In Progress or Has
+// Comments assigned to the developer, which forgets the Done.
+const doneFile = path.join(dataDir, "finished-done.json");
+const readDone = () => { try { return JSON.parse(fs.readFileSync(doneFile, "utf8")); } catch { return {}; } };
+const writeDone = d => fs.writeFileSync(doneFile, JSON.stringify(d, null, 2));
+const isDone = (done, f) => !!done[f.id] && done[f.id] >= f.finishedAt;
+// After a gather: forget the Done of a card that is back at work, or no longer in the list.
+function pruneDone(facts) {
+  if (!Array.isArray(facts?.finished)) return;
+  const done = readDone();
+  const listed = new Set(facts.finished.map(f => f.id));
+  const working = new Set((facts.cards || []).filter(c => c.assignedToDeveloper && ["In Progress", "Has Comments"].includes(c.state)).map(c => c.id));
+  const kept = Object.fromEntries(Object.entries(done).filter(([id]) => listed.has(id) && !working.has(id)));
+  if (Object.keys(kept).length !== Object.keys(done).length) writeDone(kept);
+}
+function markDone(card, finishedAt) {
+  if (!/^BL-\d+$/.test(card) || isNaN(Date.parse(finishedAt))) throw new Error("bad card or time: " + card + " " + finishedAt);
+  writeDone({ ...readDone(), [card]: finishedAt });
+  log("done " + card + " finished " + finishedAt);
+}
+
 // ---- state for the page ---------------------------------------------------------------------
 function readState() {
   let board = "";
@@ -162,7 +189,10 @@ function readState() {
   // The developer's first name, for the page's top bar.
   let developer = "";
   try { developer = (JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude", "bloom-developer.json"), "utf8")).name || "").split(" ")[0]; } catch {}
-  return { board, developer, rows, agents, gatheredAt: readFacts()?.gatheredAt || "" };
+  const facts = readFacts();
+  const done = readDone();
+  const finished = (facts?.finished || []).filter(f => !isDone(done, f));
+  return { board, developer, rows, agents, finished, gatheredAt: facts?.gatheredAt || "" };
 }
 
 // ---- Orca actions ---------------------------------------------------------------------------
@@ -303,6 +333,7 @@ const server = http.createServer((req, res) => {
       if (req.url === "/api/open") await openWorktree(String(b.path || ""));
       else if (req.url === "/api/run-skill") await runSkill(String(b.path || ""), String(b.skill || ""));
       else if (req.url === "/api/vscode") { await openInVsCode(String(b.path || "")); return send(res, 200, { ok: true }); }
+      else if (req.url === "/api/finished-done") { markDone(String(b.card || ""), String(b.finishedAt || "")); return send(res, 200, { ok: true }); }
       else if (req.url === "/api/create") await createWorktree({ card: String(b.card || ""), title: String(b.title || ""), pr: String(b.pr || "") });
       else return send(res, 404, { ok: false, error: "unknown action" });
       await bringOrcaToFront().catch(e => log("front: " + e.message));
