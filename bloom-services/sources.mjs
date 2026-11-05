@@ -256,9 +256,15 @@ async function downloadBook(arg) {
     if (!match) throw new Error(`book ${id} has no files on S3 (baseUrl ${book.baseUrl})`);
     const [, bucket, encodedPrefix] = match;
     const prefix = decodeURIComponent(encodedPrefix.replace(/\+/g, " "));
-    const listing = await publicJson(`https://s3.amazonaws.com/${bucket}?list-type=2&prefix=${encodeURIComponent(prefix)}`);
-    const keys = [...String(listing).matchAll(/<Key>([^<]+)<\/Key>\s*<LastModified>[^<]*<\/LastModified>\s*<ETag>[^<]*<\/ETag>\s*<Size>(\d+)<\/Size>/g)]
-        .map(([, key, size]) => ({ key: key.replace(/&amp;/g, "&"), size: Number(size) }));
+    // S3 lists at most 1,000 files a page; a longer listing ends with a token for the next page.
+    const keys = [];
+    let token;
+    do {
+        const listing = String(await publicJson(`https://s3.amazonaws.com/${bucket}?list-type=2&prefix=${encodeURIComponent(prefix)}${token ? `&continuation-token=${encodeURIComponent(token)}` : ""}`));
+        keys.push(...[...listing.matchAll(/<Key>([^<]+)<\/Key>\s*<LastModified>[^<]*<\/LastModified>\s*<ETag>[^<]*<\/ETag>\s*<Size>(\d+)<\/Size>/g)]
+            .map(([, key, size]) => ({ key: key.replace(/&amp;/g, "&"), size: Number(size) })));
+        token = /<IsTruncated>true<\/IsTruncated>/.test(listing) ? /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(listing)?.[1].replace(/&amp;/g, "&") : undefined;
+    } while (token);
     const total = keys.reduce((sum, k) => sum + k.size, 0);
     if (total > BOOK_MAX_BYTES) throw new Error(`book ${id} is ${Math.round(total / 1024 / 1024)} MB, over the ${BOOK_MAX_BYTES / 1024 / 1024} MB limit`);
     const dir = path.join(process.cwd(), ".book", (book.title || id).replace(/[^\w .-]+/g, "_"));
@@ -419,7 +425,13 @@ export const sourceCommands = {
     },
     async "slack-thread"(args) {
         const [channel, ts] = args;
-        const { messages } = await slack("conversations.replies", { channel, ts, limit: "200" });
+        const messages = [];
+        let cursor;
+        do {
+            const page = await slack("conversations.replies", { channel, ts, limit: "200", ...(cursor ? { cursor } : {}) });
+            messages.push(...page.messages);
+            cursor = page.response_metadata?.next_cursor;
+        } while (cursor && messages.length < SLACK_MAX_MESSAGES);
         return json(await slackLines(messages));
     },
     async book(args) {
