@@ -193,8 +193,9 @@ function sendableFile(name) {
     return file;
 }
 
-/** Reads a request body from "@<file>". */
-function requestBody(arg) {
+/** Reads a request body from "@<file>". The bot's bot-tools.mjs reads its github-comment bodies
+ * with this too, so one check decides which files a command may send. */
+export function requestBody(arg) {
     if (arg === undefined) return undefined;
     if (!arg.startsWith("@")) throw new Error(`expected the body as @<file>, got ${arg.slice(0, 80)}`);
     return fs.readFileSync(sendableFile(arg.slice(1)), "utf8");
