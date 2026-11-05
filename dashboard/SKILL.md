@@ -71,8 +71,8 @@ with this file (step 5), so write it there. It writes:
   read);
 - `board`: the board it kept, or `null` for every board.
 
-It needs Orca running, `gh` signed in as the developer, and `YOUTRACK_BOT` in the User
-environment. The search for the developer's cards relies on the Bot holding YouTrack's "Read User
+It needs Orca running and `gh` signed in as the developer; it reaches YouTrack as the Bot through
+`bloom-services`. The search for the developer's cards relies on the Bot holding YouTrack's "Read User
 Basic Role" granted globally; granted only on a project, that role's permission does nothing and
 the search fails with "The value "<login>" isn't used for the Assignee field".
 

@@ -1,32 +1,17 @@
 // The Card Sorter's only contact with YouTrack: pulling cards into raw/youtrack.json, and pushing
 // John's confirmed decisions (board, state, closing, order within a column) back.
-// Every call authenticates as the shared Bloom "Bot" account ($YOUTRACK_BOT).
-import { execFileSync } from "node:child_process";
+// Every call goes through the team's tool server (bloom-services), which makes it as the shared
+// Bloom "Bot" account.
 import fs from "node:fs";
 import path from "node:path";
+import { callService } from "../bloom-services/sources.mjs";
 
 const host = "https://issues.bloomlibrary.org";
-const api = `${host}/youtrack/api`;
-
-let token = process.env.YOUTRACK_BOT;
-/** The Bot token: from the environment, else from the Windows User scope (a shell can start with a stale environment). */
-function getToken() {
-    if (!token && process.platform === "win32") {
-        token = execFileSync("powershell.exe", ["-NoProfile", "-Command", "[Environment]::GetEnvironmentVariable('YOUTRACK_BOT','User')"], { encoding: "utf8" }).trim();
-    }
-    if (!token) throw new Error("I need the Bloom Bot token ($YOUTRACK_BOT) to reach YouTrack.");
-    return token;
-}
 
 /** Calls the YouTrack REST API and returns parsed JSON, throwing with the response text on any failure. */
 async function yt(method, p, body) {
-    const r = await fetch(api + p, {
-        method,
-        headers: { Authorization: `Bearer ${getToken()}`, Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
-        body: body ? JSON.stringify(body) : undefined,
-    });
+    const r = await callService("youtrack", p, { method, body: body ? JSON.stringify(body) : undefined });
     const text = await r.text();
-    if (!r.ok) throw new Error(`${method} ${p}: ${r.status} ${text.slice(0, 300)}`);
     return text ? JSON.parse(text) : {};
 }
 

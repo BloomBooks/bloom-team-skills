@@ -9,8 +9,8 @@ argument-hint: "the card id (BL-xxxxx); optionally a label for the caller, e.g. 
 Input: one card id like `BL-16915`. Output: one comment on that card, and a one-line result for
 the caller (commented / skipped and why / error).
 
-Every tracker call goes through the `youtrack-api` skill, with `$YOUTRACK_BOT` and no other
-token. Never print the token.
+Every tracker call goes through the `youtrack-api` skill, as the Bot account, and no other
+way.
 
 ## 1. Check it still needs triage
 
