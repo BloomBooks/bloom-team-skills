@@ -56,7 +56,14 @@ function quote(a) {
 }
 async function orca(...args) {
   const cli = process.env.ORCA_CLI_COMMAND || "orca";
-  const { stdout } = await execP([cli, ...args.map(quote), "--json"].join(" "), { maxBuffer: 64 << 20, windowsHide: true });
+  let stdout;
+  try {
+    ({ stdout } = await execP([cli, ...args.map(quote), "--json"].join(" "), { maxBuffer: 64 << 20, windowsHide: true }));
+  } catch (e) {
+    // A failing orca exits non-zero with its JSON error on stdout; report that, not just "Command failed".
+    if (!String(e.stdout || "").includes("{")) throw e;
+    stdout = e.stdout;
+  }
   const j = JSON.parse(stdout.slice(stdout.indexOf("{")));
   if (j.ok === false) throw new Error(`orca ${args[0]} ${args[1]}: ${j.error?.code || "failed"} ${j.error?.message || ""}`.trim());
   return j.result;
@@ -228,9 +235,11 @@ async function openInVsCode(p) {
   log("opened " + wt + " in VS Code");
 }
 
-// Makes a worktree for a card that has none and starts Claude in it. With a PR, the worktree
-// checks out the PR's branch; without one, it gets a new branch <card>-<first three words of the
-// title> from the repo's default base.
+// Makes a worktree for a card that has none and starts Claude in it. Orca names the worktree's
+// branch itself from --name (adding its branch prefix, e.g. "JohnThomson/"); it has no --branch
+// flag. Without a PR, that branch, <prefix><card>-<first three words of the title>, is new from
+// the repo's default base. With a PR, the worktree is switched onto the PR's own branch before
+// Claude starts, and Orca's prefixed branch is deleted.
 async function createWorktree({ card, title, pr }) {
   if (!/^BL-\d+$/.test(card || "")) throw new Error("bad card id " + card);
   let repo = "bloombooks/bloomdesktop", prNumber = null;
@@ -238,24 +247,32 @@ async function createWorktree({ card, title, pr }) {
   if (m) { repo = m[1].toLowerCase(); prNumber = m[2]; }
   const repoId = (await orca("worktree", "list")).worktrees.find(w => w.projectId === "github:" + repo)?.repoId;
   if (!repoId) throw new Error("Orca has no repo for github:" + repo);
-  const args = ["worktree", "create", "--repo", "id:" + repoId, "--no-parent", "--agent", "claude", "--activate"];
-  if (prNumber) {
-    const { stdout } = await execFileP("gh", ["pr", "view", prNumber, "-R", repo, "--json", "headRefName", "--jq", ".headRefName"], { windowsHide: true });
-    const head = stdout.trim();
-    if (!/^[\w.\/-]+$/.test(head)) throw new Error("could not read the branch of " + pr);
-    const repoPath = (await orca("repo", "list")).repos.find(r => r.id === repoId)?.path;
-    await execFileP("git", ["-C", repoPath, "fetch", "origin", head], { windowsHide: true });
-    args.push("--name", head, "--branch", head, "--base-branch", "origin/" + head, "--pr", prNumber);
-  } else {
+  const args = ["worktree", "create", "--repo", "id:" + repoId, "--no-parent", "--activate"];
+  if (!prNumber) {
     const words = (title || "").replace(/\[[^\]]*\]/g, "").replace(/[^A-Za-z0-9 ]/g, " ").trim().split(/\s+/).filter(Boolean).slice(0, 3);
-    const name = [card, ...words].join("-");
-    args.push("--name", name, "--branch", name);
+    const r = await orca(...args, "--agent", "claude", "--name", [card, ...words].join("-"));
+    const made = r.worktree?.path || r.worktreeId;
+    log("created " + made + " for " + card);
+    // The row has no worktree path yet, so this line names the card the row is filed under.
+    fs.appendFileSync(eventsLog, `${card} ${made}: worktree created from the dashboard\n`);
+    return;
   }
-  const r = await orca(...args);
-  const made = r.worktree?.path || r.worktreeId;
-  log("created " + made + " for " + card);
-  // The row has no worktree path yet, so this line names the card the row is filed under.
-  fs.appendFileSync(eventsLog, `${card} ${made}: worktree created from the dashboard\n`);
+  const { stdout } = await execFileP("gh", ["pr", "view", prNumber, "-R", repo, "--json", "headRefName", "--jq", ".headRefName"], { windowsHide: true });
+  const head = stdout.trim();
+  if (!/^[\w.\/-]+$/.test(head)) throw new Error("could not read the branch of " + pr);
+  const repoPath = (await orca("repo", "list")).repos.find(r => r.id === repoId)?.path;
+  await execFileP("git", ["-C", repoPath, "fetch", "origin", head], { windowsHide: true });
+  const before = new Set((await orca("worktree", "list")).worktrees.map(w => norm(w.path)));
+  const r = await orca(...args, "--name", head.replace(/\//g, "-"), "--base-branch", "origin/" + head, "--pr", prNumber);
+  const wt = r.worktree?.path || (await orca("worktree", "list")).worktrees.find(w => w.repoId === repoId && !before.has(norm(w.path)))?.path;
+  if (!wt) throw new Error("Orca made the worktree but did not say where; switch it to " + head + " by hand");
+  const orcaBranch = (await execFileP("git", ["-C", wt, "rev-parse", "--abbrev-ref", "HEAD"], { windowsHide: true })).stdout.trim();
+  // A local branch named like the PR's makes "git switch" use it; otherwise it creates one tracking origin.
+  await execFileP("git", ["-C", wt, "switch", head], { windowsHide: true });
+  if (orcaBranch && orcaBranch !== head) await execFileP("git", ["-C", wt, "branch", "-D", orcaBranch], { windowsHide: true }).catch(e => log("could not delete " + orcaBranch + ": " + e.message));
+  await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude", "--focus");
+  log("created " + wt + " on " + head + " for " + card);
+  fs.appendFileSync(eventsLog, `${card} ${wt}: worktree created from the dashboard\n`);
 }
 
 // ---- HTTP -----------------------------------------------------------------------------------
