@@ -176,8 +176,9 @@ lowest-stakes step.
 
 ## Stage 4 — Promote
 
-1. **Mark the PR ready for review**: `gh pr ready <n>`. Do **not** request a specific
-   reviewer — choosing a reviewer is the developer's call, made outside this skill. If Stage 1
+1. **Mark the PR ready for review**: `gh pr ready <n>`. Do **not** request a reviewer.
+   The team usually doesn't assign one, so un-drafting is the whole handoff: don't list "choose a
+   reviewer" as something left to do. If Stage 1
    already found `isDraft: false` (the author un-drafted it by hand), skip the call and say so —
    but still do step 2, which is precisely the case that leaves a stale report behind.
 2. **Correct the published preflight report's PR-state chip.** Preflight's report page lives at a
