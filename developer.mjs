@@ -65,7 +65,13 @@ async function resolve(rec) {
   if (!rec.youtrack?.login) {
     const names = [...new Set([rec.git, rec.name].filter(Boolean))];
     const found = new Map();
-    for (const n of names) for (const u of await youtrackUsers(n)) found.set(u.login, u);
+    try {
+      for (const n of names) for (const u of await youtrackUsers(n)) found.set(u.login, u);
+    } catch (error) {
+      problems.push(`YouTrack login unknown, and YouTrack can't be searched for it: ${error.message}`);
+      rec.name ||= rec.git;
+      return { rec, problems };
+    }
     const lower = s => (s || "").toLowerCase();
     const exact = [...found.values()].filter(u =>
       names.some(n => lower(u.login) === lower(n) || lower(u.fullName) === lower(n)));
@@ -107,9 +113,13 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { rec: done, problems } = await resolve(rec);
   // A login set by hand gets its full name from YouTrack when the Bot can see it.
   if (done.youtrack?.login && !done.youtrack.fullName) {
-    const u = (await youtrackUsers(done.youtrack.login)).find(x => x.login === done.youtrack.login);
+    const users = await youtrackUsers(done.youtrack.login).catch(error => {
+      problems.push(`YouTrack can't be searched for ${done.youtrack.login}'s full name: ${error.message}`);
+      return undefined;
+    });
+    const u = users?.find(x => x.login === done.youtrack.login);
     if (u) done.youtrack.fullName = u.fullName;
-    else problems.push(`YouTrack has no active user with login ${done.youtrack.login}.`);
+    else if (users) problems.push(`YouTrack has no active user with login ${done.youtrack.login}.`);
   }
   save(done);
   console.log(JSON.stringify(done, null, 2));
