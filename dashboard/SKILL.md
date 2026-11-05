@@ -144,7 +144,8 @@ The server appends lines to `~/.claude/bloom-dashboard/events.log`, each startin
   merged or closed, a new or changed preflight report, new commits, a push, a worktree added or removed;
 - when the page's Create button makes a worktree: `BL-16549 <path>: worktree created from the
   dashboard`;
-- `orca error`, `orca answers again` and `gather error` lines, when Orca or the gather fails.
+- `orca error` and `gather error` when Orca or the gather starts failing, each written once
+  however long it lasts, and `orca answers again` and `gather works again` when it recovers.
 
 Start a Monitor on `node <this folder>/watch-events.mjs` with `timeout_ms` 1800000, and re-arm it
 when it expires, for as long as the developer wants the board kept live. It saves its place in

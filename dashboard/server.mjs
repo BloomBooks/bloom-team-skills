@@ -111,6 +111,9 @@ async function pollAgents() {
 // states do. Skipped until the session has written a first facts.json.
 const readFacts = () => { try { return JSON.parse(fs.readFileSync(factsFile, "utf8")); } catch { return null; } };
 let gathering = false;
+// The error last logged, so a failure that repeats every pass (Orca down for an hour) is logged
+// once, with one more line when gathering works again.
+let gatherFailing = null;
 async function regather() {
   const prev = readFacts();
   if (!prev || gathering) return;
@@ -122,10 +125,18 @@ async function regather() {
     // The session may have replaced facts.json while gather ran; compare with what is there now.
     const lines = diffFacts(readFacts() || prev, next);
     fs.renameSync(tmp, factsFile);
+    if (gatherFailing) lines.unshift("gather works again");
+    gatherFailing = null;
     if (lines.length) fs.appendFileSync(eventsLog, lines.join("\n") + "\n");
     log(`regathered: ${lines.length} changes`);
   } catch (e) {
-    fs.appendFileSync(eventsLog, "gather error: " + String(e.stderr || e.message).trim().split("\n").pop() + "\n");
+    // Node ends an uncaught error's output with its own version line; the line that names the
+    // error ("Error: orca worktree list failed; is Orca running?") is the one worth logging.
+    const out = String(e.stderr || e.message).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const error = out.find(l => /^\w*Error\b/.test(l)) ?? out[0] ?? "no output";
+    if (error !== gatherFailing) fs.appendFileSync(eventsLog, "gather error: " + error + "\n");
+    else log("gather error again: " + error);
+    gatherFailing = error;
     fs.rmSync(tmp, { force: true });
   } finally {
     gathering = false;
