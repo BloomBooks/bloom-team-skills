@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-11-06 — Moving a BloomDesktop worktree to another release line leaves output/browser from the old one
+
+- **Cut:** `git checkout -B <branch> origin/Version6.5` in a worktree last built on master kept master's `output/browser`. The full C# suite then failed 18 appearance tests (`AppearanceSettingsTests` OneTimeSetUp IndexOutOfRange; `CreateBookOnDiskFromTemplate_KnownConflictingCss_MigratesToKnownTheme` expected `zero-margin-ebook`, got `edge-to-edge`), because `output/browser/appearanceThemes` held master's themes. Nothing said the build output came from another branch.
+- **Idea:** When `work-on-youtrack` or an agent moves a worktree across release lines, rebuild the content files (`pnpm build:appearance` and `build:appearanceMigrations` in `src/content` fixed it here), or note in TEAM-AGENTS.md's tooling traps that unexpected theme/CSS test failures after a base change mean stale `output/browser`.
+- **Context:** BloomDesktop BL-16778 (PR 8551), preflight by Claude Opus 5.5.
+
 ## 2026-10-22 — wrangler run inside a repo rewrites that repo
 
 - **Cut:** wrangler 4.152, run in a folder that has no `wrangler.jsonc`, configures the project it finds there for Workers. `wrangler pages project create` does this too, because it now hands Pages over to Workers. Run in a lameta checkout, it added `wrangler` to `package.json`, changed `pnpm-lock.yaml` and `vite.config.ts`, and ran `pnpm install`, which removed 128 packages. The command then failed with `ERR_PNPM_IGNORED_BUILDS`, and the only hint about the changes was in its log file.
