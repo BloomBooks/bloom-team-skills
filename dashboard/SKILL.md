@@ -118,7 +118,7 @@ button that runs it in the worktree's Claude session.
 The rows live in `~/.claude/bloom-dashboard/`, which the server reads every few seconds:
 
 - `board.json`: `{ "board": "<the facts' board, e.g. Bloom 6.6>" }`, or `""` for every board.
-  The page's heading reads "Your active cards for version 6.6" from it.
+  The page's top bar shows the version from it, e.g. "John's work on version 6.6 board".
 - `rows/<card id>.json`: one file per card (or a short slug for one cleanup row that lists
   several stale cards). Delete the file of a card that left the board. Rows left by an earlier
   session are claims from then: check every one against the new facts and rewrite it.
@@ -228,7 +228,7 @@ highlighted, and has no close box (one clicked earlier is forgotten):
   prefix in front (e.g. `JohnThomson/`). The server then writes a "created from the dashboard"
   line to `events.log` (step 5).
 - **The close box** (an X, on a finished or reviewed line) hides that line; see "Finished cards".
-- **Check now** (beside "checked at") runs the server's gather straight away instead of waiting
+- **Refresh** (in the top bar, after "Checked 5 minutes ago") runs the server's gather straight away instead of waiting
   for the next 15-minute one, and writes its changes to `events.log` the same way (step 5). A
   click during a gather waits for that gather. Before the session's first `facts.json` it says to
   run `/dashboard`.

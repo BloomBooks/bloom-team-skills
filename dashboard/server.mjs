@@ -127,7 +127,7 @@ const readFacts = () => { try { return readJson(factsFile); } catch { return nul
 // The error last logged, so a failure that repeats every pass (Orca down for an hour) is logged
 // once, with one more line when gathering works again.
 let gatherFailing = null;
-// The gather in progress, so that the page's Check now during a scheduled gather waits for that one
+// The gather in progress, so that the page's Refresh during a scheduled gather waits for that one
 // instead of starting a second. Resolves to null, or to why it could not gather.
 let running = null;
 function regather() {

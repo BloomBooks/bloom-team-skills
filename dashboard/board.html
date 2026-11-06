@@ -30,11 +30,11 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .toolbar-mark { display: block; width: 28px; height: 28px; flex: none; }
 .toolbar-name { font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .toolbar-who { margin-left: auto; font-family: var(--font-body); font-size: 14px; font-weight: 500; color: #E6EAF0; font-variant-numeric: tabular-nums; }
-.toolbar-tag { font-family: var(--font-mono); font-size: 12px; color: #C9CDD4; border: 1px solid #3A3E47; border-radius: 999px; padding: 2px 10px; }
 .wrap { max-width: 1040px; margin: 0 auto; padding-block: 24px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
 header h1 { margin: 0; font-size: 22px; font-weight: 600; text-wrap: balance; }
 header p { margin: 4px 0 0; color: var(--muted); }
 #note { color: var(--you); }
+header:has(#note[hidden]) { display: none; }
 /* Each group's heading sits close to its own table and well clear of the table above. */
 #groups { display: grid; gap: 40px; }
 section.group { display: grid; gap: 12px; }
@@ -93,10 +93,14 @@ button.done { display: inline-grid; place-items: center; width: 20px; height: 20
 button.done svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 button.done:hover { color: var(--fg); box-shadow: inset 0 0 0 1px var(--muted); }
 button.done:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-button.check { font: inherit; font-size: 12px; font-weight: 500; color: var(--accent); background: none; border: 0; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px currentColor; padding: 1px 8px; margin-left: 6px; cursor: pointer; }
-button.check:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-button.check:disabled { color: var(--muted); cursor: progress; }
-button.check:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toolbar-checked { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+button.refresh { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; font-weight: 500; color: #E6EAF0; background: none; border: 1px solid #3A3E47; border-radius: var(--radius-sm); padding: 4px 10px; cursor: pointer; }
+button.refresh:hover:not(:disabled) { background: #232730; }
+button.refresh:disabled { color: var(--muted); cursor: progress; }
+button.refresh:disabled svg { animation: spin 1s linear infinite; }
+button.refresh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { button.refresh:disabled svg { animation: none; } }
 /* Reviewed cards back in Ready For Code Review: green when the author has answered since your
    last comment; amber when the card is probably in the wrong State (the author hasn't answered,
    so it belongs in Has Comments, or the PR is merged, so it belongs in Ready For Testing). */
@@ -112,16 +116,15 @@ ul.finished li.fu-forgot .fu, ul.finished li.fu-merged .fu { color: var(--you); 
 <div class="toolbar" role="banner">
   <div class="toolbar-row">
     <img class="toolbar-mark" src="data:image/svg+xml,%3Csvg%20width%3D%2216%22%20height%3D%2214%22%20viewBox%3D%220%200%2016%2014%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20clip-path%3D%22url(%23clip0_4292_96)%22%3E%3Cpath%20d%3D%22M13.303%202.69536C11.9231%201.32364%2010.064%200.541904%208.11844%200.515232C6.17288%200.488559%204.2931%201.21904%202.87605%202.55242C1.45899%203.88579%200.615599%205.7177%200.523956%207.66128C0.432313%209.60487%201.0996%2011.508%202.3849%2012.9688L2.39052%2012.9751C2.40084%2012.986%202.41052%2012.9972%202.42177%2013.0079C2.4449%2013.0341%202.47115%2013.0638%202.50209%2013.0947C2.62341%2013.2237%202.77006%2013.3262%202.93283%2013.3959C3.09561%2013.4656%203.27102%2013.5009%203.44807%2013.4997C3.62513%2013.4984%203.80003%2013.4607%203.96182%2013.3887C4.12361%2013.3168%204.26881%2013.2122%204.38834%2013.0816C4.84823%2012.5818%205.40681%2012.1828%206.02878%2011.9099C6.65075%2011.637%207.32257%2011.4961%208.00177%2011.4961C8.68098%2011.4961%209.3528%2011.637%209.97477%2011.9099C10.5967%2012.1828%2011.1553%2012.5818%2011.6152%2013.0816C11.7356%2013.2129%2011.882%2013.3178%2012.045%2013.3896C12.2081%2013.4615%2012.3843%2013.4986%2012.5625%2013.4988C12.7406%2013.499%2012.9169%2013.4622%2013.0801%2013.3907C13.2433%2013.3192%2013.3899%2013.2146%2013.5105%2013.0835L13.6108%2012.9741L13.6165%2012.9679C14.8829%2011.5378%2015.5557%209.67833%2015.4977%207.76902C15.4396%205.8597%2014.655%204.04455%2013.304%202.69411L13.303%202.69536ZM7.4999%203.00005C7.4999%202.86744%207.55258%202.74027%207.64635%202.6465C7.74011%202.55273%207.86729%202.50005%207.9999%202.50005C8.13251%202.50005%208.25968%202.55273%208.35345%202.6465C8.44722%202.74027%208.4999%202.86744%208.4999%203.00005V4.00005C8.4999%204.13266%208.44722%204.25984%208.35345%204.3536C8.25968%204.44737%208.13251%204.50005%207.9999%204.50005C7.86729%204.50005%207.74011%204.44737%207.64635%204.3536C7.55258%204.25984%207.4999%204.13266%207.4999%204.00005V3.00005ZM3.9999%208.50005H2.9999C2.86729%208.50005%202.74011%208.44737%202.64635%208.35361C2.55258%208.25984%202.4999%208.13266%202.4999%208.00005C2.4999%207.86744%202.55258%207.74027%202.64635%207.6465C2.74011%207.55273%202.86729%207.50005%202.9999%207.50005H3.9999C4.13251%207.50005%204.25968%207.55273%204.35345%207.6465C4.44722%207.74027%204.4999%207.86744%204.4999%208.00005C4.4999%208.13266%204.44722%208.25984%204.35345%208.35361C4.25968%208.44737%204.13251%208.50005%203.9999%208.50005ZM5.5249%205.52505C5.43114%205.61875%205.30401%205.67138%205.17146%205.67138C5.03891%205.67138%204.91178%205.61875%204.81802%205.52505L4.11084%204.81818C4.01706%204.7244%203.96437%204.59721%203.96437%204.46458C3.96437%204.33196%204.01706%204.20477%204.11084%204.11099C4.20461%204.01721%204.33181%203.96453%204.46443%203.96453C4.59705%203.96453%204.72424%204.01721%204.81802%204.11099L5.5249%204.81818C5.6186%204.91193%205.67123%205.03906%205.67123%205.17161C5.67123%205.30417%205.6186%205.43129%205.5249%205.52505ZM10.1905%206.24693L8.70615%208.6063C8.64542%208.69046%208.57156%208.76432%208.4874%208.82505C8.28422%208.9668%208.03333%209.02269%207.78919%208.98061C7.54505%208.93852%207.32736%208.80185%207.18337%208.60025C7.03937%208.39866%206.98069%208.14841%207.02006%207.90382C7.05943%207.65923%207.19367%207.44003%207.39365%207.2938L9.75302%205.80943C9.80666%205.77204%209.87046%205.752%209.93584%205.752C10.0012%205.752%2010.065%205.77204%2010.1186%205.80943C10.186%205.85806%2010.2314%205.93137%2010.2448%206.01335C10.2583%206.09533%2010.2388%206.1793%2010.1905%206.24693ZM11.1818%205.52505C11.0872%205.61486%2010.9614%205.66419%2010.831%205.66252C10.7006%205.66085%2010.576%205.60832%2010.4838%205.51612C10.3916%205.42391%2010.3391%205.29934%2010.3374%205.16896C10.3358%205.03858%2010.3851%204.91271%2010.4749%204.81818L11.1818%204.11099C11.2756%204.01721%2011.4027%203.96453%2011.5354%203.96453C11.668%203.96453%2011.7952%204.01721%2011.889%204.11099C11.9827%204.20477%2012.0354%204.33196%2012.0354%204.46458C12.0354%204.59721%2011.9827%204.7244%2011.889%204.81818L11.1818%205.52505ZM12.9999%208.50005H11.9999C11.8673%208.50005%2011.7401%208.44737%2011.6463%208.35361C11.5526%208.25984%2011.4999%208.13266%2011.4999%208.00005C11.4999%207.86744%2011.5526%207.74027%2011.6463%207.6465C11.7401%207.55273%2011.8673%207.50005%2011.9999%207.50005H12.9999C13.1325%207.50005%2013.2597%207.55273%2013.3535%207.6465C13.4472%207.74027%2013.4999%207.86744%2013.4999%208.00005C13.4999%208.13266%2013.4472%208.25984%2013.3535%208.35361C13.2597%208.44737%2013.1325%208.50005%2012.9999%208.50005Z%22%20fill%3D%22%23D97757%22%2F%3E%3C%2Fg%3E%3Cdefs%3E%3CclipPath%20id%3D%22clip0_4292_96%22%3E%3Crect%20width%3D%2216%22%20height%3D%2214%22%20fill%3D%22white%22%2F%3E%3C%2FclipPath%3E%3C%2Fdefs%3E%3C%2Fsvg%3E" alt="">
-    <span class="toolbar-name">Dashboard</span>
-    <span class="toolbar-tag">bloom-team skill</span>
+    <span class="toolbar-name">Bloom Developer Dashboard</span>
     <span class="toolbar-who" id="bar-who"></span>
+    <span class="toolbar-checked" id="checked"></span>
+    <button type="button" class="refresh" id="check-now" title="Gather cards, PRs and branches from YouTrack, GitHub and git again now, instead of waiting for the next check every 15 minutes. Agents' states are always live."><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg><span id="check-label">Refresh</span></button>
   </div>
 </div>
 
 <div class="wrap">
   <header>
-    <h1 id="heading">Your active cards</h1>
-    <p id="fresh"><span id="fresh-text"></span> <button type="button" class="check" id="check-now" title="Gather cards, PRs and branches from YouTrack, GitHub and git again now, instead of waiting for the next check">Check now</button></p>
     <p id="note" hidden></p>
   </header>
 
@@ -233,12 +236,14 @@ function cardLabel(d) {
   return d.cardUrl ? link(d.cardUrl, d.card) : document.createTextNode(d.card || "");
 }
 
-// A row's ISO timestamp as "11-03 14:02" in the viewer's own time zone.
+const isToday = t => t.toDateString() === new Date().toDateString();
+// A row's ISO timestamp as "11-03 14:02", or "today 14:02", in the viewer's own time zone.
 function localTime(iso) {
   const t = new Date(iso || "");
   if (isNaN(t)) return "";
   const two = n => String(n).padStart(2, "0");
-  return `${two(t.getMonth() + 1)}-${two(t.getDate())} ${two(t.getHours())}:${two(t.getMinutes())}`;
+  const day = isToday(t) ? "today" : `${two(t.getMonth() + 1)}-${two(t.getDate())}`;
+  return `${day} ${two(t.getHours())}:${two(t.getMinutes())}`;
 }
 
 function render(items) {
@@ -279,11 +284,12 @@ function render(items) {
   }
 }
 
-// A finish time as "Thu 11-05 14:02", so "since last standup" reads at a glance; a year other than
-// this one goes in front ("2024 Thu 04-25 13:30").
+// A finish time as "Thu 11-05 14:02", or "today 14:02", so "since last standup" reads at a glance;
+// a year other than this one goes in front ("2024 Thu 04-25 13:30").
 function finishedTime(iso) {
   const t = new Date(iso || "");
   if (isNaN(t)) return "";
+  if (isToday(t)) return localTime(iso);
   const year = t.getFullYear() === new Date().getFullYear() ? "" : t.getFullYear() + " ";
   return year + t.toLocaleDateString([], { weekday: "short" }) + " " + localTime(iso);
 }
@@ -354,31 +360,38 @@ async function refresh() {
   lastJson = json;
   showNote(state.rows.length ? "" : "No cards yet. Claude adds them after gathering.");
   const version = (state.board || "").replace(/^Bloom\s+/i, "");
-  const text = version ? "Your active cards for version " + version : "Your active cards";
-  document.getElementById("heading").textContent = text;
-  document.getElementById("bar-who").textContent = [state.developer, version].filter(Boolean).join(" · ");
-  // The server gathers YouTrack, GitHub and git facts again every 15 minutes; live agent states
-  // come every few seconds and are not part of this time.
-  const at = state.gatheredAt ? new Date(state.gatheredAt) : null;
-  document.getElementById("fresh-text").textContent = at
-    ? "Cards, PRs and branches checked at " + at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + "; agents are live."
-    : "";
+  document.getElementById("bar-who").textContent = (state.developer ? state.developer + "'s work" : "Your work")
+    + (version ? " on version " + version + " board" : " on every board");
+  gatheredAt = state.gatheredAt ? new Date(state.gatheredAt) : null;
+  showChecked();
   render(withLiveAgents(state.rows, state.agents));
   renderList("finished", state.finished);
   renderList("reviewed", state.reviewed);
 }
-// Check now: the server gathers again (about 20 s) and the page shows the result.
+// When the server last gathered YouTrack, GitHub and git facts (every 15 minutes, or on Refresh),
+// shown as "Checked 5 minutes ago". Agents' states come every few seconds and are not part of it.
+let gatheredAt = null;
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+function showChecked() {
+  const el = document.getElementById("checked");
+  if (!gatheredAt) { el.textContent = ""; el.title = ""; return; }
+  const minutes = Math.round((Date.now() - gatheredAt) / 60000);
+  el.textContent = "Checked " + (minutes < 1 ? "just now" : minutes < 60 ? relative.format(-minutes, "minute") : relative.format(-Math.round(minutes / 60), "hour"));
+  el.title = "Cards, PRs and branches checked at " + gatheredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+// Refresh: the server gathers again (about 20 s) and the page shows the result.
 document.getElementById("check-now").addEventListener("click", async e => {
-  const b = e.currentTarget;
+  const b = e.currentTarget, label = document.getElementById("check-label");
   b.disabled = true;
-  b.textContent = "Checking…";
-  await post("/api/gather", {}, "Couldn't check");
+  label.textContent = "Refreshing…";
+  await post("/api/gather", {}, "Couldn't refresh");
   b.disabled = false;
-  b.textContent = "Check now";
+  label.textContent = "Refresh";
   refresh();
 });
 refresh();
 setInterval(refresh, 3000);
+setInterval(showChecked, 30000);
 </script>
 </body>
 </html>
