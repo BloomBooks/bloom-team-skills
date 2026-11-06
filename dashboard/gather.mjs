@@ -176,7 +176,7 @@ try { finished = await finishedCards((p, params) => yt(bot, p, params), dev.yout
 catch (e) { console.warn("could not list finished cards: " + e.message); }
 // The cards whose PRs the developer reviewed lately (reviewed.mjs); null in the same way.
 let reviewed = null;
-try { reviewed = await reviewedCards((p, params) => yt(bot, p, params), dev.github); }
+try { reviewed = await reviewedCards((p, params) => yt(bot, p, params), dev.github, dev.youtrack.login); }
 catch (e) { console.warn("could not list reviewed cards: " + e.message); }
 
 const result = { gatheredAt: new Date().toISOString(), board, boardActivity, cards: kept, finished, reviewed, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };

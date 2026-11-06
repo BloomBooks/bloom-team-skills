@@ -193,7 +193,10 @@ going back to In Progress or Has Comments forgets the Done. `node finished.mjs` 
 
 Below Finished, the page lists in the same way the PRs the developer has reviewed: BloomBooks PRs
 opened by someone else where the developer's latest comment or review is from the last 7 days.
-Reviewable's comments reach GitHub as the reviewer's reviews, so they count. A PR shows as one
+Reviewable's comments reach GitHub as the reviewer's reviews, so they count. A comment an agent
+posted for the developer (starting `[Claude …]`, as preflight's and devin-review's do) does not
+count, and a card the developer is or was assigned to is left off: that is their own work even
+when someone else's account opened the PR (the Bloom bot opens PRs as Hatton). A PR shows as one
 line per card its title (or else its branch) names, with the card's title and State and a link to
 the PR; a PR that names no card shows under its own title as `<repo>#<number>`. The time is the
 developer's latest comment on the PR. `gather.mjs` puts them in `facts.json` as `reviewed` (from

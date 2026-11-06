@@ -7,6 +7,12 @@
 // State from YouTrack; a PR that names no card is one line under its own title.
 // commentedAt is the developer's latest comment or review on the PR.
 //
+// Two kinds of activity are not reviewing. A comment an agent posted for the developer (preflight,
+// devin-review: it starts with "[Claude ...]") shows them running the PR, so it is ignored. And a
+// card the developer is or was assigned to is their own work, even when the PR was opened under
+// someone else's GitHub account (the Bloom bot opens PRs as Hatton), so it is left off; such a card
+// shows in the Finished list instead.
+//
 // A card in Ready For Code Review gets a followUp (see followUp below) and sorts first. A review
 // older than DAYS days is still listed when its card is back in Ready For Code Review and the
 // author has responded since, because the PR is back with the developer, or when its PR is merged
@@ -18,6 +24,8 @@ import { execFileSync } from "node:child_process";
 
 const DAYS = 7;
 const CARDS = /\bBL-\d+/gi;
+// The attribution line an agent puts at the start of what it posts as the developer.
+const AGENT_POST = /^\s*\[Claude\b[^\]]*\]/;
 
 function gh(args) {
   try {
@@ -31,12 +39,12 @@ function gh(args) {
 }
 
 /**
- * yt(path, params) calls the YouTrack REST API and returns the parsed JSON; githubLogin is the
- * developer's GitHub login, and gh must be signed in. Returns
+ * yt(path, params) calls the YouTrack REST API and returns the parsed JSON; githubLogin and
+ * youtrackLogin are the developer's logins, and gh must be signed in. Returns
  * [{ id, url, summary, state, pr, commentedAt }], newest first. id is the card id, or
  * "<repo>#<number>" for a PR that names no card, whose url is then the PR's.
  */
-export async function reviewedCards(yt, githubLogin) {
+export async function reviewedCards(yt, githubLogin, youtrackLogin) {
   const since = Date.now() - DAYS * 864e5;
   const day = new Date(since).toISOString().slice(0, 10);
   const me = githubLogin.toLowerCase();
@@ -60,14 +68,15 @@ export async function reviewedCards(yt, githubLogin) {
   for (let k = 0; k < prs.length; k += 25) {
     const batch = prs.slice(k, k + 25);
     const query = "{" + batch.map(([, p], n) => `p${n}: repository(owner: ${JSON.stringify(p.owner)}, name: ${JSON.stringify(p.repo)}) {
-      pullRequest(number: ${p.number}) { title headRefName merged author { login } comments(last: 100) { nodes { author { login } createdAt } } reviews(last: 100) { nodes { author { login } submittedAt } } commits(last: 1) { nodes { commit { committedDate } } } } }`).join("\n") + "}";
+      pullRequest(number: ${p.number}) { title headRefName merged author { login } comments(last: 100) { nodes { author { login } createdAt body } } reviews(last: 100) { nodes { author { login } submittedAt body } } commits(last: 1) { nodes { commit { committedDate } } } } }`).join("\n") + "}";
     const data = gh(["api", "graphql", "-f", "query=" + query]).data || {};
     batch.forEach(([url, p], n) => {
       const pr = data[`p${n}`]?.pullRequest;
       if (!pr || (pr.author?.login || "").toLowerCase() === me) return;
+      const byMe = n => (n.author?.login || "").toLowerCase() === me && !AGENT_POST.test(n.body || "");
       const mine = [
-        ...pr.comments.nodes.filter(c => (c.author?.login || "").toLowerCase() === me).map(c => c.createdAt),
-        ...pr.reviews.nodes.filter(r => (r.author?.login || "").toLowerCase() === me && r.submittedAt).map(r => r.submittedAt),
+        ...pr.comments.nodes.filter(byMe).map(c => c.createdAt),
+        ...pr.reviews.nodes.filter(r => byMe(r) && r.submittedAt).map(r => r.submittedAt),
       ].sort();
       // An older review still counts if the card turns out to be back in Ready For Code Review
       // with the author's answer (see below), so the window is applied once the State is known.
@@ -91,12 +100,21 @@ export async function reviewedCards(yt, githubLogin) {
   // One line per card, with the card's own title and State.
   const ids = [...new Set(lines.flatMap(l => l.cards))];
   const issues = new Map(await Promise.all(ids.map(async id =>
-    [id, await yt("/issues/" + id, { fields: "summary,customFields(name,value(name))" }).catch(() => null)])));
+    [id, await yt("/issues/" + id, { fields: "summary,customFields(name,value(name,login))" }).catch(() => null)])));
+  // The cards the developer is or was assigned to: their own work, not a review.
+  const own = new Set(await Promise.all(ids.map(async id => {
+    const assignee = issues.get(id)?.customFields?.find(c => c.name === "Assignee")?.value;
+    if ([assignee].flat().some(u => u?.login === youtrackLogin)) return id;
+    const history = await yt(`/issues/${id}/activities`, { categories: "CustomFieldCategory", fields: "field(name),added(login),removed(login)", $top: "2000" }).catch(() => []);
+    const was = history.some(a => a.field?.name === "Assignee" && [...(a.added || []), ...(a.removed || [])].some(u => u?.login === youtrackLogin));
+    return was ? id : null;
+  })));
   const out = [];
   const recent = l => Date.parse(l.commentedAt) >= since;
   for (const l of lines) {
     if (!l.cards.length) { if (recent(l)) out.push({ id: `${l.repo}#${l.number}`, url: l.url, summary: l.title, state: "", pr: l.url, commentedAt: l.commentedAt }); continue; }
     for (const id of l.cards) {
+      if (own.has(id)) continue;
       const i = issues.get(id);
       const state = i?.customFields?.find(c => c.name === "State")?.value?.name ?? "";
       // Past the window, only a card the author has sent back to the developer, or one whose PR
@@ -139,5 +157,6 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
     if (!r.ok) throw new Error(`YouTrack ${p}: ${r.status} ${await r.text()}`);
     return r.json();
   };
-  for (const c of await reviewedCards(yt, (await developer()).github)) console.log(`${c.commentedAt}  ${(c.followUp || "").padEnd(9)} ${c.id.padEnd(9)} ${c.state.padEnd(21)} ${c.pr.split("/").slice(-3).join("/")}  ${c.summary}`);
+  const dev = await developer();
+  for (const c of await reviewedCards(yt, dev.github, dev.youtrack.login)) console.log(`${c.commentedAt}  ${(c.followUp || "").padEnd(9)} ${c.id.padEnd(9)} ${c.state.padEnd(21)} ${c.pr.split("/").slice(-3).join("/")}  ${c.summary}`);
 }
