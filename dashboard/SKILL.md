@@ -131,12 +131,12 @@ past a mark, but PowerShell's `Set-Content` and `Out-File` add one, and other re
 | `card`, `cardUrl`, `title` | id, YouTrack URL, a short title |
 | `ytState` | the card's YouTrack State, shown as a pill beside the id |
 | `group`, `order`, `who` | from step 3 |
-| `status` | one or two sentences on where it stands now |
-| `next` | the next step, or the developer's question |
+| `status` | how far the work itself has got toward review, in one short sentence of about ten words: code written or not, PR, conflicts, CI, preflight, review, blockers. "Draft PR conflicts with master; CI green." Worktrees made and agents started or stopped are not progress (the Orca button and the Status pill show those), and branch names, commit hashes and commit counts belong in the PR and the worktree |
+| `next` | the next step or the developer's question, just as short |
 | `nextSkill` | `preflight` or `pr-ready-for-human`, when the next step is that skill |
 | `pr` | PR URL |
 | `report`, `reportDecisions` | the PR's `report` and `reportDecisions` from the facts; the page shows a pill linking to the report |
-| `worktree` | worktree path; the page shows an "Orca Worktree" button and the path, which opens in VS Code |
+| `worktree` | worktree path; the page shows the path, which opens in VS Code, and the row's Orca button opens the worktree |
 | `updated` | ISO timestamp of this write |
 
 Then give the developer the URL and a few lines on what changed, leading with what waits for them.
@@ -215,14 +215,14 @@ highlighted, and has no close box (one clicked earlier is forgotten):
 
 ## The buttons
 
-- **Orca Worktree** (on a row with a worktree, and on its Status pill) switches Orca to the
-  worktree's agent terminal or, with no agent there, opens a "Claude" terminal running
+- **The Orca button** (Orca's logo, in the row's lower right corner under the time, and the
+  Status pill) on a row with a worktree switches Orca to the worktree's agent terminal or, with no agent there, opens a "Claude" terminal running
   `claude --continue || claude`.
 - **The worktree's path** opens that folder in VS Code (`code <path>`).
 - **Preflight** and **Make ready for reviewer** type `/preflight` or `/pr-ready-for-human` into
   the worktree's Claude terminal, or start one with `claude --continue /<skill>` when there is
   none. When Claude is busy there, the server refuses and the page says so.
-- **Create & Open Orca Worktree** (on a row without one) makes a worktree and starts Claude in it.
+- **The Orca button with a sparkle** (on a row without a worktree) makes one and starts Claude in it.
   With a PR it checks out the PR's branch; without one Orca makes a branch named
   `<card>-<first three words of the title>` from the repo's default base, with Orca's branch
   prefix in front (e.g. `JohnThomson/`). The server then writes a "created from the dashboard"

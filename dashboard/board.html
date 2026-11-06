@@ -59,7 +59,13 @@ td.card .id { font-family: var(--font-mono); font-size: 12.5px; }
 td.card .title { color: var(--fg); font-weight: 600; line-height: 1.3; }
 td.who { width: 170px; }
 .pills { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-td.upd { width: 100px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+td.upd { width: 100px; position: relative; padding-bottom: 56px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The Orca button sits in the row's lower right corner, under the time. */
+button.orca-icon { position: absolute; right: 10px; bottom: 8px; display: grid; place-items: center; width: 52px; height: 42px; padding: 0; color: #fff; background: color-mix(in srgb, var(--accent), #000 40%); border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+button.orca-icon:hover { filter: brightness(1.12); }
+button.orca-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.orca-icon svg { display: block; overflow: visible; }
+button.orca-icon .sparkle { position: absolute; top: -9px; right: -9px; fill: var(--you); }
 .next { display: block; color: var(--fg); margin-top: 3px; font-size: 13px; }
 .next b { font-weight: 600; }
 a { color: var(--accent); text-decoration: none; }
@@ -205,6 +211,23 @@ function closeBox(title, onClick) {
   b.innerHTML = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1l8 8M9 1l-8 8"/></svg>';
   return b;
 }
+// Orca's own logo (resources/logo.svg in Orca's install), drawn in the button's colour, in a
+// viewBox cropped to the logo so that the button centres it. With `isNew`, a sparkle over the
+// button's upper right corner says that the button makes the worktree first.
+const ORCA_PATH = "m 177.81311,248.33334 c 23.82304,-41.29793 40.54045,-66.84626 49.51207,-75.66667 6.81685,-6.70196 10.07373,-8.7374 20.07265,-12.54475 34.57822,-13.16655 61.04674,-26.78733 72.37222,-37.24295 9.62924,-8.88966 9.34286,-9.01142 -23.43671,-9.964 -35.71756,-1.03796 -43.72989,0.42119 -62.17546,11.323 -16.72118,9.88265 -34.20103,30.11225 -42.74704,49.47157 -2.57353,5.82985 -14.81294,44.3056 -27.96399,87.90747 -2.86036,9.48343 -3.02466,11.71633 -0.86213,11.71633 0.44382,0 7.29659,-11.25 15.22839,-25 z m -65.14644,-8.32267 C 120,239.3326 130.5,237.50979 136,235.95998 c 5.5,-1.5498 12.25,-3.13783 15,-3.52895 2.75,-0.39111 5,-0.95485 5,-1.25275 0,-0.29789 2.15135,-7.58487 4.78078,-16.19328 8.49209,-27.80201 12.21334,-40.41629 21.13747,-71.65166 4.81891,-16.86667 11.23502,-39.185 14.25802,-49.596301 5.12803,-17.66103 5.74763,-23.07037 2.64253,-23.07037 -1.84887,0 -4.07048,6.908293 -16.72243,52.000001 -21.78975,77.65896 -20.80806,74.74393 -26.84794,79.72251 -7.5925,6.25838 -25.03916,14.82524 -36.10856,17.73044 -17.0947,4.48656 -33.410599,3.86724 -53.116765,-2.01622 -18.569242,-5.54403 -23.142662,-5.80284 -33.639754,-1.9037 -5.875424,2.18242 -9.864152,5.04363 -16.716684,11.99127 -4.95,5.0187 -9.0000001,10.02884 -9.0000001,11.13364 0,1.75174 5.9276921,2.00299 46.3333351,1.96383 25.483334,-0.0247 52.333338,-0.59969 59.666668,-1.27777 z M 252.69513,104.63708 c 12.18267,-3.48651 15.77304,-7.895503 9.63821,-11.835773 -10.19296,-6.546726 -36.19849,-1.77301 -41.19436,7.561863 -1.2556,2.3461 -0.98698,3.2037 1.68353,5.375 2.69471,2.19098 4.59991,2.47691 12.53928,1.88189 5.14899,-0.3859 12.94899,-1.72824 17.33334,-2.98298 z";
+function orcaIcon(isNew) {
+  const sparkle = isNew ? '<svg class="sparkle" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M10 0 Q11.4 8.6 20 10 Q11.4 11.4 10 20 Q8.6 11.4 0 10 Q8.6 8.6 10 0 Z"/></svg>' : "";
+  return `<svg viewBox="6.67 88 318.6 186" width="36" height="21" aria-hidden="true"><path fill="currentColor" d="${ORCA_PATH}"/></svg>${sparkle}`;
+}
+// The row's Orca button: opens its worktree, or makes one first when it has none.
+function orcaButton(d) {
+  const b = rowLink(d);
+  if (!b) return null;
+  b.className = "orca-icon";
+  b.setAttribute("aria-label", b.title);
+  b.innerHTML = orcaIcon(!d.worktree);
+  return b;
+}
 function orcaLink(path, text) {
   return action("orca", "Show this worktree in Orca", text || "Open in Orca", () => post("/api/open", { path }));
 }
@@ -265,8 +288,8 @@ function render(items) {
     if (!rows.length) continue;
     const tbody = el("tbody");
     for (const d of rows) {
-      // The card column: the card and its State, its title, then its PR, its Orca worktree and the
-      // worktree's folder, which opens in VS Code.
+      // The card column: the card and its State, its title, then its PR and the worktree's folder,
+      // which opens in VS Code.
       const cell = el("div", { class: "card-cell" },
         el("span", { class: "title" }, d.title || ""),
         el("span", { class: "meta" },
@@ -275,9 +298,7 @@ function render(items) {
       const card = el("td", { class: "card" }, cell);
       const links = el("span", { class: "links" });
       if (d.pr) links.append(link(d.pr, "PR " + d.pr.split("/").pop()));
-      if (d.worktree) links.append(orcaLink(d.worktree, "Orca Worktree"),
-        action("orca wt", "Open this folder in VS Code", d.worktree, () => post("/api/vscode", { path: d.worktree })));
-      else { const c = rowLink(d); if (c) links.append(c); }
+      if (d.worktree) links.append(action("orca wt", "Open this folder in VS Code", d.worktree, () => post("/api/vscode", { path: d.worktree })));
       if (links.childNodes.length) cell.append(links);
       tbody.append(el("tr", {},
         card,
@@ -285,11 +306,11 @@ function render(items) {
         el("td", {}, d.status || "",
           d.question ? el("span", { class: "question" }, el("b", {}, "Claude asks: "), d.question) : null,
           d.next || d.nextSkill ? el("span", { class: "next" }, el("b", {}, "Next: "), d.next || "", " ", skillButton(d)) : null),
-        el("td", { class: "upd" }, localTime(d.updated)),
+        el("td", { class: "upd" }, localTime(d.updated), orcaButton(d)),
       ));
     }
     const table = el("table", {},
-      el("thead", {}, el("tr", {}, el("th", {}, "Card"), el("th", {}, "Status"), el("th", {}, "Progress"), el("th", {}, "Updated"))),
+      el("thead", {}, el("tr", {}, el("th", {}, "Card"), el("th", {}, "Status"), el("th", {}, "Where it stands"), el("th", {}, "Updated"))),
       tbody);
     groups.append(el("section", { class: "group" }, el("h2", {}, g.name + " ", infoIcon(g.sub, g.key + "-tip")), el("div", { class: "table-scroll" }, table)));
   }
