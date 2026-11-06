@@ -129,13 +129,17 @@ it.**
 
    It finds the clone from that file's own location, then links every skill folder (including
    itself) into `~/.claude/skills` — a symlink on macOS/Linux, a junction on Windows (no
-   Developer Mode or elevation needed).
+   Developer Mode or elevation needed). It also adds a SessionStart hook to
+   `~/.claude/settings.json` that keeps the clone current (see below).
 
 3. **Restart Claude Code** so the newly linked skills are discovered.
 
-After that, `/update-team-skills` is a real slash command: run it any time to pull the latest and
-link any newly added skill (idempotent; safe to re-run). The author of a new skill runs it too,
-since their own commit doesn't trigger a pull.
+After that, the first Claude Code session each day pulls the latest in the background
+(`update-team-skills/auto-update.mjs`) and links any newly added skill; a running session picks
+both up within seconds. The pull happens only when your clone is on `main` with no uncommitted
+changes to tracked files, so skill edits in progress are never touched; each run is logged to
+`~/.claude/bloom-team-skills-update.log`. `/update-team-skills` still does the same thing on demand,
+and installs the hook on a machine set up before it existed.
 
 <details>
 <summary>Prefer to link them by hand (no Claude)?</summary>
