@@ -180,7 +180,7 @@ Assignee in the last 30 days. Cards in review stay however long the review takes
 or closed drop off 7 days after they were finished. Its time is when it last left In Progress or
 Has Comments for one of those States.
 
-The **Done** button records the card and that time in `~/.claude/bloom-dashboard/finished-done.json`,
+The close box (an X, standing for Done) records the card and that time in `~/.claude/bloom-dashboard/finished-done.json`,
 which outlasts server restarts, and hides the card. It comes back if it is finished again later;
 going back to In Progress or Has Comments forgets the Done. `node finished.mjs` prints the list.
 
@@ -196,7 +196,7 @@ developer's latest comment on the PR. `gather.mjs` puts them in `facts.json` as 
 when they comment again. `node reviewed.mjs` prints the list.
 
 A reviewed card in Ready For Code Review needs the developer again, so it comes first, is
-highlighted, and has no Done button (a Done clicked earlier is forgotten):
+highlighted, and has no close box (one clicked earlier is forgotten):
 
 - **Author responded** (green): the PR's author has commented, reviewed or pushed a commit since
   the developer's last comment. Such a card is listed even when that comment is older than 7 days.
@@ -219,7 +219,7 @@ highlighted, and has no Done button (a Done clicked earlier is forgotten):
   `<card>-<first three words of the title>` from the repo's default base, with Orca's branch
   prefix in front (e.g. `JohnThomson/`). The server then writes a "created from the dashboard"
   line to `events.log` (step 5).
-- **Done** (on a finished card) hides that card; see "Finished cards".
+- **The close box** (an X, on a finished or reviewed line) hides that line; see "Finished cards".
 - **Check now** (beside "checked at") runs the server's gather straight away instead of waiting
   for the next 15-minute one, and writes its changes to `events.log` the same way (step 5). A
   click during a gather waits for that gather. Before the session's first `facts.json` it says to

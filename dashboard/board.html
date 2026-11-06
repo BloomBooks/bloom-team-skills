@@ -89,7 +89,9 @@ ul.finished .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ell
 ul.finished .id { font-family: var(--font-mono); font-size: 12.5px; flex: none; }
 ul.finished .when { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
 ul.finished .yt { flex: none; }
-button.done { font: inherit; font-size: 12px; font-weight: 500; color: var(--muted); background: none; border: 0; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--line); padding: 2px 10px; cursor: pointer; flex: none; }
+/* A close box: a small square with an X, which hides the line. */
+button.done { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; color: var(--muted); background: none; border: 0; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; flex: none; }
+button.done svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 button.done:hover { color: var(--fg); box-shadow: inset 0 0 0 1px var(--muted); }
 button.done:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.check { font: inherit; font-size: 12px; font-weight: 500; color: var(--accent); background: none; border: 0; border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px currentColor; padding: 1px 8px; margin-left: 6px; cursor: pointer; }
@@ -128,13 +130,13 @@ ul.finished li.fu-forgot .fu, ul.finished li.fu-merged .fu { color: var(--you); 
 
   <section class="group" id="finished" hidden>
     <h2>Finished</h2>
-    <p class="sub">Cards you handed on to review, testing or closing. Click Done once you no longer need to see one, e.g. after standup; it comes back if the card is finished again.</p>
+    <p class="sub">Cards you handed on to review, testing or closing. Click a card's close box (the X) once you no longer need to see it, e.g. after standup; it comes back if the card is finished again.</p>
     <ul class="finished" id="finished-list"></ul>
   </section>
 
   <section class="group" id="reviewed" hidden>
     <h2>Reviewed</h2>
-    <p class="sub">Other people's PRs you commented on or reviewed in the last 7 days, by card, with when you last commented. Cards back in Ready For Code Review come first: green when the author has responded since your last comment; amber when the card is probably in the wrong State: Has Comments if the author hasn't responded, Ready For Testing if the PR is merged. These stay until the card leaves Ready For Code Review, even if you clicked Done earlier. Done hides any other line until you comment again.</p>
+    <p class="sub">Other people's PRs you commented on or reviewed in the last 7 days, by card, with when you last commented. Cards back in Ready For Code Review come first: green when the author has responded since your last comment; amber when the card is probably in the wrong State: Has Comments if the author hasn't responded, Ready For Testing if the PR is merged. These stay until the card leaves Ready For Code Review, even if you closed them earlier. The close box (the X) hides any other line until you comment again.</p>
     <ul class="finished" id="reviewed-list"></ul>
   </section>
 </div>
@@ -181,6 +183,13 @@ async function post(path, body, failure = "Orca couldn't do that") {
 function action(cls, title, text, onClick) {
   const b = el("button", { type: "button", class: cls, title }, text);
   b.addEventListener("click", onClick);
+  return b;
+}
+// The close box that hides a line of the Finished or Reviewed list (its "Done").
+function closeBox(title, onClick) {
+  const b = action("done", title, null, onClick);
+  b.setAttribute("aria-label", title);
+  b.innerHTML = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 1l8 8M9 1l-8 8"/></svg>';
   return b;
 }
 function orcaLink(path, text) {
@@ -304,7 +313,7 @@ function renderList(name, items) {
     el("span", { class: "when", title: label + " " + new Date(f[time]).toLocaleString() }, finishedTime(f[time])),
     // A card back in Ready For Code Review needs you, so it has no Done: answer the author, or
     // move the card to Has Comments.
-    f.followUp ? null : action("done", doneTitle, "Done", async () => {
+    f.followUp ? null : closeBox(doneTitle, async () => {
       await post("/api/done", { list: name, card: f.id, at: f[time] }, "Couldn't mark it done");
       refresh();
     }))));
