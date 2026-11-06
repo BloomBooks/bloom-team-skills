@@ -21,14 +21,22 @@
 //                  writes it
 //   reviewed-done.json  { "BL-17062": "<commentedAt>" }  the same for the Reviewed list
 //
-// stdout: "DASHBOARD_URL <url>" once listening, or "ALREADY_RUNNING <url> pid <pid>" (exit 3)
-// when another session's server holds the port.
+// A server that finds another dashboard server on its port asks that one to exit (POST
+// /api/handover with the key in handover.key), or kills it when it does not answer that request,
+// then takes the port. The server that was asked prints "REPLACED" and exits 0.
+//
+// The page asks for /api/state every 3 seconds. Once a page has asked, the server exits after
+// IDLE_MINUTES with no request from any page, which is what closing the window does. It prints
+// "WINDOW_CLOSED" first.
+//
+// stdout: "DASHBOARD_URL <url>" once listening, "REPLACED" or "WINDOW_CLOSED" before exiting 0,
+// "PORT_TAKEN" (exit 4) when something other than a dashboard holds the port.
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { exec, execFile } from "node:child_process";
+import { exec, execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { diffFacts } from "./diff-facts.mjs";
@@ -53,6 +61,13 @@ const factsFile = path.join(dataDir, "facts.json");
 const origin = `http://127.0.0.1:${port}`;
 const token = crypto.randomBytes(16).toString("hex");
 const CARD = /\bBL-\d+/i;
+// Chrome slows the timers of a minimized window to one run a minute, so this allows for that.
+const IDLE_MINUTES = 5;
+// A key that every dashboard server of this user shares, so that one can ask another to exit and
+// a web page cannot.
+const handoverKeyFile = path.join(dataDir, "handover.key");
+if (!fs.existsSync(handoverKeyFile)) fs.writeFileSync(handoverKeyFile, crypto.randomBytes(16).toString("hex"));
+const handoverKey = fs.readFileSync(handoverKeyFile, "utf8").trim();
 
 const log = m => fs.appendFileSync(serverLog, `${new Date().toISOString()} ${m}\n`);
 setLog(log);
@@ -197,7 +212,7 @@ function readState() {
   let developer = "";
   try { developer = (readJson(path.join(os.homedir(), ".claude", "bloom-developer.json")).name || "").split(" ")[0]; } catch {}
   const facts = readFacts();
-  return { board, developer, rows, agents, finished: notDone(facts, "finished"), reviewed: notDone(facts, "reviewed"), gatheredAt: facts?.gatheredAt || "" };
+  return { serverPid: process.pid, board, developer, rows, agents, finished: notDone(facts, "finished"), reviewed: notDone(facts, "reviewed"), gatheredAt: facts?.gatheredAt || "" };
 }
 
 // ---- Orca actions ---------------------------------------------------------------------------
@@ -235,18 +250,28 @@ async function createForCard({ card, title, pr }) {
 // ---- HTTP -----------------------------------------------------------------------------------
 function page() {
   const html = fs.readFileSync(path.join(here, "board.html"), "utf8");
-  return html.replace(/<head[^>]*>/i, m => `${m}<script>window.DASHBOARD_TOKEN=${JSON.stringify(token)};</script>`);
+  return html.replace(/<head[^>]*>/i, m => `${m}<script>window.DASHBOARD_TOKEN=${JSON.stringify(token)};window.DASHBOARD_PID=${process.pid};</script>`);
 }
 function send(res, code, body, type = "application/json") {
   res.writeHead(code, { "content-type": type + "; charset=utf-8", "cache-control": "no-store" });
   res.end(typeof body === "string" ? body : JSON.stringify(body));
 }
 
+let lastPageRequest = 0;   // when a page last asked for /api/state; 0 until one has
 const server = http.createServer((req, res) => {
   const pathname = req.url.split("?")[0];
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) return send(res, 200, page(), "text/html");
-  if (req.method === "GET" && req.url === "/api/state") return send(res, 200, readState());
+  if (req.method === "GET" && req.url === "/api/state") { lastPageRequest = Date.now(); return send(res, 200, readState()); }
   if (req.method === "GET" && req.url === "/api/health") return send(res, 200, { dashboard: true, pid: process.pid });
+  if (req.method === "POST" && req.url === "/api/handover") {
+    if (req.headers["x-handover-key"] !== handoverKey) return send(res, 403, { ok: false, error: "forbidden" });
+    send(res, 200, { ok: true });
+    log("handing over to a newer server");
+    console.log("REPLACED by a dashboard server that another session started");
+    server.close();
+    setTimeout(() => process.exit(0), 200);
+    return;
+  }
   if (req.method !== "POST" || !req.url.startsWith("/api/")) return send(res, 404, { ok: false });
   // Only this server's own page knows the token, so other web pages can't drive Orca.
   if (req.headers["x-dashboard-token"] !== token || (req.headers.origin && req.headers.origin !== origin)) return send(res, 403, { ok: false, error: "forbidden" });
@@ -286,17 +311,45 @@ function openAppWindow() {
   log("opened an app window with " + chrome);
 }
 
-server.on("error", async e => {
-  if (e.code === "EADDRINUSE") {
+// The pid of the dashboard server on the port, or null when what holds it is not one. A busy
+// server can miss one request, so this asks three times.
+async function runningDashboardPid() {
+  for (let i = 0; i < 3; i++) {
     try {
-      const h = await (await fetch(origin + "/api/health")).json();
-      if (h.dashboard) {
-        // The developer asked for the dashboard, so show the one that is running.
-        if (openWindow) openAppWindow();
-        console.log(`ALREADY_RUNNING ${origin}/ pid ${h.pid}`);
-        process.exit(3);
-      }
+      const h = await (await fetch(origin + "/api/health", { signal: AbortSignal.timeout(3000) })).json();
+      if (h.dashboard) return h.pid;
     } catch {}
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  return null;
+}
+
+// Asks the running dashboard server to exit, kills it when it does not agree (a server older than
+// /api/handover answers 404), and waits up to 10 s for the port to come free.
+async function takeOver(pid) {
+  let asked = false;
+  try {
+    const r = await fetch(origin + "/api/handover", { method: "POST", headers: { "x-handover-key": handoverKey }, signal: AbortSignal.timeout(3000) });
+    asked = r.ok;
+  } catch {}
+  if (!asked) { try { process.kill(pid); } catch {} }
+  log(`took over from pid ${pid} (${asked ? "asked it to exit" : "killed it"})`);
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 500));
+    try { await fetch(origin + "/api/health", { signal: AbortSignal.timeout(500) }); } catch { return; }
+  }
+}
+
+let tookOver = false;
+server.on("error", async e => {
+  if (e.code === "EADDRINUSE" && !tookOver) {
+    const pid = await runningDashboardPid();
+    if (pid) {
+      tookOver = true;
+      await takeOver(pid);
+      server.listen(port, "127.0.0.1");
+      return;
+    }
     console.log(`PORT_TAKEN ${port} is used by something other than the dashboard; pass --port`);
     process.exit(4);
   }
@@ -304,11 +357,22 @@ server.on("error", async e => {
   process.exit(1);
 });
 
-server.listen(port, "127.0.0.1", async () => {
+server.on("listening", async () => {
   await pollAgents();
   setInterval(pollAgents, 5000);
   setInterval(regather, gatherMinutes * 60000);
+  setInterval(() => {
+    if (lastPageRequest && Date.now() - lastPageRequest > IDLE_MINUTES * 60000) {
+      log("no page for " + IDLE_MINUTES + " minutes; exiting");
+      console.log("WINDOW_CLOSED: no dashboard page has asked for " + IDLE_MINUTES + " minutes");
+      process.exit(0);
+    }
+  }, 30000);
   log("listening on " + origin + " pid " + process.pid);
-  if (openWindow) openAppWindow();
+  // After a takeover, a window left open on the old server asks within 3 s and reloads onto this
+  // one, so open another only when none has asked.
+  if (openWindow && tookOver) setTimeout(() => { if (!lastPageRequest) openAppWindow(); }, 8000);
+  else if (openWindow) openAppWindow();
   console.log(`DASHBOARD_URL ${origin}/`);
 });
+server.listen(port, "127.0.0.1");

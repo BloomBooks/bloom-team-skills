@@ -45,16 +45,21 @@ Address the developer by the record's `name` in what you write to them.
 Start `node <this folder>/server.mjs` as a background task with the **PowerShell** tool
 (`run_in_background`). The Bash tool's sandbox refuses listening sockets and reports a clean
 exit. Once listening, the server opens the page in a Chrome app window, a window of its own with
-its own taskbar button, so do not open the URL yourself. Wait for its first line:
+its own taskbar button, so do not open the URL yourself. If another session's dashboard server
+holds the port, this one makes it exit and takes the port; that needs nothing from you or the
+developer. Wait for its first line:
 
-- `DASHBOARD_URL http://127.0.0.1:47321/`: give the developer the URL, for opening it again after
-  closing the window.
-- `ALREADY_RUNNING ... pid <pid>`: another Claude session is running the dashboard, and the server
-  has opened a window on it before exiting. Tell the developer, and ask whether to stop that pid
-  (`Stop-Process -Id <pid>`) and start this one.
+- `DASHBOARD_URL http://127.0.0.1:47321/`: give the developer the URL.
 - `PORT_TAKEN`: another program holds the port; start it with `--port <other>` and give that URL.
 
-The server stops when this session ends, and the page then says so.
+The server stops, and the background task ends, in three cases. In none of them start it again
+unless the developer asks for the dashboard again:
+
+- It prints `WINDOW_CLOSED`: no page has asked it for anything for 5 minutes, so the developer
+  closed the window. Stop the `watch-events.mjs` Monitor and stop updating rows.
+- It prints `REPLACED`: another session started the dashboard and now keeps it. Stop the Monitor
+  and stop updating rows; the other session does both now.
+- This session ends. The page then says that the server has stopped.
 
 ## 2. Gather
 
