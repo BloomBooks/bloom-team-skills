@@ -23,7 +23,8 @@
 //
 // A server that finds another dashboard server on its port asks that one to exit (POST
 // /api/handover with the key in handover.key), or kills it when it does not answer that request,
-// then takes the port. The server that was asked prints "REPLACED" and exits 0.
+// then takes the port. The server that was asked prints "REPLACED" and exits 0. A local script
+// that changed a card gets an early gather with POST /api/regather and the same key.
 //
 // The page asks for /api/state every 3 seconds. Once a page has asked, the server exits after
 // IDLE_MINUTES with no request from any page, which is what closing the window does. It prints
@@ -271,6 +272,14 @@ const server = http.createServer((req, res) => {
     server.close();
     setTimeout(() => process.exit(0), 200);
     return;
+  }
+  // A local script (work-on-youtrack, after it assigns a card) asks for a gather; it answers at
+  // once and the gather runs on.
+  if (req.method === "POST" && req.url === "/api/regather") {
+    if (req.headers["x-handover-key"] !== handoverKey) return send(res, 403, { ok: false, error: "forbidden" });
+    log("regather asked for by a local script");
+    regather().catch(e => log("regather: " + e.message));
+    return send(res, 202, { ok: true });
   }
   if (req.method !== "POST" || !req.url.startsWith("/api/")) return send(res, 404, { ok: false });
   // Only this server's own page knows the token, so other web pages can't drive Orca.

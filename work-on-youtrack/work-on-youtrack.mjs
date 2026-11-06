@@ -1,25 +1,33 @@
 // Finds the Orca worktree for a YouTrack card, or makes one, and shows it in Orca with Claude
-// running in it.
+// running in it. Assigns the card to the developer and moves it to In Progress; stops before
+// touching anything when the card is assigned to someone else.
 //
 // Usage: node work-on-youtrack.mjs <card> [--repo <owner/name>] [--dry-run] [--json]
 //   <card>      BL-16627 (or BL16627), or a YouTrack URL that contains it
 //   --repo      the GitHub repo for a new worktree when the card has no PR (default
 //               bloombooks/bloomdesktop); also limits the search for worktrees and PRs to that repo
-//   --dry-run   reads the card, finds or names the worktree, then prints what it would do
+//   --dry-run   reads the card, finds or names the worktree, then prints what it would do; changes
+//               nothing on the card
 //   --json      prints one JSON object instead of text: { ok, action, card, summary, state,
-//               pr, worktree, branch, words, wordsFrom, terminal, others, error }
+//               pr, worktree, branch, words, wordsFrom, terminal, others, assigned,
+//               movedTo, dashboard, error }
 //
 // Exit code 0 on success, 1 on any failure (the text or JSON says why).
 import { execFile, execFileSync, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   orca, norm, parsePr, orcaRepoId, prHeadBranch, titleWords, agentTerminal,
   openWorktree, createWorktree, bringOrcaToFront,
 } from "../orca-worktrees.mjs";
+import { developer } from "../developer.mjs";
 
 const execFileP = promisify(execFile);
 const YT = "https://issues.bloomlibrary.org/youtrack/api";
 const DEFAULT_REPO = "bloombooks/bloomdesktop";
+const IN_PROGRESS = "In Progress";
 
 // ---- arguments ------------------------------------------------------------------------------
 const argv = process.argv.slice(2);
@@ -45,20 +53,61 @@ function userEnv(name) {
     return execFileSync("powershell.exe", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable('${name}','User')`], { encoding: "utf8", windowsHide: true }).trim();
   } catch { return ""; }
 }
-async function readCard(id) {
+function botToken() {
   const token = userEnv("YOUTRACK_BOT");
   if (!token) throw new Error("YOUTRACK_BOT is not set, so the card cannot be read (see the youtrack-api skill)");
-  const url = `${YT}/issues/${id}?fields=idReadable,summary,description,customFields(name,value(name)),comments(text,deleted)`;
-  const r = await fetch(url, { headers: { Authorization: "Bearer " + token, Accept: "application/json" } });
-  if (r.status === 404) throw new Error(`YouTrack has no card ${id}`);
-  if (!r.ok) throw new Error(`YouTrack ${id}: ${r.status} ${(await r.text()).slice(0, 200)}`);
-  const i = await r.json();
+  return token;
+}
+async function yt(path, body) {
+  const r = await fetch(YT + path, {
+    method: body ? "POST" : "GET",
+    headers: { Authorization: "Bearer " + botToken(), Accept: "application/json", ...(body && { "Content-Type": "application/json" }) },
+    body: body && JSON.stringify(body),
+  });
+  if (r.status === 404) throw new Error(`YouTrack has no ${path.split("?")[0]}`);
+  if (!r.ok) throw new Error(`YouTrack ${path.split("?")[0]}: ${r.status} ${(await r.text()).slice(0, 200)}`);
+  return r.json();
+}
+const field = (i, name) => i.customFields?.find(c => c.name === name)?.value ?? null;
+async function cardFields(id) {
+  const i = await yt(`/issues/${id}?fields=customFields(name,value(name,login,fullName,ordinal))`);
+  const state = field(i, "State"), assignee = field(i, "Assignee");
+  return { state: state?.name ?? null, stateOrdinal: state?.ordinal ?? null, assignee: assignee && { login: assignee.login, fullName: assignee.fullName || assignee.login } };
+}
+async function readCard(id) {
+  const i = await yt(`/issues/${id}?fields=idReadable,summary,description,comments(text,deleted)`);
   return {
     summary: i.summary || "",
     description: i.description || "",
-    state: i.customFields?.find(c => c.name === "State")?.value?.name ?? null,
     comments: (i.comments || []).filter(c => !c.deleted).map(c => c.text || ""),
+    ...(await cardFields(id)),
   };
+}
+// The ordinal of In Progress in the card's project, so a card further along (in review, in
+// testing) stays where it is.
+async function inProgressOrdinal(id) {
+  const project = (await yt(`/issues/${id}?fields=project(shortName)`)).project.shortName;
+  const fields = await yt(`/admin/projects/${project}/customFields?fields=field(name),bundle(values(name,ordinal))`);
+  const v = fields.find(f => f.field?.name === "State")?.bundle?.values?.find(x => x.name === IN_PROGRESS);
+  if (!v) throw new Error(`the ${project} project has no "${IN_PROGRESS}" state`);
+  return v.ordinal;
+}
+// Assigns the card to `login` when it has no assignee and moves it to In Progress when its State
+// comes before that. Reads both fields back. Returns { assigned, movedTo }.
+async function takeCard(id, info, login, target) {
+  const out = { assigned: false, movedTo: null };
+  if (!info.assignee) {
+    await yt("/commands", { query: `Assignee ${login}`, issues: [{ idReadable: id }] });
+    out.assigned = true;
+  }
+  if (info.stateOrdinal === null || info.stateOrdinal < target) {
+    await yt(`/issues/${id}?fields=id`, { customFields: [{ name: "State", $type: "StateIssueCustomField", value: { name: IN_PROGRESS } }] });
+    out.movedTo = IN_PROGRESS;
+  }
+  const now = await cardFields(id);
+  if (now.assignee?.login !== login) throw new Error(`assigning ${id} to ${login} did not take (the Assignee is ${now.assignee?.login ?? "empty"}); see the youtrack-api skill, §1`);
+  if (out.movedTo && now.state !== IN_PROGRESS) throw new Error(`moving ${id} to ${IN_PROGRESS} did not take (the State is ${now.state})`);
+  return out;
 }
 
 // ---- the card's PR --------------------------------------------------------------------------
@@ -159,6 +208,19 @@ function claudeWords(card, info) {
   });
 }
 
+// ---- the dashboard -------------------------------------------------------------------------
+// Asks a running dashboard server (the dashboard skill) for a gather now rather than at its next
+// 15-minute one, so the card shows up with its new Assignee, State and worktree. Returns true
+// when a dashboard took the request, false when none is running.
+async function refreshDashboard() {
+  let key;
+  try { key = readFileSync(join(homedir(), ".claude", "bloom-dashboard", "handover.key"), "utf8").trim(); } catch { return false; }
+  try {
+    const r = await fetch("http://127.0.0.1:47321/api/regather", { method: "POST", headers: { "x-handover-key": key }, signal: AbortSignal.timeout(3000) });
+    return r.ok;
+  } catch { return false; }
+}
+
 // ---- output ---------------------------------------------------------------------------------
 function describe(r) {
   const lines = [`${r.card}: ${r.summary}${r.state ? ` (${r.state})` : ""}`];
@@ -173,6 +235,9 @@ function describe(r) {
   }
   if (r.others?.length) lines.push("Other worktrees for this card: " + r.others.join(", "));
   if (r.otherPrs?.length) lines.push("Other open PRs for this card: " + r.otherPrs.join(", "));
+  const changes = [r.assigned && `assigned to ${r.login}`, r.movedTo && `moved to ${r.movedTo}`].filter(Boolean);
+  if (changes.length) lines.push(`${would ? "Would mark" : "Marked"} the card ${changes.join(" and ")}.`);
+  if (r.dashboard) lines.push("Asked the dashboard to refresh.");
   if (r.frontError) lines.push("Could not bring Orca to the front: " + r.frontError);
   return lines.join("\n");
 }
@@ -185,6 +250,11 @@ async function main() {
   if (repoArg !== null && !/^[\w.-]+\/[\w.-]+$/.test(repoArg)) throw new Error("--repo needs <owner/name>, e.g. bloombooks/bloomdesktop");
 
   const info = await readCard(card);
+  const me = (await developer()).youtrack.login;
+  if (info.assignee && info.assignee.login !== me) {
+    throw new Error(`${card} is assigned to ${info.assignee.fullName} (${info.assignee.login}), not to you (${me}). Nothing was opened or changed.`);
+  }
+  const target = await inProgressOrdinal(card);
   const prs = await openPrs(card, info);
   const worktrees = await cardWorktrees(card, prs);
   const result = { ok: true, card, summary: info.summary, state: info.state, dryRun };
@@ -216,6 +286,12 @@ async function main() {
       result.worktree = made.path;
       if (made.branch) result.branch = made.branch;
     }
+  }
+  result.login = me;
+  if (dryRun) Object.assign(result, { assigned: !info.assignee, movedTo: info.stateOrdinal === null || info.stateOrdinal < target ? IN_PROGRESS : null });
+  else {
+    Object.assign(result, await takeCard(card, info, me, target));
+    result.dashboard = await refreshDashboard();
   }
   if (!dryRun) await bringOrcaToFront().catch(e => { result.frontError = e.message; });
   return result;
