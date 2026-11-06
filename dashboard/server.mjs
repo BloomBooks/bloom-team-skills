@@ -16,6 +16,7 @@
 //   finished-done.json  { "BL-16722": "<finishedAt>" }  the finished cards the developer cleared
 //                  with the page's Done button, and the finish each one cleared; this server
 //                  writes it
+//   reviewed-done.json  { "BL-17062": "<commentedAt>" }  the same for the Reviewed list
 //
 // stdout: "DASHBOARD_URL <url>" once listening, or "ALREADY_RUNNING <url> pid <pid>" (exit 3)
 // when another session's server holds the port.
@@ -115,23 +116,32 @@ async function pollAgents() {
   }
 }
 
+// Reads a JSON file. The session often writes files with PowerShell, which may start them with a
+// UTF-8 byte-order mark that JSON.parse rejects, so the mark is dropped first (trimStart counts it as white space).
+const readJson = file => JSON.parse(fs.readFileSync(file, "utf8").trimStart());
+
 // ---- YouTrack, GitHub and git facts ---------------------------------------------------------
 // Runs gather.mjs again for the board of the last facts.json, and appends each difference to
 // events.log, so that card States, PR reviews, CI and pushes reach the session the same way agent
 // states do. Skipped until the session has written a first facts.json.
-const readFacts = () => { try { return JSON.parse(fs.readFileSync(factsFile, "utf8")); } catch { return null; } };
-let gathering = false;
+const readFacts = () => { try { return readJson(factsFile); } catch { return null; } };
 // The error last logged, so a failure that repeats every pass (Orca down for an hour) is logged
 // once, with one more line when gathering works again.
 let gatherFailing = null;
-async function regather() {
+// The gather in progress, so that the page's Check now during a scheduled gather waits for that one
+// instead of starting a second. Resolves to null, or to why it could not gather.
+let running = null;
+function regather() {
+  running ??= gatherOnce().finally(() => { running = null; });
+  return running;
+}
+async function gatherOnce() {
   const prev = readFacts();
-  if (!prev || gathering) return;
-  gathering = true;
+  if (!prev) return "nothing to compare with yet: run /dashboard in Claude once to make the first gather";
   const tmp = factsFile + ".next";
   try {
     await execFileP(process.execPath, [path.join(here, "gather.mjs"), tmp, prev.board || "all"], { windowsHide: true, maxBuffer: 16 << 20 });
-    const next = JSON.parse(fs.readFileSync(tmp, "utf8"));
+    const next = readJson(tmp);
     // The session may have replaced facts.json while gather ran; compare with what is there now.
     const lines = diffFacts(readFacts() || prev, next);
     fs.renameSync(tmp, factsFile);
@@ -140,6 +150,7 @@ async function regather() {
     gatherFailing = null;
     if (lines.length) fs.appendFileSync(eventsLog, lines.join("\n") + "\n");
     log(`regathered: ${lines.length} changes`);
+    return null;
   } catch (e) {
     // Node ends an uncaught error's output with its own version line; the line that names the
     // error ("Error: orca worktree list failed; is Orca running?") is the one worth logging.
@@ -149,50 +160,60 @@ async function regather() {
     else log("gather error again: " + error);
     gatherFailing = error;
     fs.rmSync(tmp, { force: true });
-  } finally {
-    gathering = false;
+    return error;
   }
 }
 
-// ---- finished cards -------------------------------------------------------------------------
-// facts.finished lists the developer's finished cards (finished.mjs). Done hides one until it is
-// finished again: a later finishedAt shows it again, and so does going back to In Progress or Has
-// Comments assigned to the developer, which forgets the Done.
-const doneFile = path.join(dataDir, "finished-done.json");
-const readDone = () => { try { return JSON.parse(fs.readFileSync(doneFile, "utf8")); } catch { return {}; } };
-const writeDone = d => fs.writeFileSync(doneFile, JSON.stringify(d, null, 2));
-const isDone = (done, f) => !!done[f.id] && done[f.id] >= f.finishedAt;
-// After a gather: forget the Done of a card that is back at work, or no longer in the list.
+// ---- finished and reviewed cards ------------------------------------------------------------
+// facts.finished lists the developer's finished cards (finished.mjs), and facts.reviewed the cards
+// whose PRs they commented on (reviewed.mjs). Done hides a card from its list until its time field
+// moves on: finished again, or commented on again. A finished card going back to In Progress or
+// Has Comments assigned to the developer also forgets its Done, and a reviewed card back in Ready
+// For Code Review (it has a followUp) shows whatever its Done says, since it needs the developer
+// again: to answer the author, or to move the card to Has Comments.
+const LISTS = {
+  finished: { file: path.join(dataDir, "finished-done.json"), time: "finishedAt" },
+  reviewed: { file: path.join(dataDir, "reviewed-done.json"), time: "commentedAt" },
+};
+const readDone = list => { try { return readJson(LISTS[list].file); } catch { return {}; } };
+const writeDone = (list, d) => fs.writeFileSync(LISTS[list].file, JSON.stringify(d, null, 2));
+const notDone = (facts, list) => {
+  const done = readDone(list), time = LISTS[list].time;
+  return (facts?.[list] || []).filter(f => f.followUp || !(done[f.id] && done[f.id] >= f[time]));
+};
+// After a gather: forget the Done of a card that has left its list, or is back at work.
 function pruneDone(facts) {
-  if (!Array.isArray(facts?.finished)) return;
-  const done = readDone();
-  const listed = new Set(facts.finished.map(f => f.id));
   const working = new Set((facts.cards || []).filter(c => c.assignedToDeveloper && ["In Progress", "Has Comments"].includes(c.state)).map(c => c.id));
-  const kept = Object.fromEntries(Object.entries(done).filter(([id]) => listed.has(id) && !working.has(id)));
-  if (Object.keys(kept).length !== Object.keys(done).length) writeDone(kept);
+  for (const list of Object.keys(LISTS)) {
+    if (!Array.isArray(facts?.[list])) continue;
+    const done = readDone(list);
+    const listed = new Set(facts[list].map(f => f.id));
+    const backInReview = new Set(facts[list].filter(f => f.followUp).map(f => f.id));
+    const kept = Object.fromEntries(Object.entries(done).filter(([id]) => listed.has(id) && !(list === "finished" && working.has(id)) && !backInReview.has(id)));
+    if (Object.keys(kept).length !== Object.keys(done).length) writeDone(list, kept);
+  }
 }
-function markDone(card, finishedAt) {
-  if (!/^BL-\d+$/.test(card) || isNaN(Date.parse(finishedAt))) throw new Error("bad card or time: " + card + " " + finishedAt);
-  writeDone({ ...readDone(), [card]: finishedAt });
-  log("done " + card + " finished " + finishedAt);
+function markDone(list, card, at) {
+  // A reviewed PR that names no card is listed as "<repo>#<number>".
+  if (!LISTS[list] || !/^(BL-\d+|[\w.-]+#\d+)$/.test(card) || isNaN(Date.parse(at))) throw new Error(`bad list, card or time: ${list} ${card} ${at}`);
+  writeDone(list, { ...readDone(list), [card]: at });
+  log(`done ${list} ${card} ${at}`);
 }
 
 // ---- state for the page ---------------------------------------------------------------------
 function readState() {
   let board = "";
-  try { board = JSON.parse(fs.readFileSync(path.join(dataDir, "board.json"), "utf8")).board || ""; } catch {}
+  try { board = readJson(path.join(dataDir, "board.json")).board || ""; } catch {}
   const rows = [];
   for (const f of fs.readdirSync(rowsDir)) {
     if (!f.endsWith(".json")) continue;
-    try { rows.push(JSON.parse(fs.readFileSync(path.join(rowsDir, f), "utf8"))); } catch {}
+    try { rows.push(readJson(path.join(rowsDir, f))); } catch {}
   }
   // The developer's first name, for the page's top bar.
   let developer = "";
-  try { developer = (JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude", "bloom-developer.json"), "utf8")).name || "").split(" ")[0]; } catch {}
+  try { developer = (readJson(path.join(os.homedir(), ".claude", "bloom-developer.json")).name || "").split(" ")[0]; } catch {}
   const facts = readFacts();
-  const done = readDone();
-  const finished = (facts?.finished || []).filter(f => !isDone(done, f));
-  return { board, developer, rows, agents, finished, gatheredAt: facts?.gatheredAt || "" };
+  return { board, developer, rows, agents, finished: notDone(facts, "finished"), reviewed: notDone(facts, "reviewed"), gatheredAt: facts?.gatheredAt || "" };
 }
 
 // ---- Orca actions ---------------------------------------------------------------------------
@@ -333,7 +354,8 @@ const server = http.createServer((req, res) => {
       if (req.url === "/api/open") await openWorktree(String(b.path || ""));
       else if (req.url === "/api/run-skill") await runSkill(String(b.path || ""), String(b.skill || ""));
       else if (req.url === "/api/vscode") { await openInVsCode(String(b.path || "")); return send(res, 200, { ok: true }); }
-      else if (req.url === "/api/finished-done") { markDone(String(b.card || ""), String(b.finishedAt || "")); return send(res, 200, { ok: true }); }
+      else if (req.url === "/api/gather") { const error = await regather(); return send(res, 200, error ? { ok: false, error } : { ok: true }); }
+      else if (req.url === "/api/done") { markDone(String(b.list || ""), String(b.card || ""), String(b.at || "")); return send(res, 200, { ok: true }); }
       else if (req.url === "/api/create") await createWorktree({ card: String(b.card || ""), title: String(b.title || ""), pr: String(b.pr || "") });
       else return send(res, 404, { ok: false, error: "unknown action" });
       await bringOrcaToFront().catch(e => log("front: " + e.message));

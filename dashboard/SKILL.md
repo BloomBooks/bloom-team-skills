@@ -115,6 +115,9 @@ The rows live in `~/.claude/bloom-dashboard/`, which the server reads every few 
   several stale cards). Delete the file of a card that left the board. Rows left by an earlier
   session are claims from then: check every one against the new facts and rewrite it.
 
+Write these files with the Write tool, or as UTF-8 without a byte-order mark. The server reads
+past a mark, but PowerShell's `Set-Content` and `Out-File` add one, and other readers may not.
+
 | field | content |
 | --- | --- |
 | `card`, `cardUrl`, `title` | id, YouTrack URL, a short title |
@@ -178,6 +181,27 @@ The **Done** button records the card and that time in `~/.claude/bloom-dashboard
 which outlasts server restarts, and hides the card. It comes back if it is finished again later;
 going back to In Progress or Has Comments forgets the Done. `node finished.mjs` prints the list.
 
+## Reviewed cards
+
+Below Finished, the page lists in the same way the PRs the developer has reviewed: BloomBooks PRs
+opened by someone else where the developer's latest comment or review is from the last 7 days.
+Reviewable's comments reach GitHub as the reviewer's reviews, so they count. A PR shows as one
+line per card its title (or else its branch) names, with the card's title and State and a link to
+the PR; a PR that names no card shows under its own title as `<repo>#<number>`. The time is the
+developer's latest comment on the PR. `gather.mjs` puts them in `facts.json` as `reviewed` (from
+`reviewed.mjs`); Done records the line and that time in `reviewed-done.json`, and it comes back
+when they comment again. `node reviewed.mjs` prints the list.
+
+A reviewed card in Ready For Code Review needs the developer again, so it comes first, is
+highlighted, and has no Done button (a Done clicked earlier is forgotten):
+
+- **Author responded** (green): the PR's author has commented, reviewed or pushed a commit since
+  the developer's last comment. Such a card is listed even when that comment is older than 7 days.
+- **Move to Has Comments?** (amber): the PR is open and the author has not responded, so the
+  developer probably asked for changes without moving the card to Has Comments.
+- **Move to Ready For Testing?** (amber): the PR is merged, so the card should have moved on. Such
+  a card is listed even when the developer's last comment is older than 7 days.
+
 ## The buttons
 
 - **Orca Worktree** (on a row with a worktree, and on its Status pill) switches Orca to the
@@ -193,6 +217,10 @@ going back to In Progress or Has Comments forgets the Done. `node finished.mjs` 
   prefix in front (e.g. `JohnThomson/`). The server then writes a "created from the dashboard"
   line to `events.log` (step 5).
 - **Done** (on a finished card) hides that card; see "Finished cards".
+- **Check now** (beside "checked at") runs the server's gather straight away instead of waiting
+  for the next 15-minute one, and writes its changes to `events.log` the same way (step 5). A
+  click during a gather waits for that gather. Before the session's first `facts.json` it says to
+  run `/dashboard`.
 
 Every Orca button then launches `Orca.exe` again, which makes the running Orca bring its window to the
 front; the CLI alone does not. The server logs each click and its result in

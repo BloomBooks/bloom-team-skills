@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { developer } from "../developer.mjs";
 import { finishedCards } from "./finished.mjs";
+import { reviewedCards } from "./reviewed.mjs";
 
 const out = process.argv[2];
 if (!out) throw new Error("usage: node gather.mjs <out.json> [board|all]");
@@ -173,8 +174,12 @@ await Promise.all(prs.filter(p => p.report).map(async p => {
 let finished = null;
 try { finished = await finishedCards((p, params) => yt(bot, p, params), dev.youtrack.login); }
 catch (e) { console.warn("could not list finished cards: " + e.message); }
+// The cards whose PRs the developer reviewed lately (reviewed.mjs); null in the same way.
+let reviewed = null;
+try { reviewed = await reviewedCards((p, params) => yt(bot, p, params), dev.github); }
+catch (e) { console.warn("could not list reviewed cards: " + e.message); }
 
-const result = { gatheredAt: new Date().toISOString(), board, boardActivity, cards: kept, finished, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };
+const result = { gatheredAt: new Date().toISOString(), board, boardActivity, cards: kept, finished, reviewed, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };
 writeFileSync(out, JSON.stringify(result, null, 2));
 if (boardActivity) console.log(`chose ${board}, the board with the most cards updated in the last 14 days: ${Object.entries(boardActivity).map(([b, n]) => `${b} ${n}`).join(", ")}`);
 console.log(`wrote ${out}${board ? ` for ${board}` : " for every board"}:${result.cards.length} cards, ${result.worktrees.length} worktrees, ${result.prs.length} PRs`);
