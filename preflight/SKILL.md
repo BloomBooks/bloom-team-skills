@@ -551,6 +551,11 @@ already ran in Phase 1; its captured outcome joins the results here.
  diff, and the .NET suite neither reads nor builds any of it" is a reason; "it's slow" is not.
  **When in doubt, run it.**
 
+ **Preflight never runs the whole end-to-end suite.** A suite that drives the running app
+ (Bloom's `src/BloomE2E`, for example) is not one of the suites above, however much of the diff
+ it can reach: the nightly runs it in full. Preflight runs only the e2e specs that a repo's
+ Preflight checks name (see "Repo checks"), and with no such check it runs none.
+
  Running an untouched stack's suite is not free caution. It costs many minutes, and a
  **pre-existing** failure there then arrives as a red row and a decision item that spends the
  user's attention on something this branch did not cause and will not fix.
@@ -697,13 +702,14 @@ defines the publish target and steps (including the single URL to open in the br
 printing a bare URL), the visual style, the content blocks — including the **header links row,
 led by a link to the PR's own page**, which the render check and a pre-publish grep both verify —
 the decision-item controls (`Leave as is` / `Leave comment` / `Other:` conventions), and the
-copy-back button.
+copy-back with its Copy and Send to Claude buttons.
 
 ## Processing the user's decisions (after the run)
 
-When the user answers the decision report — usually by pasting the artifact's copy-back block,
-sometimes informally in chat — that answer carries the same authorization as the original
-`/preflight` invocation for the writes below. For each decided item:
+When the user answers the decision report — usually with its Send to Claude button, which wakes
+this session with the answers, sometimes by pasting the copy-back block or informally in chat —
+that answer carries the same authorization as the original `/preflight` invocation for the
+writes below. For each decided item:
 
 - **A fix option was chosen** → implement it (then re-run preflight's gauntlet as usual — it's
 a new commit).

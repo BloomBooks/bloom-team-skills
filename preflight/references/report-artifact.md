@@ -36,7 +36,9 @@ chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   #
    visible, no prose set in monospace, no text running under or past a neighbour.
 4. **The copy-back actually serializes.** Read `#payload`, then flip a couple of controls and read
    it again — confirm a selection changes the text, a `Leave comment` tick adds its line, an
-   untouched `Leave comment` adds nothing, and `Other:` picks up its typed value.
+   untouched `Leave comment` adds nothing, and `Other:` picks up its typed value. On the page
+   served by `claude-decider.mjs`, Send to Claude shows; on the file opened directly, it does
+   not.
 5. **Only then publish.** If you find a defect after publishing, fix and republish to the *same*
    path so the card's link stays valid.
 
@@ -258,6 +260,20 @@ The decision items and the copy-back card follow the **`decider` skill's spec ex
 `Other:`, the fix-complexity footnotes, the `Leave comment` checkbox, a notes box on every item,
 a closing "next step" question), its `data-q` / `data-instruction` serialization, and its
 copy-back card with the clipboard ladder. Read that skill; do not restate it here.
+
+**The copy-back has a Send to Claude button beside Copy**, as the decider's form does, so the
+developer can answer without pasting anything:
+
+- The button posts the copy-back text as plain text to `window.DECIDER_ENDPOINT`, and hides
+  itself when the page has none. Copy the code for it from the decider's `form.html` (its "Send
+  to Claude" button and the `endpoint` branch of its click handler), so the two behave alike.
+- When the report has open decisions, also serve it on this machine with the decider's
+  `claude-decider.mjs <report.html>` (its "Where it goes"), started in the background from the
+  worktree, and end the turn. The server opens the page in the developer's browser with the
+  endpoint set; Send to Claude prints the answers and wakes this session. Open this local page
+  instead of the public URL (Publishing, "open the report ... exactly once").
+- The public copy, on GitHub Pages, has no endpoint, so there the button hides and Copy is the
+  way back.
 
 Two things are specific to the preflight report:
 
