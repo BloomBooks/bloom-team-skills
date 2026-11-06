@@ -112,16 +112,18 @@ export async function prHeadBranch(repo, number) {
 // "JohnThomson/"); it has no --branch flag. Without a PR, that branch, <prefix><card>-<words>, is
 // new from the default base of `repo` (bloombooks/bloomdesktop unless given); `words` defaults to
 // the first three words of the title. With a PR, the worktree is switched onto the PR's own branch
-// before Claude starts, and Orca's prefixed branch is deleted.
-export async function createWorktree({ card, title, pr, words, repo = "bloombooks/bloomdesktop" }) {
+// before Claude starts, and Orca's prefixed branch is deleted. `prompt`, when given, is Claude's
+// first message, so the new agent starts working instead of waiting at an empty prompt.
+export async function createWorktree({ card, title, pr, words, prompt, repo = "bloombooks/bloomdesktop" }) {
   if (!/^BL-\d+$/.test(card || "")) throw new Error("bad card id " + card);
   let prNumber = null;
   const parsed = parsePr(pr);
   if (parsed) { repo = parsed.repo; prNumber = parsed.number; }
   const repoId = await orcaRepoId(repo);
   const args = ["worktree", "create", "--repo", "id:" + repoId, "--no-parent", "--activate"];
+  const promptArgs = prompt ? ["--prompt", prompt] : [];
   if (!prNumber) {
-    const r = await orca(...args, "--agent", "claude", "--name", [card, ...(words || titleWords(title))].join("-"));
+    const r = await orca(...args, "--agent", "claude", ...promptArgs, "--name", [card, ...(words || titleWords(title))].join("-"));
     const made = r.worktree?.path || r.worktreeId;
     log("created " + made + " for " + card);
     return { path: made, branch: (r.worktree?.branch || "").replace("refs/heads/", "") };
@@ -137,7 +139,7 @@ export async function createWorktree({ card, title, pr, words, repo = "bloombook
   // A local branch named like the PR's makes "git switch" use it; otherwise it creates one tracking origin.
   await execFileP("git", ["-C", wt, "switch", head], { windowsHide: true });
   if (orcaBranch && orcaBranch !== head) await execFileP("git", ["-C", wt, "branch", "-D", orcaBranch], { windowsHide: true }).catch(e => log("could not delete " + orcaBranch + ": " + e.message));
-  await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude", "--focus");
+  await orca("agent", "launch", "--agent", "claude", "--worktree", "path:" + wt, ...promptArgs, "--focus");
   log("created " + wt + " on " + head + " for " + card);
   return { path: wt, branch: head };
 }

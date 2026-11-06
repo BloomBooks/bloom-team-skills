@@ -208,6 +208,12 @@ function claudeWords(card, info) {
   });
 }
 
+// The first message for Claude in a new worktree, so it starts on the card instead of sitting at
+// an empty prompt. youtrack-fix reads the card and asks before changing anything.
+function brief(card) {
+  return `/youtrack-fix ${card}. This worktree and its branch were made for this card, so stay on that branch.`;
+}
+
 // ---- the dashboard -------------------------------------------------------------------------
 // Asks a running dashboard server (the dashboard skill) for a gather now rather than at its next
 // 15-minute one, so the card shows up with its new Assignee, State and worktree. Returns true
@@ -273,7 +279,7 @@ async function main() {
     await orcaRepoId(pr.repo);
     const head = await prHeadBranch(pr.repo, String(pr.number));
     Object.assign(result, { action: dryRun ? "would-create" : "create", repo: pr.repo, pr: pr.url, branch: head });
-    if (!dryRun) result.worktree = (await createWorktree({ card, title: info.summary, pr: pr.url })).path;
+    if (!dryRun) result.worktree = (await createWorktree({ card, title: info.summary, pr: pr.url, prompt: brief(card) })).path;
   } else {
     const repo = repoArg || DEFAULT_REPO;
     await orcaRepoId(repo);
@@ -282,7 +288,7 @@ async function main() {
     words ||= titleWords(info.summary);
     Object.assign(result, { action: dryRun ? "would-create" : "create", repo, pr: null, words: words.join("-"), branch: [card, ...words].join("-") });
     if (!dryRun) {
-      const made = await createWorktree({ card, title: info.summary, words, repo });
+      const made = await createWorktree({ card, title: info.summary, words, repo, prompt: brief(card) });
       result.worktree = made.path;
       if (made.branch) result.branch = made.branch;
     }
