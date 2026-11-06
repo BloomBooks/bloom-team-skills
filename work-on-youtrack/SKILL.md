@@ -1,6 +1,6 @@
 ---
 name: work-on-youtrack
-description: Take a YouTrack card (assign it to the developer, move it to In Progress) and open its Orca worktree with Claude running in it, creating the worktree (on the card's PR branch, or a new `<card>-<words>` branch) when there is none. Use when the developer says "/work-on-youtrack BL-12345", "I want to work on issue BL16778", "work on BL-12345", "start BL-12345", or asks to open a card in Orca. The card id may come with or without its hyphen. A new worktree's Claude starts on the card with youtrack-fix; to fix the card in the current session instead, use youtrack-fix.
+description: Take a YouTrack card (assign it to the developer, move it to In Progress) and open its Orca worktree with Claude running in it, creating the worktree (on the card's PR branch, or a new `<card>-<words>` branch) when there is none. Use when the developer says "/work-on-youtrack BL-12345", "I want to work on issue BL16778", "work on BL-12345", "start BL-12345", or asks to open a card in Orca. The card id may come with or without its hyphen. This only gets the worktree ready; to fix the card in the current session, use youtrack-fix.
 argument-hint: "<BL-id or YouTrack URL> [--repo owner/name] [--dry-run]"
 ---
 
@@ -32,10 +32,7 @@ What the script does, so you can explain its output:
    there. Without one: creates it with `createWorktree` from `orca-worktrees.mjs` at the
    repo root (shared with the dashboard), on the PR's branch when there is a PR, otherwise on
    `<card>-<1-3 words>` in `bloombooks/bloomdesktop`. Claude (haiku) suggests the words; when it
-   fails or answers with something else, the first three words of the title are used. The new
-   worktree's Claude is given a first message, `/youtrack-fix <card>` and a note to stay on that
-   branch, so it starts reading the card and planning instead of sitting at an empty prompt. A
-   reopened worktree gets no message: `claude --continue` resumes where it left off.
+   fails or answers with something else, the first three words of the title are used.
 5. Assigns the card to the developer when it has no Assignee, and moves it to In Progress when its
    State comes before In Progress (Incoming, Open, Ready For Work, Has Comments). A card in review,
    in testing or closed keeps its State. Both fields are read back.
