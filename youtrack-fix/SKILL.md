@@ -1,6 +1,6 @@
 ---
 name: youtrack-fix
-description: Fix a bug or task tracked on a YouTrack card. Use when the user gives a card id or URL like "BL-1234" and wants it fixed — read the card, plan, branch, implement, then hand off to preflight.
+description: Fix a bug or task tracked on a YouTrack card. Use when the user gives a card id or URL like "BL-1234" and asks for it to be fixed or implemented — read the card, plan, branch, implement, then hand off to preflight. When they only say they want to work on a card ("work on BL-1234", "I want to work on issue BL1234", "start BL-1234"), use work-on-youtrack instead, which opens or creates the card's Orca worktree.
 argument-hint: "the card id (BL-xxxxx) or its URL"
 ---
 
