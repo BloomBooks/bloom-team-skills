@@ -44,6 +44,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { diffFacts } from "./diff-facts.mjs";
 import { ownReview } from "./own-review.mjs";
+import { CARD, agentState, enrichRows, liveAgents, readJson, readProgress, readRows, rowsDir } from "./row-facts.mjs";
 import { orca, quote, norm, setLog, bringOrcaToFront, knownWorktree, agentTerminal, openWorktree, createWorktree } from "../orca-worktrees.mjs";
 
 const execP = promisify(exec);
@@ -55,7 +56,6 @@ const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 process.chdir(here);
 delete process.env.ELECTRON_RUN_AS_NODE;
 const dataDir = path.join(os.homedir(), ".claude", "bloom-dashboard");
-const rowsDir = path.join(dataDir, "rows");
 const eventsLog = path.join(dataDir, "events.log");
 const serverLog = path.join(dataDir, "server.log");
 fs.mkdirSync(rowsDir, { recursive: true });
@@ -69,7 +69,6 @@ const openWindow = !process.argv.includes("--no-window");
 const factsFile = path.join(dataDir, "facts.json");
 const origin = `http://127.0.0.1:${port}`;
 const token = crypto.randomBytes(16).toString("hex");
-const CARD = /\bBL-\d+/i;
 // Chrome slows the timers of a minimized window to one run a minute, so this allows for that.
 // A key that every dashboard server of this user shares, so that one can ask another to exit and
 // a web page cannot.
@@ -81,27 +80,10 @@ const log = m => fs.appendFileSync(serverLog, `${new Date().toISOString()} ${m}\
 setLog(log);
 
 // ---- live agent states ----------------------------------------------------------------------
-let agents = {};          // normalized worktree path -> { working, waiting, question }
+let agents = {};          // normalized worktree path -> liveAgents() of its agents
 let lastStates = null;    // path -> "working+done" etc., for events.log
 let orcaDown = false;
-// An agent's state as the dashboard counts it. Orca calls an agent "working" while a background
-// Monitor runs in it (workingMode "monitoring"), though it sits at its prompt; that counts as done.
-const agentState = a => a.state === "working" && a.workingMode === "monitoring" ? "done" : a.state;
-// A line under a working agent's step when it is waiting on its Monitor. The tool it runs is
-// left out: the developer does not want tool calls on the dashboard.
-function activity(a) {
-  return a.workingMode === "monitoring" ? "Waiting on reviewers and CI" : "";
-}
-// When this server first saw each worktree's agent working on its current prompt. Orca's
-// stateStartedAt does not serve: an agent at its prompt with a Monitor running is "working" for
-// hours, and a prompt typed into it then leaves stateStartedAt where it was.
 const workingSeen = new Map();
-function workingSince(p, a) {
-  if (!a) { workingSeen.delete(p); return 0; }
-  const id = a.paneKey + "|" + a.prompt;
-  if (workingSeen.get(p)?.id !== id) workingSeen.set(p, { id, since: Date.now() });
-  return workingSeen.get(p).since;
-}
 async function pollAgents() {
   try {
     const ps = (await orca("worktree", "ps")).worktrees;
@@ -110,27 +92,7 @@ async function pollAgents() {
     const runs = readProgress();
     for (const w of ps) {
       const list = w.agents || [];
-      const q = list.find(a => a.state === "waiting" && a.programStatus?.kind === "question");
-      // A skill started with `claude --continue /<skill>` in Git Bash arrives with the slash
-      // rewritten into a Windows path ("C:/Program Files/Git/preflight").
-      const skillOf = a => (String(a?.prompt || "").match(/^(?:\/|[A-Za-z]:\/Program Files\/Git\/)([\w-]+)/) || [])[1] || "";
-      // Preflight spends much of its half hour waiting on bots with a Monitor, which Orca reports as
-      // working in "monitoring" mode. That counts as preflight still running while the run that
-      // progress.mjs records there has not ended; once it ends, the agent is at its prompt.
-      const run = runs.get(norm(w.path));
-      const working = list.find(a => agentState(a) === "working")
-        || (run && !run.endedAt && list.find(a => a.state === "working" && skillOf(a) === "preflight"));
-      next[norm(w.path)] = {
-        working: !!working,
-        waiting: list.some(a => a.state === "waiting"),
-        question: q ? String(q.programStatus.message || "").replace(/^answer:\s*/, "") : "",
-        // The skill a working agent was started on, from the prompt it was given.
-        skill: skillOf(working),
-        // When it started working on this prompt, and what it is doing now.
-        since: workingSince(w.path, working),
-        monitoring: working?.workingMode === "monitoring",
-        tool: working ? activity(working) : "",
-      };
+      next[norm(w.path)] = liveAgents(w, runs.get(norm(w.path)), workingSeen);
       const card = ((w.branch || "").match(CARD) || (w.path || "").match(CARD) || [])[0]?.toUpperCase();
       if (card) states.set(w.path, { card, s: list.map(agentState).sort().join("+") || "none" });
     }
@@ -153,10 +115,6 @@ async function pollAgents() {
     orcaDown = true;
   }
 }
-
-// Reads a JSON file. The session often writes files with PowerShell, which may start them with a
-// UTF-8 byte-order mark that JSON.parse rejects, so the mark is dropped first (trimStart counts it as white space).
-const readJson = file => JSON.parse(fs.readFileSync(file, "utf8").trimStart());
 
 // ---- YouTrack, GitHub and git facts ---------------------------------------------------------
 // Runs gather.mjs again for the board of the last facts.json, and appends each difference to
@@ -226,20 +184,6 @@ async function checkOwnReviews() {
 }
 
 // ---- state for the page ---------------------------------------------------------------------
-// Each worktree's latest preflight run, from the files progress.mjs writes, keyed by its path.
-const progressDir = path.join(dataDir, "progress");
-function readProgress() {
-  const runs = new Map();
-  let files = [];
-  try { files = fs.readdirSync(progressDir); } catch { return runs; }
-  for (const f of files) {
-    try {
-      const run = readJson(path.join(progressDir, f));
-      if (run.worktree) runs.set(norm(run.worktree), run);
-    } catch {}
-  }
-  return runs;
-}
 // The developer's to-do items for History. Written whole to a temporary file and renamed over
 // tasks.json, so a crash mid-write cannot leave half a list.
 const tasksFile = path.join(dataDir, "tasks.json");
@@ -269,37 +213,12 @@ function changeTask(action, b) {
 function readState() {
   let board = "";
   try { board = readJson(path.join(dataDir, "board.json")).board || ""; } catch {}
-  const rows = [];
-  for (const f of fs.readdirSync(rowsDir)) {
-    if (!f.endsWith(".json")) continue;
-    // A row's time is when its file was written, not the `updated` the session typed into it,
-    // which a session can get wrong.
-    try {
-      const file = path.join(rowsDir, f);
-      rows.push({ ...readJson(file), updated: fs.statSync(file).mtime.toISOString() });
-    } catch {}
-  }
+  const rows = readRows();
   // The developer's first name, for the page's top bar.
   let developer = "";
   try { developer = (readJson(path.join(os.homedir(), ".claude", "bloom-developer.json")).name || "").split(" ")[0]; } catch {}
   const facts = readFacts();
-  // Each row's PR as "draft" or "open", from the developer's open PRs in the facts, for the link's
-  // colour; a PR not among them (merged or closed) is left to the page.
-  const openPrs = new Map((facts?.prs || []).map(p => [p.url, p.isDraft ? "draft" : "open"]));
-  for (const r of rows) if (r.pr && openPrs.has(r.pr)) r.prState = openPrs.get(r.pr);
-  // Whether each row's card has the "Approved Plan" tag, which offers merging without peer review.
-  const approved = new Set((facts?.cards || []).filter(c => c.approvedPlan).map(c => c.id));
-  for (const r of rows) r.approvedPlan = approved.has(r.card);
-  // The PR's mergeability and CI from the facts, and how much of it the developer has reviewed.
-  const prFacts = new Map((facts?.prs || []).map(p => [p.url, p]));
-  for (const r of rows) {
-    const p = prFacts.get(r.pr);
-    if (p) { r.prMergeable = p.mergeable; r.prChecks = p.checks; }
-    if (ownReviews.has(r.pr)) r.ownReview = ownReviews.get(r.pr);
-  }
-  // The latest preflight run in each row's worktree, as progress.mjs recorded it.
-  const runs = readProgress();
-  for (const r of rows) if (r.worktree && runs.has(norm(r.worktree))) r.progress = runs.get(norm(r.worktree));
+  enrichRows(rows, facts, ownReviews);
   return { serverPid: process.pid, board, developer, rows, agents, tasks: readTasks(), standup: facts?.standup || null, backForReview: facts?.backForReview || null, gatheredAt: facts?.gatheredAt || "" };
 }
 
@@ -355,6 +274,9 @@ let lastPageRequest = 0;   // when a page last asked for /api/state; 0 until one
 const server = http.createServer((req, res) => {
   const pathname = req.url.split("?")[0];
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) return send(res, 200, page(), "text/html");
+  // The page's styles and its code for drawing a row, which the Worktree panel in Orca loads too.
+  const shared = { "/dashboard.css": "text/css", "/row.js": "text/javascript" };
+  if (req.method === "GET" && shared[pathname]) return send(res, 200, fs.readFileSync(path.join(here, pathname.slice(1)), "utf8"), shared[pathname]);
   if (req.method === "GET" && req.url === "/api/state") { lastPageRequest = Date.now(); return send(res, 200, readState()); }
   // `page`: a dashboard page has asked for /api/state in the last 8 seconds, so a window is showing.
   if (req.method === "GET" && req.url === "/api/health") return send(res, 200, { dashboard: true, pid: process.pid, page: Date.now() - lastPageRequest < 8000 });

@@ -191,6 +191,23 @@ starts, keep its own storage) and a fingerprint; run the same command with
 `--approve <fingerprint>` to accept. The plugin loads from your clone, so pulls update it; Orca asks
 again only when an update changes its access or its button.
 
+### Optional: a Worktree panel in Orca
+
+A second Orca plugin, in [`dashboard/worktree-panel/`](dashboard/worktree-panel) (its manifest is
+`dashboard/orca-plugin.json`), adds a **Worktree** tab to Orca's right sidebar. It shows the
+dashboard's row for the worktree Orca has focused, drawn by the dashboard's own code (card, PR,
+Process steps with the next skill's button, where the work stands), then the checkout's git state,
+its Claude session, and your last three prompts in that session. It needs no dashboard running.
+Load the `dashboard` folder itself:
+
+```bash
+orca plugin dev load <your clone>/dashboard
+```
+
+It may read your focused workspace and its agents' status, and its worker runs git, `gh`, `orca`
+and YouTrack calls as you, and types `/preflight` (or the review skills) into the worktree's Claude
+when you press those buttons.
+
 ### Load the team-wide agent rules
 
 This repo also carries [`TEAM-AGENTS.md`](TEAM-AGENTS.md) — the few rules that should be

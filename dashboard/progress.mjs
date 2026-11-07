@@ -10,9 +10,8 @@
 // ~/.claude/bloom-dashboard/progress/<checkout>.json, which the dashboard server reads.
 // It never fails the caller: a problem prints a warning and exits 0.
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { progressDir, progressFile } from "./row-facts.mjs";
 
 export const STEPS = ["discover", "local", "merge", "publish", "devin", "ci", "bots", "tests", "report"];
 const STATES = ["running", "done", "failed", "skipped"];
@@ -23,9 +22,8 @@ try {
   let worktree = wtArg >= 0 ? args.splice(wtArg, 2)[1] : "";
   if (!worktree) worktree = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
   const key = worktree.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
-  const dir = path.join(os.homedir(), ".claude", "bloom-dashboard", "progress");
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, key.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + ".json");
+  fs.mkdirSync(progressDir, { recursive: true });
+  const file = progressFile(key);
   const now = new Date().toISOString();
   const [step, state, ...noteWords] = args;
   let run = {};

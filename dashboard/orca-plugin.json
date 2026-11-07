@@ -1,0 +1,31 @@
+{
+  "manifestVersion": 2,
+  "id": "bloom-worktree",
+  "name": "Bloom Worktree",
+  "version": "0.1.0",
+  "description": "A sidebar panel that shows the Bloom dashboard's view of the focused worktree: its card, PR, where the work stands, the next step of Bloom's process, its Claude session, and your last prompts there.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "worktree-panel/worker.ts",
+  "capabilities": [
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "agent:read"
+    }
+  ],
+  "contributes": {
+    "panels": [
+      {
+        "id": "worktree",
+        "title": "Worktree",
+        "icon": "gauge",
+        "entry": "worktree-panel/panel.html"
+      }
+    ]
+  }
+}

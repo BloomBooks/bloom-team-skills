@@ -9,13 +9,13 @@ import { writeFileSync } from "node:fs";
 import { developer } from "../developer.mjs";
 import { reviewedCards } from "./reviewed.mjs";
 import { bloomRepos, standupDays } from "./standup.mjs";
+import { CARD, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
 
 const out = process.argv[2];
 if (!out) throw new Error("usage: node gather.mjs <out.json> [board|all]");
 const boardArg = process.argv[3]?.trim() || null;
 
 const YT = "https://issues.bloomlibrary.org/youtrack/api";
-const CARD = /\bBL-\d+/i;
 
 function run(cmd, args, opts = {}) {
   try {
@@ -59,17 +59,6 @@ async function currentVersionBoard(token) {
   const lower = (a, b) => { const x = version(a), y = version(b); for (let k = 0; k < Math.max(x.length, y.length); k++) if ((x[k] ?? 0) !== (y[k] ?? 0)) return (x[k] ?? 0) - (y[k] ?? 0); return 0; };
   const board = [...candidates].sort((a, b) => activity[b] - activity[a] || lower(a, b))[0];
   return { board, activity };
-}
-
-// One word for a PR's CI checks: FAILURE if any failed, PENDING if any have not finished,
-// SUCCESS when all passed, "" when it has none. Reviewable's status (code-review/reviewable) is
-// left out: it stays PENDING until reviewers have seen every file, which says nothing about CI.
-function checksState(rollup) {
-  const results = (rollup || []).filter(c => c.context !== "code-review/reviewable").map(c => c.__typename === "StatusContext" ? c.state : (c.status === "COMPLETED" ? c.conclusion : "PENDING"));
-  if (!results.length) return "";
-  if (results.some(r => ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(r))) return "FAILURE";
-  if (results.some(r => ["PENDING", "EXPECTED", "QUEUED", "IN_PROGRESS"].includes(r))) return "PENDING";
-  return "SUCCESS";
 }
 
 // Worktrees and the agents in them.
@@ -152,22 +141,11 @@ for (const repo of repos) {
     prs.push({
       ...p, repo, card: (p.headRefName.match(CARD) || p.title.match(CARD) || [])[0]?.toUpperCase() ?? null,
       reviewRequests: p.reviewRequests.map(r => r.login), checks: checksState(statusCheckRollup),
-      // preflight puts "Preflight report: <url>" in the PR description.
-      report: (String(body || "").match(/Preflight report:[^\n]*?(https:\/\/[^\s)\]>]+)/) || [])[1] ?? null,
+      report: reportOf(body),
     });
   }
 }
-// The number of decision items in the preflight report. Each item's options end with a
-// "Leave as is" option (preflight's references/report-artifact.md), so this counts those labels;
-// the report's own wording of "nothing is waiting" varies from run to run. null when the report
-// cannot be read.
-await Promise.all(prs.filter(p => p.report).map(async p => {
-  try {
-    const r = await fetch(p.report);
-    if (!r.ok) throw new Error(String(r.status));
-    p.reportDecisions = (await r.text()).split(/<[^>]*>/).filter(t => /^\s*Leave as is\s*$/i.test(t)).length;
-  } catch { p.reportDecisions = null; }
-}));
+await Promise.all(prs.filter(p => p.report).map(async p => { p.reportDecisions = await reportDecisions(p.report); }));
 
 // board is null when every board was kept; boardActivity is set only when the board was chosen
 // by currentVersionBoard.

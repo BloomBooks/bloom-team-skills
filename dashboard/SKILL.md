@@ -23,6 +23,16 @@ session starts, the button reads "Loading...". A developer loads it once
 with `orca plugin dev load <this folder>/orca-plugin --approve <fingerprint>` (`orca plugin
 validate` prints what it may do; loading without `--approve` prints the fingerprint).
 
+A second Orca plugin, whose manifest is this folder's `orca-plugin.json` and whose files are in
+`worktree-panel/`, shows one row of this dashboard, for the worktree Orca has focused, in a
+Worktree tab of Orca's right sidebar, with the worktree's Claude session and the developer's last
+three prompts in it. It needs no server; `node worktree-panel/worktree-facts.mjs <worktree path>`
+prints what it shows. The page and the panel share their code: `row.js` draws a row and applies
+Orca's live agents to it, `dashboard.css` styles both, and `row-facts.mjs` holds the rules that
+the server, `gather.mjs`, `progress.mjs` and the panel's worker apply to agents, PRs, preflight
+runs and rows. Change a row's look or rules there, not in a copy. The plugin's folder is this
+whole folder because Orca lets a panel load only files inside its plugin's folder.
+
 ## Which board
 
 `/dashboard <board>` limits the board to cards whose YouTrack `Kanban Board` field is that value,
@@ -173,8 +183,9 @@ reports the agent working.
 `~/.claude/bloom-dashboard/progress/<worktree>.json`. The server puts a worktree's latest run on
 its row as `progress`. While a run has not ended, and an agent works there or the run wrote in
 the last 45 minutes, "Where it stands" shows the run's phases in place of `status` and `next`:
-Discover, Local checks, Merge master, Push and draft PR, Reviewers (Devin, CI, Bot comments and
-Related tests, which run at the same time) and Report, each with its note.
+Discover, Local checks, Merge master, Push and draft PR, Automated reviews and tests (Devin,
+Answering review comments and Related tests, which run at the same time) and Report, each with its
+note.
 
 ## 4. Write the rows
 

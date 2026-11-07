@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-11-07 — Orca's plugin check, types and scenario shots fail on this install
+
+- **Cut:** On Orca 1.4.248, `orca plugin types` and `orca plugin create --template worker-panel` fail with ENOENT for `resources/plugins/declarative/orca.d.ts`, so the plugin has no typings and `tsc` cannot run. `orca plugin check` and `orca plugin shot --scenario` fail with `orca-testing.mjs: cannot import "./orca-runtime.mjs": no such file in the plugin`, so no panel test or scenario check runs. The workaround was to transpile with esbuild for syntax only, and to screenshot the live panel with `orca plugin shot <key> --panel <id>` after focusing a worktree.
+- **Idea:** Retry after the pending Orca update (1.4.253); if it still fails, report it to Orca. Until then, say in the dashboard's plugin docs that `orca plugin check` cannot verify the panels.
+- **Context:** building `dashboard/worktree-panel`, Claude Opus 5.5 following a prompt from Hatton.
+
 ## 2026-10-22 — wrangler run inside a repo rewrites that repo
 
 - **Cut:** wrangler 4.152, run in a folder that has no `wrangler.jsonc`, configures the project it finds there for Workers. `wrangler pages project create` does this too, because it now hands Pages over to Workers. Run in a lameta checkout, it added `wrangler` to `package.json`, changed `pnpm-lock.yaml` and `vite.config.ts`, and ran `pnpm install`, which removed 128 packages. The command then failed with `ERR_PNPM_IGNORED_BUILDS`, and the only hint about the changes was in its log file.
