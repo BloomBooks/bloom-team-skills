@@ -16,19 +16,21 @@
 //                  each change between one facts.json and the next (see diff-facts.mjs), and for
 //                  each worktree the page's Create button makes; the session watches it with
 //                  watch-events.mjs
-//   finished-done.json  { "BL-16722": "<finishedAt>" }  the finished cards the developer cleared
-//                  with the page's Done button, and the finish each one cleared; this server
-//                  writes it
-//   reviewed-done.json  { "BL-17062": "<commentedAt>" }  the same for the Reviewed list
+//   progress/<worktree>.json  a preflight run's phases, written by progress.mjs
+//   tasks.json     the developer's to-do items for History: [{ id, text, created, checked }],
+//                  checked an ISO time or null. Only this server writes it. It is the one file
+//                  here that nothing can work out again from git, GitHub or the transcripts.
 //
 // A server that finds another dashboard server on its port asks that one to exit (POST
 // /api/handover with the key in handover.key), or kills it when it does not answer that request,
 // then takes the port. The server that was asked prints "REPLACED" and exits 0. A local script
-// that changed a card gets an early gather with POST /api/regather and the same key.
+// that changed a card gets an early gather with POST /api/regather and the same key, and the Orca
+// plugin's button gets the window shown with POST /api/show: brought to the front while a page is
+// asking for /api/state (every 3 seconds), or opened when none is.
 //
-// The page asks for /api/state every 3 seconds. Once a page has asked, the server exits after
-// IDLE_MINUTES with no request from any page, which is what closing the window does. It prints
-// "WINDOW_CLOSED" first.
+// Closing the window stops the server: the page posts /api/closing as it goes, and when no page
+// has asked for /api/state 5 seconds later (a reload asks again at once), the server prints
+// "WINDOW_CLOSED" and exits. A window that vanished without saying so stops it after IDLE_MINUTES.
 //
 // stdout: "DASHBOARD_URL <url>" once listening, "REPLACED" or "WINDOW_CLOSED" before exiting 0,
 // "PORT_TAKEN" (exit 4) when something other than a dashboard holds the port.
@@ -41,6 +43,7 @@ import { exec, execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { diffFacts } from "./diff-facts.mjs";
+import { ownReview } from "./own-review.mjs";
 import { orca, quote, norm, setLog, bringOrcaToFront, knownWorktree, agentTerminal, openWorktree, createWorktree } from "../orca-worktrees.mjs";
 
 const execP = promisify(exec);
@@ -68,7 +71,6 @@ const origin = `http://127.0.0.1:${port}`;
 const token = crypto.randomBytes(16).toString("hex");
 const CARD = /\bBL-\d+/i;
 // Chrome slows the timers of a minimized window to one run a minute, so this allows for that.
-const IDLE_MINUTES = 5;
 // A key that every dashboard server of this user shares, so that one can ask another to exit and
 // a web page cannot.
 const handoverKeyFile = path.join(dataDir, "handover.key");
@@ -82,24 +84,55 @@ setLog(log);
 let agents = {};          // normalized worktree path -> { working, waiting, question }
 let lastStates = null;    // path -> "working+done" etc., for events.log
 let orcaDown = false;
+// An agent's state as the dashboard counts it. Orca calls an agent "working" while a background
+// Monitor runs in it (workingMode "monitoring"), though it sits at its prompt; that counts as done.
+const agentState = a => a.state === "working" && a.workingMode === "monitoring" ? "done" : a.state;
+// A line under a working agent's step when it is waiting on its Monitor. The tool it runs is
+// left out: the developer does not want tool calls on the dashboard.
+function activity(a) {
+  return a.workingMode === "monitoring" ? "Waiting on reviewers and CI" : "";
+}
+// When this server first saw each worktree's agent working on its current prompt. Orca's
+// stateStartedAt does not serve: an agent at its prompt with a Monitor running is "working" for
+// hours, and a prompt typed into it then leaves stateStartedAt where it was.
+const workingSeen = new Map();
+function workingSince(p, a) {
+  if (!a) { workingSeen.delete(p); return 0; }
+  const id = a.paneKey + "|" + a.prompt;
+  if (workingSeen.get(p)?.id !== id) workingSeen.set(p, { id, since: Date.now() });
+  return workingSeen.get(p).since;
+}
 async function pollAgents() {
   try {
     const ps = (await orca("worktree", "ps")).worktrees;
     const next = {};
     const states = new Map();
+    const runs = readProgress();
     for (const w of ps) {
       const list = w.agents || [];
       const q = list.find(a => a.state === "waiting" && a.programStatus?.kind === "question");
-      const working = list.find(a => a.state === "working");
+      // A skill started with `claude --continue /<skill>` in Git Bash arrives with the slash
+      // rewritten into a Windows path ("C:/Program Files/Git/preflight").
+      const skillOf = a => (String(a?.prompt || "").match(/^(?:\/|[A-Za-z]:\/Program Files\/Git\/)([\w-]+)/) || [])[1] || "";
+      // Preflight spends much of its half hour waiting on bots with a Monitor, which Orca reports as
+      // working in "monitoring" mode. That counts as preflight still running while the run that
+      // progress.mjs records there has not ended; once it ends, the agent is at its prompt.
+      const run = runs.get(norm(w.path));
+      const working = list.find(a => agentState(a) === "working")
+        || (run && !run.endedAt && list.find(a => a.state === "working" && skillOf(a) === "preflight"));
       next[norm(w.path)] = {
         working: !!working,
         waiting: list.some(a => a.state === "waiting"),
         question: q ? String(q.programStatus.message || "").replace(/^answer:\s*/, "") : "",
         // The skill a working agent was started on, from the prompt it was given.
-        skill: (String(working?.prompt || "").match(/^\/([\w-]+)/) || [])[1] || "",
+        skill: skillOf(working),
+        // When it started working on this prompt, and what it is doing now.
+        since: workingSince(w.path, working),
+        monitoring: working?.workingMode === "monitoring",
+        tool: working ? activity(working) : "",
       };
       const card = ((w.branch || "").match(CARD) || (w.path || "").match(CARD) || [])[0]?.toUpperCase();
-      if (card) states.set(w.path, { card, s: list.map(a => a.state).sort().join("+") || "none" });
+      if (card) states.set(w.path, { card, s: list.map(agentState).sort().join("+") || "none" });
     }
     agents = next;
     if (lastStates) {
@@ -150,7 +183,6 @@ async function gatherOnce() {
     // The session may have replaced facts.json while gather ran; compare with what is there now.
     const lines = diffFacts(readFacts() || prev, next);
     fs.renameSync(tmp, factsFile);
-    pruneDone(next);
     if (gatherFailing) lines.unshift("gather works again");
     gatherFailing = null;
     if (lines.length) fs.appendFileSync(eventsLog, lines.join("\n") + "\n");
@@ -169,68 +201,118 @@ async function gatherOnce() {
   }
 }
 
-// ---- finished and reviewed cards ------------------------------------------------------------
-// facts.finished lists the developer's finished cards (finished.mjs), and facts.reviewed the cards
-// whose PRs they commented on (reviewed.mjs). Done hides a card from its list until its time field
-// moves on: finished again, or commented on again. A finished card going back to In Progress or
-// Has Comments assigned to the developer also forgets its Done, and a reviewed card back in Ready
-// For Code Review (it has a followUp) shows whatever its Done says, since it needs the developer
-// again: to answer the author, or to move the card to Has Comments.
-const LISTS = {
-  finished: { file: path.join(dataDir, "finished-done.json"), time: "finishedAt" },
-  reviewed: { file: path.join(dataDir, "reviewed-done.json"), time: "commentedAt" },
-};
-const readDone = list => { try { return readJson(LISTS[list].file); } catch { return {}; } };
-const writeDone = (list, d) => fs.writeFileSync(LISTS[list].file, JSON.stringify(d, null, 2));
-const notDone = (facts, list) => {
-  const done = readDone(list), time = LISTS[list].time;
-  return (facts?.[list] || []).filter(f => f.followUp || !(done[f.id] && done[f.id] >= f[time]));
-};
-// After a gather: forget the Done of a card that has left its list, or is back at work.
-function pruneDone(facts) {
-  const working = new Set((facts.cards || []).filter(c => c.assignedToDeveloper && ["In Progress", "Has Comments"].includes(c.state)).map(c => c.id));
-  for (const list of Object.keys(LISTS)) {
-    if (!Array.isArray(facts?.[list])) continue;
-    const done = readDone(list);
-    const listed = new Set(facts[list].map(f => f.id));
-    const backInReview = new Set(facts[list].filter(f => f.followUp).map(f => f.id));
-    const kept = Object.fromEntries(Object.entries(done).filter(([id]) => listed.has(id) && !(list === "finished" && working.has(id)) && !backInReview.has(id)));
-    if (Object.keys(kept).length !== Object.keys(done).length) writeDone(list, kept);
-  }
-}
-function markDone(list, card, at) {
-  // A reviewed PR that names no card is listed as "<repo>#<number>".
-  if (!LISTS[list] || !/^(BL-\d+|[\w.-]+#\d+)$/.test(card) || isNaN(Date.parse(at))) throw new Error(`bad list, card or time: ${list} ${card} ${at}`);
-  writeDone(list, { ...readDone(list), [card]: at });
-  log(`done ${list} ${card} ${at}`);
+// ---- the developer's own review --------------------------------------------------------------
+// For each row whose next step is request-peer-review, how much of its PR the developer has
+// marked reviewed in GitHub or Reviewable (own-review.mjs), checked once a minute while they
+// review. PR URL -> { files, reviewed, left, ... }.
+const ownReviews = new Map();
+let checkingOwnReviews = false;
+async function checkOwnReviews() {
+  if (checkingOwnReviews) return;
+  checkingOwnReviews = true;
+  try {
+    let login = "";
+    try { login = readJson(path.join(os.homedir(), ".claude", "bloom-developer.json")).github || ""; } catch {}
+    if (!login) return;
+    const prs = new Set(readState().rows.filter(r => r.pr && r.nextSkill === "request-peer-review").map(r => r.pr));
+    for (const pr of [...ownReviews.keys()]) if (!prs.has(pr)) ownReviews.delete(pr);
+    for (const pr of prs) {
+      try {
+        const r = await ownReview(pr, login);
+        if (r) ownReviews.set(pr, r); else ownReviews.delete(pr);
+      } catch (e) { log(`own review of ${pr} failed: ${e.message}`); }
+    }
+  } finally { checkingOwnReviews = false; }
 }
 
 // ---- state for the page ---------------------------------------------------------------------
+// Each worktree's latest preflight run, from the files progress.mjs writes, keyed by its path.
+const progressDir = path.join(dataDir, "progress");
+function readProgress() {
+  const runs = new Map();
+  let files = [];
+  try { files = fs.readdirSync(progressDir); } catch { return runs; }
+  for (const f of files) {
+    try {
+      const run = readJson(path.join(progressDir, f));
+      if (run.worktree) runs.set(norm(run.worktree), run);
+    } catch {}
+  }
+  return runs;
+}
+// The developer's to-do items for History. Written whole to a temporary file and renamed over
+// tasks.json, so a crash mid-write cannot leave half a list.
+const tasksFile = path.join(dataDir, "tasks.json");
+function readTasks() {
+  try { const t = readJson(tasksFile); return Array.isArray(t) ? t : []; } catch { return []; }
+}
+function changeTask(action, b) {
+  const tasks = readTasks();
+  const find = () => {
+    const t = tasks.find(x => x.id === String(b.id || ""));
+    if (!t) throw new Error("no such task");
+    return t;
+  };
+  if (action === "create") {
+    const text = String(b.text || "").trim();
+    if (!text) throw new Error("a task needs some text");
+    tasks.push({ id: crypto.randomUUID(), text, created: new Date().toISOString(), checked: null });
+  } else if (action === "check") find().checked = new Date().toISOString();
+  else if (action === "uncheck") find().checked = null;
+  else if (action === "delete") { find(); tasks.splice(tasks.findIndex(x => x.id === b.id), 1); }
+  else throw new Error("unknown task action");
+  const tmp = tasksFile + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(tasks, null, 2));
+  fs.renameSync(tmp, tasksFile);
+  return tasks;
+}
 function readState() {
   let board = "";
   try { board = readJson(path.join(dataDir, "board.json")).board || ""; } catch {}
   const rows = [];
   for (const f of fs.readdirSync(rowsDir)) {
     if (!f.endsWith(".json")) continue;
-    try { rows.push(readJson(path.join(rowsDir, f))); } catch {}
+    // A row's time is when its file was written, not the `updated` the session typed into it,
+    // which a session can get wrong.
+    try {
+      const file = path.join(rowsDir, f);
+      rows.push({ ...readJson(file), updated: fs.statSync(file).mtime.toISOString() });
+    } catch {}
   }
   // The developer's first name, for the page's top bar.
   let developer = "";
   try { developer = (readJson(path.join(os.homedir(), ".claude", "bloom-developer.json")).name || "").split(" ")[0]; } catch {}
   const facts = readFacts();
-  return { serverPid: process.pid, board, developer, rows, agents, finished: notDone(facts, "finished"), reviewed: notDone(facts, "reviewed"), gatheredAt: facts?.gatheredAt || "" };
+  // Each row's PR as "draft" or "open", from the developer's open PRs in the facts, for the link's
+  // colour; a PR not among them (merged or closed) is left to the page.
+  const openPrs = new Map((facts?.prs || []).map(p => [p.url, p.isDraft ? "draft" : "open"]));
+  for (const r of rows) if (r.pr && openPrs.has(r.pr)) r.prState = openPrs.get(r.pr);
+  // Whether each row's card has the "Approved Plan" tag, which offers merging without peer review.
+  const approved = new Set((facts?.cards || []).filter(c => c.approvedPlan).map(c => c.id));
+  for (const r of rows) r.approvedPlan = approved.has(r.card);
+  // The PR's mergeability and CI from the facts, and how much of it the developer has reviewed.
+  const prFacts = new Map((facts?.prs || []).map(p => [p.url, p]));
+  for (const r of rows) {
+    const p = prFacts.get(r.pr);
+    if (p) { r.prMergeable = p.mergeable; r.prChecks = p.checks; }
+    if (ownReviews.has(r.pr)) r.ownReview = ownReviews.get(r.pr);
+  }
+  // The latest preflight run in each row's worktree, as progress.mjs recorded it.
+  const runs = readProgress();
+  for (const r of rows) if (r.worktree && runs.has(norm(r.worktree))) r.progress = runs.get(norm(r.worktree));
+  return { serverPid: process.pid, board, developer, rows, agents, tasks: readTasks(), standup: facts?.standup || null, backForReview: facts?.backForReview || null, gatheredAt: facts?.gatheredAt || "" };
 }
 
 // ---- Orca actions ---------------------------------------------------------------------------
 // Runs a skill in the worktree's Claude session: typed into its terminal when Claude is there and
 // idle, or in a new Claude terminal when there is none.
-const SKILLS = ["preflight", "pr-ready-for-human"];
+const SKILLS = ["preflight", "request-peer-review", "merge-without-peer-review"];
 async function runSkill(p, skill) {
   if (!SKILLS.includes(skill)) throw new Error("not a skill the dashboard runs: " + skill);
   const wt = await knownWorktree(p);
   const target = await agentTerminal(wt);
   if (target) {
-    if (target.agent.state === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
+    if (agentState(target.agent) === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
     await orca("terminal", "send", "--terminal", target.handle, "--text", "/" + skill, "--enter");
     await orca("terminal", "switch", "--terminal", target.handle);
     log(`sent /${skill} to ${target.handle} in ${wt}`);
@@ -263,12 +345,19 @@ function send(res, code, body, type = "application/json") {
   res.end(typeof body === "string" ? body : JSON.stringify(body));
 }
 
+const IDLE_MINUTES = 5;
+function exitWindowClosed(why) {
+  log(why + "; exiting");
+  console.log("WINDOW_CLOSED: " + why);
+  process.exit(0);
+}
 let lastPageRequest = 0;   // when a page last asked for /api/state; 0 until one has
 const server = http.createServer((req, res) => {
   const pathname = req.url.split("?")[0];
   if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) return send(res, 200, page(), "text/html");
   if (req.method === "GET" && req.url === "/api/state") { lastPageRequest = Date.now(); return send(res, 200, readState()); }
-  if (req.method === "GET" && req.url === "/api/health") return send(res, 200, { dashboard: true, pid: process.pid });
+  // `page`: a dashboard page has asked for /api/state in the last 8 seconds, so a window is showing.
+  if (req.method === "GET" && req.url === "/api/health") return send(res, 200, { dashboard: true, pid: process.pid, page: Date.now() - lastPageRequest < 8000 });
   if (req.method === "POST" && req.url === "/api/handover") {
     if (req.headers["x-handover-key"] !== handoverKey) return send(res, 403, { ok: false, error: "forbidden" });
     send(res, 200, { ok: true });
@@ -280,6 +369,24 @@ const server = http.createServer((req, res) => {
   }
   // A local script (work-on-youtrack, after it assigns a card) asks for a gather; it answers at
   // once and the gather runs on.
+  // The page's goodbye, sent with navigator.sendBeacon, which cannot set headers: the token is the body.
+  if (req.method === "POST" && req.url === "/api/closing") {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", c => { body += c; if (body.length > 200) req.destroy(); });
+    req.on("end", () => {
+      if (body !== token) return send(res, 403, { ok: false, error: "forbidden" });
+      const closingAt = Date.now();
+      send(res, 200, { ok: true });
+      setTimeout(() => { if (lastPageRequest < closingAt) exitWindowClosed("the dashboard window closed"); }, 5000);
+    });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/show") {
+    if (req.headers["x-handover-key"] !== handoverKey) return send(res, 403, { ok: false, error: "forbidden" });
+    showWindow().then(how => { log("show: " + how); send(res, 200, { ok: true, how }); }, e => send(res, 500, { ok: false, error: e.message }));
+    return;
+  }
   if (req.method === "POST" && req.url === "/api/regather") {
     if (req.headers["x-handover-key"] !== handoverKey) return send(res, 403, { ok: false, error: "forbidden" });
     log("regather asked for by a local script");
@@ -300,8 +407,8 @@ const server = http.createServer((req, res) => {
       else if (req.url === "/api/run-skill") await runSkill(String(b.path || ""), String(b.skill || ""));
       else if (req.url === "/api/vscode") { await openInVsCode(String(b.path || "")); return send(res, 200, { ok: true }); }
       else if (req.url === "/api/gather") { const error = await regather(); return send(res, 200, error ? { ok: false, error } : { ok: true }); }
-      else if (req.url === "/api/done") { markDone(String(b.list || ""), String(b.card || ""), String(b.at || "")); return send(res, 200, { ok: true }); }
       else if (req.url === "/api/create") await createForCard({ card: String(b.card || ""), title: String(b.title || ""), pr: String(b.pr || "") });
+      else if (req.url.startsWith("/api/task/")) return send(res, 200, { ok: true, tasks: changeTask(req.url.slice(10), b) });
       else return send(res, 404, { ok: false, error: "unknown action" });
       await bringOrcaToFront().catch(e => log("front: " + e.message));
       send(res, 200, { ok: true });
@@ -314,14 +421,34 @@ const server = http.createServer((req, res) => {
 
 // Opens the page in a Chrome app window. Chrome hands the request to its running instance, so this
 // returns at once.
+// Brings the dashboard window to the front when a page is open, or opens one. Returns what it did.
+async function showWindow() {
+  if (Date.now() - lastPageRequest < 8000 && process.platform === "win32") {
+    try {
+      await execFileP("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(here, "raise-window.ps1"), "-Title", "Bloom Dashboard"], { windowsHide: true });
+      return "raised";
+    } catch {}   // exit 1: no window with that title, so open one
+  }
+  openAppWindow();
+  return "opened";
+}
 function openAppWindow() {
+  // A server that the Orca plugin starts gets no ProgramFiles or LOCALAPPDATA, hence the fallbacks.
   const candidates = process.platform === "win32"
-    ? [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA]
-        .filter(Boolean).map(d => path.join(d, "Google", "Chrome", "Application", "chrome.exe"))
+    ? [process.env.ProgramFiles || "C:/Program Files", process.env["ProgramFiles(x86)"] || "C:/Program Files (x86)",
+        process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local")]
+        .map(d => path.join(d, "Google", "Chrome", "Application", "chrome.exe"))
     : ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome"];
   const chrome = candidates.find(p => fs.existsSync(p));
   if (!chrome) { log("no window: chrome not found in " + candidates.join(", ")); return; }
-  spawn(chrome, [`--app=${origin}/`, "--window-size=1280,900"], { detached: true, stdio: "ignore" }).unref();
+  // Name the profile folder that Chrome uses by default: Chrome started without LOCALAPPDATA (as
+  // under the Orca plugin) cannot find it, starts a separate browser with an empty profile, and
+  // opens the page's links there instead of in the developer's own Chrome.
+  const args = [`--app=${origin}/`, "--window-size=1280,900"];
+  if (process.platform === "win32") {
+    args.unshift(`--user-data-dir=${path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "Google", "Chrome", "User Data")}`);
+  }
+  spawn(chrome, args, { detached: true, stdio: "ignore" }).unref();
   log("opened an app window with " + chrome);
 }
 
@@ -374,13 +501,11 @@ server.on("error", async e => {
 server.on("listening", async () => {
   await pollAgents();
   setInterval(pollAgents, 5000);
+  checkOwnReviews();
+  setInterval(checkOwnReviews, 60000);
   setInterval(regather, gatherMinutes * 60000);
   setInterval(() => {
-    if (lastPageRequest && Date.now() - lastPageRequest > IDLE_MINUTES * 60000) {
-      log("no page for " + IDLE_MINUTES + " minutes; exiting");
-      console.log("WINDOW_CLOSED: no dashboard page has asked for " + IDLE_MINUTES + " minutes");
-      process.exit(0);
-    }
+    if (lastPageRequest && Date.now() - lastPageRequest > IDLE_MINUTES * 60000) exitWindowClosed(`no dashboard page has asked for ${IDLE_MINUTES} minutes`);
   }, 30000);
   log("listening on " + origin + " pid " + process.pid);
   // After a takeover, a window left open on the old server asks within 3 s and reloads onto this

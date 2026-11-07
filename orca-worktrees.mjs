@@ -107,27 +107,54 @@ export async function prHeadBranch(repo, number) {
   return head;
 }
 
+// The GitHub default branch of `repo`, e.g. "master".
+async function defaultBranch(repo) {
+  const base = (await execFileP("gh", ["repo", "view", repo, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"], { windowsHide: true })).stdout.trim();
+  if (!base) throw new Error("GitHub gave no default branch for " + repo);
+  return base;
+}
+// Claude's first message in a worktree whose branch is not based on the default branch.
+const branchNotice = (branch, base, main) =>
+  `This worktree is on branch ${branch}, which is based on ${base}, not ${main}. ` +
+  `Tell the developer that in one sentence, then wait for their instructions without starting any work.`;
+
 // Makes a worktree for a card that has none and starts Claude in it, then returns { path, branch }.
 // Orca names the worktree's branch itself from --name (adding its branch prefix, e.g.
-// "JohnThomson/"); it has no --branch flag. Without a PR, that branch, <prefix><card>-<words>, is
-// new from the default base of `repo` (bloombooks/bloomdesktop unless given); `words` defaults to
-// the first three words of the title. With a PR, the worktree is switched onto the PR's own branch
-// before Claude starts, and Orca's prefixed branch is deleted.
+// "JohnThomson/"). Without a PR, that branch, <prefix><card>-<words>, is new from origin's copy of
+// a base branch, fetched first: Version<n> when the title starts with "[<n>]" (a card for a
+// release, e.g. "[6.5] …" goes on Version6.5), otherwise the GitHub default branch of `repo`
+// (bloombooks/bloomdesktop unless given). The base is named on every call because Orca's own
+// default base for a repo can be any branch. `words` defaults to the first three words of the
+// title. With a PR, the worktree is switched onto the PR's own branch before Claude starts, and
+// Orca's prefixed branch is deleted. When the branch is based on anything but the default branch,
+// Claude's first message asks it to tell the developer which branch the worktree is on.
 export async function createWorktree({ card, title, pr, words, repo = "bloombooks/bloomdesktop" }) {
   if (!/^BL-\d+$/.test(card || "")) throw new Error("bad card id " + card);
   let prNumber = null;
   const parsed = parsePr(pr);
   if (parsed) { repo = parsed.repo; prNumber = parsed.number; }
   const repoId = await orcaRepoId(repo);
+  const repoPath = (await orca("repo", "list")).repos.find(r => r.id === repoId)?.path;
+  const main = await defaultBranch(repo);
   const args = ["worktree", "create", "--repo", "id:" + repoId, "--no-parent", "--activate"];
   if (!prNumber) {
-    const r = await orca(...args, "--agent", "claude", "--name", [card, ...(words || titleWords(title))].join("-"));
+    const version = (String(title || "").match(/^\s*\[(\d+(?:\.\d+)*)\]/) || [])[1];
+    const base = version ? "Version" + version : main;
+    try {
+      await execFileP("git", ["-C", repoPath, "fetch", "origin", base], { windowsHide: true });
+    } catch {
+      throw new Error(`could not fetch ${base} from ${repo}` + (version ? ` (the title starts with [${version}]); make that branch or retitle the card` : ""));
+    }
+    const name = [card, ...(words || titleWords(title))].join("-");
+    // Orca's prefix is unknown until it answers, so the notice names the branch Orca is asked for.
+    const notice = base !== main ? ["--prompt", branchNotice(name, "origin/" + base, main)] : [];
+    const r = await orca(...args, "--agent", "claude", ...notice, "--name", name, "--base-branch", "origin/" + base);
     const made = r.worktree?.path || r.worktreeId;
-    log("created " + made + " for " + card);
-    return { path: made, branch: (r.worktree?.branch || "").replace("refs/heads/", "") };
+    log("created " + made + " on origin/" + base + " for " + card);
+    return { path: made, branch: (r.worktree?.branch || "").replace("refs/heads/", ""), base };
   }
   const head = await prHeadBranch(repo, prNumber);
-  const repoPath = (await orca("repo", "list")).repos.find(r => r.id === repoId)?.path;
+  const prBase = (await execFileP("gh", ["pr", "view", String(prNumber), "-R", repo, "--json", "baseRefName", "--jq", ".baseRefName"], { windowsHide: true })).stdout.trim();
   await execFileP("git", ["-C", repoPath, "fetch", "origin", head], { windowsHide: true });
   const before = new Set((await orca("worktree", "list")).worktrees.map(w => norm(w.path)));
   const r = await orca(...args, "--name", head.replace(/\//g, "-"), "--base-branch", "origin/" + head, "--pr", prNumber);
@@ -137,7 +164,8 @@ export async function createWorktree({ card, title, pr, words, repo = "bloombook
   // A local branch named like the PR's makes "git switch" use it; otherwise it creates one tracking origin.
   await execFileP("git", ["-C", wt, "switch", head], { windowsHide: true });
   if (orcaBranch && orcaBranch !== head) await execFileP("git", ["-C", wt, "branch", "-D", orcaBranch], { windowsHide: true }).catch(e => log("could not delete " + orcaBranch + ": " + e.message));
-  await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude", "--focus");
+  if (prBase && prBase !== main) await orca("agent", "launch", "--agent", "claude", "--worktree", "path:" + wt, "--prompt", branchNotice(head, prBase, main), "--focus");
+  else await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude", "--focus");
   log("created " + wt + " on " + head + " for " + card);
-  return { path: wt, branch: head };
+  return { path: wt, branch: head, base: prBase || main };
 }

@@ -31,7 +31,9 @@ What the script does, so you can explain its output:
 4. With a worktree: switches Orca to its Claude terminal, or starts `claude --continue || claude`
    there. Without one: creates it with `createWorktree` from `orca-worktrees.mjs` at the
    repo root (shared with the dashboard), on the PR's branch when there is a PR, otherwise on
-   `<card>-<1-3 words>` in `bloombooks/bloomdesktop`. Claude (haiku) suggests the words; when it
+   `<card>-<1-3 words>` in `bloombooks/bloomdesktop`, from `origin/master`, or from
+   `origin/Version6.5` when the card's title starts with `[6.5]`. When the branch is based on
+   anything but master, the new Claude's first message tells the developer which branch it is on. Claude (haiku) suggests the words; when it
    fails or answers with something else, the first three words of the title are used.
 5. Assigns the card to the developer when it has no Assignee, and moves it to In Progress when its
    State comes before In Progress (Incoming, Open, Ready For Work, Has Comments). A card in review,

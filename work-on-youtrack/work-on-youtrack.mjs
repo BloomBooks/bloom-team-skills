@@ -230,7 +230,7 @@ function describe(r) {
     lines.push(`${would ? "Would open" : "Opened"} ${r.worktree} (branch ${r.branch})`);
     lines.push(r.terminal ? `${would ? "Would switch" : "Switched"} to its Claude terminal (${r.terminal}).` : `${would ? "Would start" : "Started"} Claude there (claude --continue || claude).`);
   } else {
-    const from = r.pr ? `on the PR's branch ${r.branch}` : `on a new branch ${r.branch}` + (r.wordsFrom === "claude" ? " (words from Claude)" : " (words from the title; Claude gave no usable answer)");
+    const from = r.pr ? `on the PR's branch ${r.branch}` : `on a new branch ${r.branch}` + (r.base ? ` from origin/${r.base}` : "") + (r.wordsFrom === "claude" ? " (words from Claude)" : " (words from the title; Claude gave no usable answer)");
     lines.push(`${would ? "Would create" : "Created"} a worktree in ${r.repo} ${from}${r.worktree ? ` at ${r.worktree}` : ""}, with Claude running in it.`);
   }
   if (r.others?.length) lines.push("Other worktrees for this card: " + r.others.join(", "));
@@ -285,6 +285,7 @@ async function main() {
       const made = await createWorktree({ card, title: info.summary, words, repo });
       result.worktree = made.path;
       if (made.branch) result.branch = made.branch;
+      result.base = made.base;
     }
   }
   result.login = me;

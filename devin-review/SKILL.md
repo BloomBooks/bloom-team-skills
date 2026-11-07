@@ -55,7 +55,7 @@ in the bloom-team-skills repo README, **"Making the review skills actually auton
 ## When To Use
 
 - When a new PR is created or a new commit pushed, as part of the bot-wait phase before human review.
-- Invoked by `preflight` during its bot gauntlet; consulted by `pr-ready-for-human` for its "has Devin run?" verification.
+- Invoked by `preflight` during its bot gauntlet; consulted by `request-peer-review` and `merge-without-peer-review` for their "has Devin run?" verification.
 - When the user explicitly wants a Devin review run and reported.
 
 This skill is the **single source of truth for operating Devin** (devinreview.com /

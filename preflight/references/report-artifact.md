@@ -136,12 +136,12 @@ one click from there". The sample screenshot (`preflight-report-sample.png`) sho
 chips after "Board". The render check and the pre-publish grep both look for this link.
 
 The state chip may additionally wrap its label in an `<a>` to the same PR URL (an anchor inside
-the span keeps the markers' shape and survives `pr-ready-for-human`'s patch, which only swaps the
+the span keeps the markers' shape and survives the patch that `request-peer-review` and `merge-without-peer-review` apply, which only swaps the
 attribute and the label text) — but that is optional; the links row is what is checked.
 
 **The PR-state chip is read live, never assumed.** This report outlives the run: it sits at a
-stable URL linked on the tracker card, and afterwards `pr-ready-for-human` — or the human author
-by hand — un-drafts the PR. A chip that still says "Draft PR" then misleads everyone who opens
+stable URL linked on the tracker card, and afterwards `request-peer-review` — or the human author
+by hand — un-drafts the PR, or `merge-without-peer-review` merges it. A chip that still says "Draft PR" then misleads everyone who opens
 that link. Two rules keep it honest:
 
 - **Read the state at the moment you write the page** (`gh pr view <n> --json isDraft,state`) and
@@ -153,9 +153,9 @@ that link. Two rules keep it honest:
   <!-- pr-state:begin --><span class="chip" data-pr-state="draft">Draft PR</span><!-- pr-state:end -->
   ```
 
-  `data-pr-state` is `draft` or `ready`; the label is `Draft PR` or `Ready for review`. Keep the
+  `data-pr-state` is `draft`, `ready` or `merged`; the label is `Draft PR`, `Ready for review` or `Merged`. Keep the
   markers and the chip on **one line**, in exactly this shape (your own class names are fine) —
-  `pr-ready-for-human` rewrites what sits between the markers, and drifting from this shape is
+  `patch-report-chip.mjs` rewrites what sits between the markers, and drifting from this shape is
   what leaves a stale "draft" chip on a promoted PR. Emit the markers on every run, including the
   ordinary one where the PR really is a draft.
 

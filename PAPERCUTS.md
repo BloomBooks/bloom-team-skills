@@ -2,12 +2,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
-## 2026-11-06 — Moving a BloomDesktop worktree to another release line leaves output/browser from the old one
-
-- **Cut:** `git checkout -B <branch> origin/Version6.5` in a worktree last built on master kept master's `output/browser`. The full C# suite then failed 18 appearance tests (`AppearanceSettingsTests` OneTimeSetUp IndexOutOfRange; `CreateBookOnDiskFromTemplate_KnownConflictingCss_MigratesToKnownTheme` expected `zero-margin-ebook`, got `edge-to-edge`), because `output/browser/appearanceThemes` held master's themes. Nothing said the build output came from another branch.
-- **Idea:** When `work-on-youtrack` or an agent moves a worktree across release lines, rebuild the content files (`pnpm build:appearance` and `build:appearanceMigrations` in `src/content` fixed it here), or note in TEAM-AGENTS.md's tooling traps that unexpected theme/CSS test failures after a base change mean stale `output/browser`.
-- **Context:** BloomDesktop BL-16778 (PR 8551), preflight by Claude Opus 5.5.
-
 ## 2026-10-22 — wrangler run inside a repo rewrites that repo
 
 - **Cut:** wrangler 4.152, run in a folder that has no `wrangler.jsonc`, configures the project it finds there for Workers. `wrangler pages project create` does this too, because it now hands Pages over to Workers. Run in a lameta checkout, it added `wrangler` to `package.json`, changed `pnpm-lock.yaml` and `vite.config.ts`, and ran `pnpm install`, which removed 128 packages. The command then failed with `ERR_PNPM_IGNORED_BUILDS`, and the only hint about the changes was in its log file.
@@ -41,15 +35,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Cut:** In a BloomLibrary2 git worktree, `pnpm install`'s postinstall (`shx rm -rf .git/hooks && shx ln -s ../.husky .git/hooks`) fails because `.git` is a file there. pnpm's verify-deps-before-run then re-runs that failing install on every `pnpm exec`, including the husky pre-commit hook's `pnpm exec pretty-quick` / `lint-staged`, so `git commit` fails. `husky install` also rewrites `.husky/.gitignore` each time.
 - **Idea:** Make the postinstall skip the hooks symlink when `.git` is not a directory (or drop it; `prepare: husky install` already exists), or document `export npm_config_verify_deps_before_run=false pnpm_config_verify_deps_before_run=false` (both are needed with pnpm 11; hooks still run) plus calling `node_modules/.bin/*` directly.
 - **Context:** BL-17000-relogin worktree, PR BloomBooks/BloomLibrary2#625, Claude Opus 5.5 during preflight.
-
-## 2026-10-06 — `pr-ready-for-human`'s chip patch is a multi-line `node -e`, which does nothing
-
-- **Cut:** Stage 4 step 2 patches the published report's PR-state chip with a multi-line
-  `node -e '...'` in Bash. On Windows it printed nothing and left the file unchanged (the known
-  multi-line `node -e` trap), so the commit that followed would have pushed nothing. The same
-  code from a script file printed "patched" and worked.
-- **Idea:** ship the patch as a `.mjs` file beside the skill and call `node <file> "$F"`.
-- **Context:** promoting PR 8346 (BL-16859) for Hatton.
 
 ## 2026-10-05 — `reviewable-replies` cannot start a new thread, and its Bash recipe hangs
 

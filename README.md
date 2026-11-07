@@ -24,7 +24,7 @@ When you're done with a fix or feature, run `/preflight`. It will:
 4. **Push and create a draft PR** if it isn't already there, with a description that says what problem the PR solves and what it changes to fix it (kept up to date on later runs).
 5. Find the related issue in the issue tracker (we use YouTrack) and add a **comment with the PR URL** if it isn't already there.
 6. **Trigger Devin** and start watching for other **review-bot feedback** and **CI** on the PR.
-7. Run the front- and back-end **full test suite**, overlapped with the wait; failures are fixed if safe, else reported.
+7. Run the front- and back-end **tests related to the change**, overlapped with the wait; failures are fixed if safe, else reported. The nightly runs every suite in full.
 8. **Poll until every reviewer is done or timed out** — findings that are safe and clear it just fixes (re-running the gate and re-triggering the bots on each new commit); the rest are saved for your report. Every finding it acts on — bot or human — gets a reply on the PR documenting what it did and has its thread resolved, so human reviewers can see it was dealt with. (Devin's findings are mirrored onto the PR as inline review threads first.) The ones it escalates to your report keep their threads open until you decide.
 9. On the issue (YouTrack), add or update **a small report for testers** — an overview of what changed plus a set of manual testing ideas: normal cases, boundary cases, how it might interact with other parts of the Bloom ecosystem ([example](https://issues.bloomlibrary.org/youtrack/issue/BL-16548/UI-Tweaks-to-collections-dialog#focus=Comments-102-73983.0-0)).
 10. Hand back a preflight report:
@@ -36,7 +36,7 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 ![A preflight report: header with status chips, a quality-gate table and "what changed" list on the left, and interactive decision items with a copy-back button on the right.](preflight/references/preflight-report-sample.png)
 
  It has these parts:
-- **Header** — a one-line summary of the run and a row of status chips (PR state — draft or ready for review, read live and corrected in place when `pr-ready-for-human` promotes the PR — mergeability, bots clean, how many items are waiting on you).
+- **Header** — a one-line summary of the run and a row of status chips (PR state — draft or ready for review, read live and corrected in place when `request-peer-review` un-drafts the PR or `merge-without-peer-review` merges it — mergeability, bots clean, how many items are waiting on you).
 - **What this PR is about** — the first thing on the page, on every run: the problem the PR set out to solve, the cause that was diagnosed (when that isn't obvious from the problem), and what the **whole PR** changes to fix it. Kept up to date run after run rather than replaced by notes on the latest one — so a reviewer, or a colleague who picks the card up next week, can read the report cold. The same text goes in the PR description.
 - **Quality gate** — a table of typecheck, lint, and merge-cleanliness, with **tests broken out one row per language/runner** (TS/vitest, C#/dotnet, …) so nothing looks silently skipped; each row shows pass / fail / N/A with detail.
 - **What changed this run** — deliberately brief: a few lines on what this run did to the branch (a run being one `/preflight`, usually several commits), plus links to the commits. Not a paragraph per commit.
@@ -48,7 +48,8 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 
 | Skill                      | What it does                                                                                                                                                                            |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pr-ready-for-human`       | Step 3 of the pipeline: after preflight and your own review, verify clean, link YouTrack, un-draft the PR (correcting the published report's "draft" chip), move boards.                                                                 |
+| `request-peer-review`      | Step 3 of the pipeline: after preflight and your own review, verify clean, link YouTrack, un-draft the PR (correcting the published report's "draft" chip), move boards.                                                                 |
+| `merge-without-peer-review` | Step 3 instead of peer review, for a card tagged "Approved Plan": the same checks and card cleanup, then merge the PR and move the card to Ready For Testing.                                                                 |
 | `devin-review`             | Single source of truth for operating Devin (devinreview.com / app.devin.ai): trigger, read signals, post findings to GitHub.                                                            |
 | `reviewable-replies`       | Reply to Reviewable.io review discussions per-thread via the `reviewable` CLI.                                                                                                          |
 | `youtrack-api`             | Low-level: auth and REST conventions for our YouTrack (`issues.bloomlibrary.org`).                                                                                                      |
@@ -93,7 +94,7 @@ tool; the "for" column says which ones.
 
 | Tool                                                 | For                                               | Notes                                                                                                                                                                                                                                                                                                                                                                                      |
 | ---------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [\*\*GitHub CLI](https://cli.github.com/) (`gh`)\*\* | `preflight`, `pr-ready-for-human`, `devin-review` | Authenticate once with `gh auth login`.                                                                                                                                                                                                                                                                                                                                                    |
+| [\*\*GitHub CLI](https://cli.github.com/) (`gh`)\*\* | `preflight`, `request-peer-review`, `merge-without-peer-review`, `devin-review` | Authenticate once with `gh auth login`.                                                                                                                                                                                                                                                                                                                                                    |
 | `**reviewable` CLI\*\*                               | `reviewable-replies`                              | Install globally: `npm install -g reviewable`. See the [Reviewable agent/CLI docs](https://docs.reviewable.io/agents).                                                                                                                                                                                                                                                                     |
 | **`chrome-devtools` CLI**                            | `devin-review` browser automation, `preflight` report render check | Drives the [Chrome DevTools for agents](https://developer.chrome.com/docs/devtools/agents) **CLI** (not the MCP-server form). Install it globally: `npm i chrome-devtools-mcp@latest -g` (needs Node.js — this puts a `chrome-devtools` binary on your PATH). Verify with `chrome-devtools status`. Works in any environment; no `/plugin` required. |
 | **`jq`**                                             | `devin-review`, `add-test-ideas`                  | JSON parsing in shell snippets. `winget install jqlang.jq` on Windows. `gh api --jq` covers the GitHub calls without it. |
@@ -172,6 +173,23 @@ done
 different directory can be linked the same way.)
 
 </details>
+
+### Optional: a Bloom Dashboard button in Orca
+
+The `dashboard` skill comes with an Orca plugin, in [`dashboard/orca-plugin/`](dashboard/orca-plugin),
+that puts a **Bloom Dashboard** button in Orca's status bar. Pressing it opens the dashboard,
+starting a Claude session for it in your bloom-team-skills checkout when none is running, and
+closing the dashboard window ends that session again. `/dashboard` offers to load it; to load it
+yourself:
+
+```bash
+orca plugin dev load <your clone>/dashboard/orca-plugin
+```
+
+That prints what the plugin may do (read your workspaces, open them, type into the terminal it
+starts, keep its own storage) and a fingerprint; run the same command with
+`--approve <fingerprint>` to accept. The plugin loads from your clone, so pulls update it; Orca asks
+again only when an update changes its access or its button.
 
 ### Load the team-wide agent rules
 

@@ -41,8 +41,15 @@ overwrites an existing link or touches skills that aren't part of this repo.
    then on, the first Claude Code session each day starts a background `git pull --ff-only` and links
    new skill folders, without delaying the session. It pulls only when the clone is on `main` with no
    uncommitted changes to tracked files. Results go to `~/.claude/bloom-team-skills-update.log`.
-6. **Report.** Summarise: pull result, which links were newly created, which already existed, any
-   removed, and whether the hook was installed. A running session notices changed and newly linked
+6. **Check the Bloom Dashboard button.** When `orca` is installed, run `orca plugin list`. If it
+   does not list `local.bloom-dashboard` as `running` (missing, or waiting for approval after a
+   pull changed its access or its button), say so in the report: the `dashboard` skill has an Orca
+   plugin in `dashboard/orca-plugin/` that puts a Bloom Dashboard button in Orca's status bar, and
+   `/dashboard` offers to load it. Load it here only if the developer asks; approving it is theirs
+   to do, since the plugin runs code under their account (`dashboard/SKILL.md`, step 0, has the
+   steps).
+7. **Report.** Summarise: pull result, which links were newly created, which already existed, any
+   removed, whether the hook was installed, and the Bloom Dashboard button's state from step 6. A running session notices changed and newly linked
    skills within a few seconds, so no restart is needed.
 
 ## Commands

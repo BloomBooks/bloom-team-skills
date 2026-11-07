@@ -1,17 +1,17 @@
-// The PRs the developer reviewed lately, by card, for the dashboard's "Reviewed" list.
+// The PRs the developer reviewed lately, by card: for the standup section's Reviewed lines
+// (standup.mjs) and for the dashboard's "Back with you for review" list (the ones with a followUp).
 //
 // Asks GitHub for BloomBooks PRs opened by someone else that the developer reviewed or commented
-// on, and keeps those where the developer's latest comment or review is from the last DAYS days
-// (Reviewable posts its comments as the reviewer's GitHub reviews, so they count). Each PR becomes
-// one line per card its title names (or, failing that, its branch), with the card's title and
-// State from YouTrack; a PR that names no card is one line under its own title.
-// commentedAt is the developer's latest comment or review on the PR.
+// on, and keeps those where the developer commented or reviewed in the last DAYS days (Reviewable
+// posts its comments as the reviewer's GitHub reviews, so they count). Each PR becomes one line per
+// card its title names (or, failing that, its branch), with the card's title and State from
+// YouTrack; a PR that names no card is one line under its own title. commentDates lists the times
+// of all the developer's comments and reviews on the PR, oldest first; commentedAt is the last.
 //
 // Two kinds of activity are not reviewing. A comment an agent posted for the developer (preflight,
 // devin-review: it starts with "[Claude ...]") shows them running the PR, so it is ignored. And a
 // card the developer is or was assigned to is their own work, even when the PR was opened under
-// someone else's GitHub account (the Bloom bot opens PRs as Hatton), so it is left off; such a card
-// shows in the Finished list instead.
+// someone else's GitHub account (the Bloom bot opens PRs as Hatton), so it is left off.
 //
 // A card in Ready For Code Review gets a followUp (see followUp below) and sorts first. A review
 // older than DAYS days is still listed when its card is back in Ready For Code Review and the
@@ -22,7 +22,7 @@
 
 import { execFileSync } from "node:child_process";
 
-const DAYS = 7;
+const DAYS = 14;
 const CARDS = /\bBL-\d+/gi;
 // The attribution line an agent puts at the start of what it posts as the developer.
 const AGENT_POST = /^\s*\[Claude\b[^\]]*\]/;
@@ -41,7 +41,7 @@ function gh(args) {
 /**
  * yt(path, params) calls the YouTrack REST API and returns the parsed JSON; githubLogin and
  * youtrackLogin are the developer's logins, and gh must be signed in. Returns
- * [{ id, url, summary, state, pr, commentedAt }], newest first. id is the card id, or
+ * [{ id, url, summary, state, pr, merged, commentedAt, commentDates, followUp }], newest first. id is the card id, or
  * "<repo>#<number>" for a PR that names no card, whose url is then the PR's.
  */
 export async function reviewedCards(yt, githubLogin, youtrackLogin) {
@@ -91,6 +91,7 @@ export async function reviewedCards(yt, githubLogin, youtrackLogin) {
       const cards = [...new Set((pr.title.match(CARDS) || pr.headRefName.match(CARDS) || []).map(c => c.toUpperCase()))];
       lines.push({
         url, repo: p.repo, number: p.number, title: pr.title, cards, merged: !!pr.merged,
+        commentDates: mine.map(t => new Date(t).toISOString()),
         commentedAt: new Date(mine.at(-1)).toISOString(),
         authorAt: theirs.length ? new Date(theirs.at(-1)).toISOString() : "",
       });
@@ -112,7 +113,7 @@ export async function reviewedCards(yt, githubLogin, youtrackLogin) {
   const out = [];
   const recent = l => Date.parse(l.commentedAt) >= since;
   for (const l of lines) {
-    if (!l.cards.length) { if (recent(l)) out.push({ id: `${l.repo}#${l.number}`, url: l.url, summary: l.title, state: "", pr: l.url, commentedAt: l.commentedAt }); continue; }
+    if (!l.cards.length) { if (recent(l)) out.push({ id: `${l.repo}#${l.number}`, url: l.url, summary: l.title, state: "", pr: l.url, merged: l.merged, commentedAt: l.commentedAt, commentDates: l.commentDates, followUp: "" }); continue; }
     for (const id of l.cards) {
       if (own.has(id)) continue;
       const i = issues.get(id);
@@ -123,7 +124,7 @@ export async function reviewedCards(yt, githubLogin, youtrackLogin) {
       out.push({
         id, url: "https://issues.bloomlibrary.org/youtrack/issue/" + id,
         summary: i?.summary || l.title, state,
-        pr: l.url, commentedAt: l.commentedAt, followUp: followUp(state, l),
+        pr: l.url, merged: l.merged, commentedAt: l.commentedAt, commentDates: l.commentDates, followUp: followUp(state, l),
       });
     }
   }

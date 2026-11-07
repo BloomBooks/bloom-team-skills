@@ -11,6 +11,18 @@ started it is open. The page's buttons ask the server to switch Orca to a worktr
 and the server shows each agent's live state from Orca. The session decides what each row says
 and writes it to a file.
 
+The Orca plugin in `orca-plugin/` puts a Bloom Dashboard button in Orca's status bar. When this
+server answers, the button asks it to show its window (`POST /api/show`): `raise-window.ps1` brings
+the window to the front. Closing the window stops the server, so when the server does not answer, the button shows the bloom-team-skills workspace and types `/dashboard` into the
+session it started earlier if that session is still open (leaving one alone for 90 seconds after
+it starts), or else opens a terminal there running `claude "Open the dashboard"` (no leading slash,
+which Git Bash would rewrite into a Windows path). Either way it also starts `server.mjs` itself
+at once, so the window opens within a second or two showing the rows the last session wrote; this
+session's server then takes the port over in step 1, and the window reloads onto it. While a
+session starts, the button reads "Loading...". A developer loads it once
+with `orca plugin dev load <this folder>/orca-plugin --approve <fingerprint>` (`orca plugin
+validate` prints what it may do; loading without `--approve` prints the fingerprint).
+
 ## Which board
 
 `/dashboard <board>` limits the board to cards whose YouTrack `Kanban Board` field is that value,
@@ -40,6 +52,15 @@ whatever that file lacks. If it exits with code 2, it could not settle a login; 
 which candidate is theirs and save it with `node ../developer.mjs --set youtrack=<login>`.
 Address the developer by the record's `name` in what you write to them.
 
+Then check for the Bloom Dashboard button: `orca plugin list` should list `local.bloom-dashboard`
+as `running`. When it is missing, or Orca says it needs approval (a pull changed its access or
+its button), offer it in the message that ends step 4, not before, so the dashboard opens first:
+say in one line that a status-bar button in Orca opens the dashboard and ends its session when the
+window closes, and ask whether to load it. On a yes, run `orca plugin dev load <this
+folder>/orca-plugin`, show the developer the access it prints, and only when they agree run it
+again with `--approve <fingerprint>`. The approval is the developer's to give: the plugin runs code
+under their account. Offer it once per session, and skip all this when `orca` is not installed.
+
 ## 1. Start the server
 
 Start `node <this folder>/server.mjs` as a background task with the **PowerShell** tool
@@ -53,10 +74,11 @@ developer. Wait for its first line:
 - `PORT_TAKEN`: another program holds the port; start it with `--port <other>` and give that URL.
 
 The server stops, and the background task ends, in three cases. In none of them start it again
-unless the developer asks for the dashboard again:
+unless the developer asks for the dashboard again (the Bloom Dashboard button types `/dashboard`
+into this session, which is that request):
 
-- It prints `WINDOW_CLOSED`: no page has asked it for anything for 5 minutes, so the developer
-  closed the window. Stop the `watch-events.mjs` Monitor and stop updating rows.
+- It prints `WINDOW_CLOSED`: the developer closed the window. Stop the `watch-events.mjs` Monitor
+  and stop updating rows.
 - It prints `REPLACED`: another session started the dashboard and now keeps it. Stop the Monitor
   and stop updating rows; the other session does both now.
 - This session ends. The page then says that the server has stopped.
@@ -93,7 +115,7 @@ the board.
 **Group** (`group`), by how much work stands between the card and human review:
 
 - `near`: a PR of modest size whose bot reviews are clean; a master merge, preflight and
-  pr-ready-for-human away.
+  request-peer-review (or merge-without-peer-review) away.
 - `nopr`: work pushed or finished, with no PR yet.
 - `large`: a big diff, or blocked on other work (name the blocker).
 - `cleanup`: a card that has sat In Progress for years with nothing happening on it.
@@ -104,14 +126,55 @@ Order rows within a group (`order`) easiest first.
 PR's preflight report has `reportDecisions` above 0, or an agent's last message asks them to
 choose between options. State the choice in `next`; the pill reads "Needs your decision". The
 next step being theirs is not a decision: a clean preflight report means the PR waits for their
-own review, so the row is `idle` and `next` says to review the PR and then run
-pr-ready-for-human. Otherwise `idle`, which shows no Status pill. The page overrides this live from Orca: a `waiting` agent in the row's worktree
-shows "Claude has a question" with the question, and a `working` one shows "Preflighting" or "Readying for human review" when it was
-started on `/preflight` or `/pr-ready-for-human`, and "Agent working" otherwise.
+own review, so the row is `idle`, with `nextSkill` set and no `next`. Otherwise `idle`. The page overrides this live from Orca: a `waiting` agent
+in the row's worktree shows "Claude has a question" with the question, and a `working` one marks
+the step it works on (below). An agent that sits at its prompt with a background Monitor running
+counts as done, not working.
 
-**Next skill** (`nextSkill`): when the next step is to run `preflight` or `pr-ready-for-human`,
-name it here as well as in `next`. The page then shows a "Preflight" or "Make ready for reviewer"
-button that runs it in the worktree's Claude session.
+**Next skill** (`nextSkill`): when the next step is to run `preflight` or `request-peer-review`,
+name it here. Write `request-peer-review` once preflight is done and clean,
+whether or not the developer has reviewed the PR yet: the page works out the rest.
+
+**The Process column** shows every row the same five steps of Bloom's development process, top to
+bottom. A finished step is muted with a tick, the first unfinished step is the one enabled button,
+and later steps are dimmed:
+
+1. **Code**: finished once the row has a PR or a `nextSkill`. Its button opens the worktree in
+   Orca, or creates one.
+2. **Preflight**: finished once `nextSkill` is `request-peer-review` and the PR is neither
+   conflicting nor failing CI (`prMergeable` and `prChecks`, which the server copies from
+   `facts.json`). A PR that becomes conflicting or fails CI makes Preflight the next step again.
+3. **Your review (n of m files left)**: links to the PR's changed files until the developer has
+   reviewed every file. `own-review.mjs` counts a file as reviewed when the developer marked it
+   Viewed on GitHub or reviewed in Reviewable, for the file's current content; the server runs it
+   once a minute for these rows and puts the result on the row as `ownReview`.
+4. **Request Peer Review**, which squashes the commits and checks the PR, with **Merge without
+   Peer Review** beside it when the card has YouTrack's "Approved Plan" tag (`approvedPlan` on the
+   card in `facts.json`). When the review cannot be read, these buttons are enabled together with
+   the review.
+5. **Peer review**: done by a teammate, so it is never a button. On a card in Has Comments it is
+   orange and reads "comments back".
+
+Each skill button runs its skill in the worktree's Claude session. A working agent started on
+`/preflight` shows "Preflighting…" on step 2, one started on `/request-peer-review` or
+`/merge-without-peer-review` shows on step 4, and any other shows "Agent working" on step 1; the
+buttons are disabled meanwhile. The running step is a green band with a spinning ring and how long
+the agent has worked on its prompt (from when the server first saw it working on that prompt, or
+the preflight run's own start), and the row gets a green stripe on its left edge. It never shows
+the agent's tool calls. An agent started on
+`/preflight` counts as working while it waits on a Monitor, as preflight does for much of its half
+hour, as long as the run that `progress.mjs` records in its worktree has not ended; the band then
+reads "Waiting on reviewers and CI". "Needs your decision" or "Claude has a question" shows above the
+steps and disables them. A clicked skill button spins at once, for up to a minute until Orca
+reports the agent working.
+
+**A preflight run's phases.** Preflight records each phase as it starts and ends with
+`progress.mjs` (its "Progress for the dashboard" section), which writes
+`~/.claude/bloom-dashboard/progress/<worktree>.json`. The server puts a worktree's latest run on
+its row as `progress`. While a run has not ended, and an agent works there or the run wrote in
+the last 45 minutes, "Where it stands" shows the run's phases in place of `status` and `next`:
+Discover, Local checks, Merge master, Push and draft PR, Reviewers (Devin, CI, Bot comments and
+Related tests, which run at the same time) and Report, each with its note.
 
 ## 4. Write the rows
 
@@ -129,17 +192,21 @@ past a mark, but PowerShell's `Set-Content` and `Out-File` add one, and other re
 | field | content |
 | --- | --- |
 | `card`, `cardUrl`, `title` | id, YouTrack URL, a short title |
-| `ytState` | the card's YouTrack State, shown as a pill beside the id |
+| `ytState` | the card's YouTrack State, shown as an icon in the State's colour to the left of the id, which names the State on hover |
 | `group`, `order`, `who` | from step 3 |
-| `status` | how far the work itself has got toward review, in one short sentence of about ten words: code written or not, PR, conflicts, CI, preflight, review, blockers. "Draft PR conflicts with master; CI green." Worktrees made and agents started or stopped are not progress (the Orca button and the Status pill show those), and branch names, commit hashes and commit counts belong in the PR and the worktree |
-| `next` | the next step or the developer's question, just as short |
-| `nextSkill` | `preflight` or `pr-ready-for-human`, when the next step is that skill |
+| `status` | how far the work itself has got toward review, in one short sentence of about ten words: code written or not, PR, conflicts, CI, preflight, review, blockers. "Draft PR conflicts with master; CI green." Worktrees made and agents started or stopped are not progress (the Orca button and the Process column show those), and branch names, commit hashes and commit counts belong in the PR and the worktree |
+| `comments` | on a card in Has Comments, what the people who asked for changes said, in a few words: "Colin: Undo does nothing after unlocking." Read the card's comments and the PR's review comments since the card last moved to Has Comments; leave out comments posted by an agent (starting `[Claude …]`). The page shows it in orange under `status`, after a speech-bubble icon. Leave it out on other cards |
+| `next` | only what the Process column cannot show, just as short: the choice when `who` is `you`; a manual check before review ("Try the reader-tool undo by hand"); waiting on another PR or person ("Waits for PR 8415 to merge"); a judgement call that is not a decision item ("34 files; consider splitting the card"); or tool trouble that the steps hide ("Reviewable lists removed files as reverted; mark them reviewed there"). Leave it out when it would only name the Process column's next step, such as "Run preflight" or "Review PR 8551, then run request-peer-review" |
+| `nextSkill` | `preflight` or `request-peer-review`, when the next step is that skill |
 | `pr` | PR URL |
-| `report`, `reportDecisions` | the PR's `report` and `reportDecisions` from the facts; the page shows a pill linking to the report |
+| `report`, `reportDecisions` | the PR's `report` and `reportDecisions` from the facts; the Process column shows a "report" link to the right of the Preflight step, with the number of decisions in the developer's colour; while Preflight is the next step and the report lists no decisions, the link reads "old report", because that report is from an earlier run |
 | `worktree` | worktree path; the page shows the path, which opens in VS Code, and the row's Orca button opens the worktree |
-| `updated` | ISO timestamp of this write |
 
-Then give the developer the URL and a few lines on what changed, leading with what waits for them.
+The page shows each row's time as when its file was last written; the server reads that from the
+file, so a row has no time field.
+
+Then give the developer the URL and a few lines on what changed, leading with what waits for them,
+and the offer of the Bloom Dashboard button when step 0 found it missing.
 
 ## 5. Keep it current
 
@@ -167,67 +234,91 @@ On an agent line, read what the agent said (`orca worktree ps --json`, that work
 change from `facts.json`. Then rewrite that row's `status`, `next`, `nextSkill`, `who` and
 `group`, and add a row for a card that has become In Progress or Has Comments. Remove the row when
 the card has left In Progress and Has Comments. Push a notification when an agent is waiting on
-the developer. The page already shows the change of Status on its own, so the row is about what
+the developer. The page already shows the agent's change of state on its own, so the row is about what
 the agent reported.
 
 Match a worktree line to a row by path, not by the card id in its branch: a PR's branch can name
 another card, and the server labels a worktree by the id in its branch. A "created from the
 dashboard" line names the row's own card; write its path into that row's `worktree`.
 
-## Finished cards
+## Back with you for review
 
-Below the groups, the page lists the developer's finished cards one line each (title, State, card
-id, when it was finished) so they can report them at standup. The session writes nothing for
-these: `gather.mjs` puts them in `facts.json` as `finished` (from `finished.mjs`, every board),
-and the server shows them. A card is finished when it is in Ready For UI Review, Ready For Code
-Review, Ready For Testing or Closed, and the developer is its Assignee or was removed as its
-Assignee in the last 30 days. Cards in review stay however long the review takes; cards in testing
-or closed drop off 7 days after they were finished. Its time is when it last left In Progress or
-Has Comments for one of those States.
+Above the groups, the page lists the other people's PRs that the developer reviewed whose cards
+are in Ready For Code Review and need the developer again, one line each, highlighted:
 
-The close box (an X, standing for Done) records the card and that time in `~/.claude/bloom-dashboard/finished-done.json`,
-which outlasts server restarts, and hides the card. It comes back if it is finished again later;
-going back to In Progress or Has Comments forgets the Done. `node finished.mjs` prints the list.
-
-## Reviewed cards
-
-Below Finished, the page lists in the same way the PRs the developer has reviewed: BloomBooks PRs
-opened by someone else where the developer's latest comment or review is from the last 7 days.
-Reviewable's comments reach GitHub as the reviewer's reviews, so they count. A comment an agent
-posted for the developer (starting `[Claude …]`, as preflight's and devin-review's do) does not
-count, and a card the developer is or was assigned to is left off: that is their own work even
-when someone else's account opened the PR (the Bloom bot opens PRs as Hatton). A PR shows as one
-line per card its title (or else its branch) names, with the card's title and State and a link to
-the PR; a PR that names no card shows under its own title as `<repo>#<number>`. The time is the
-developer's latest comment on the PR. `gather.mjs` puts them in `facts.json` as `reviewed` (from
-`reviewed.mjs`); Done records the line and that time in `reviewed-done.json`, and it comes back
-when they comment again. `node reviewed.mjs` prints the list.
-
-A reviewed card in Ready For Code Review needs the developer again, so it comes first, is
-highlighted, and has no close box (one clicked earlier is forgotten):
-
-- **Author responded** (green): the PR's author has commented, reviewed or pushed a commit since
-  the developer's last comment. Such a card is listed even when that comment is older than 7 days.
+- **Author responded** (orange): the PR's author has commented, reviewed or pushed a commit since
+  the developer's last comment, so the PR is back with them.
 - **Move to Has Comments?** (amber): the PR is open and the author has not responded, so the
   developer probably asked for changes without moving the card to Has Comments.
-- **Move to Ready For Testing?** (amber): the PR is merged, so the card should have moved on. Such
-  a card is listed even when the developer's last comment is older than 7 days.
+- **Move to Ready For Testing?** (amber): the PR is merged, so the card should have moved on.
+
+The session writes nothing for these: `gather.mjs` puts them in `facts.json` as `backForReview`
+(the cards from `reviewed.mjs` that have a `followUp`), and the server shows them.
+`node reviewed.mjs` prints every reviewed card, with its `followUp`.
+
+## History
+
+Below the groups, the page's History shows what the developer did on their three most recent days that have
+any activity, today included, newest first, so that Monday's standup shows Friday and Saturday,
+and someone who does not work Fridays sees Thursday. A day within the last week is headed by its
+weekday ("Friday"), and older ones add the date. Each day lists, one line per card (title, State,
+PR, card id):
+
+- **Finished:** one of the developer's PRs was marked ready for review that day (or opened ready,
+  not as a draft), or was merged that day, by anyone.
+- **Worked on:** any of: commits the developer authored that day (on their PRs, on the card's
+  worktree branch pushed or not, or on a repo's default branch without a PR); files changed but not
+  committed yet, on the day each was last saved; the developer's prompts to Claude Code that day in
+  a session that ran in the card's worktree, or in a folder whose path names the card (read from
+  the transcripts in `~/.claude/projects`), which covers work that has not reached a file. Agents
+  commit under the developer's git name, so their commits count. Sessions that the Bloom Dashboard
+  button starts do not. A card finished that day is listed only as finished.
+- **Reviewed:** the developer commented on or reviewed someone else's PR for the card that day,
+  through GitHub or Reviewable (`reviewed.mjs`). Comments that an agent posted for the developer
+  (starting `[Claude …]`) do not count, nor do cards the developer is or was assigned to.
+
+- **Tasks:** the developer's own to-do items, which they add in the box under History's heading,
+  check off, uncheck and delete. An open task shows under today, whatever day it was made, so
+  today is shown whenever a task is open; a checked one shows under the day it was checked, which
+  counts as activity on that day. They live in `~/.claude/bloom-dashboard/tasks.json`
+  (`[{ id, text, created, checked }]`, `checked` an ISO time or `null`), which only the server
+  writes, through `POST /api/task/create|check|uncheck|delete`. It is the one file the dashboard
+  keeps that nothing can work out again from git, GitHub or the transcripts, so never delete or
+  rewrite it.
+
+A PR names its card in its title or, failing that, its branch, and a commit on a default branch in
+its message; a PR that names no card is a line of its own, `<repo>#<number>`, and other work in a
+repo is the line `<repo>`, for the BloomBooks repos that Orca knows. Untracked folders that are
+checkouts of their own (worktrees inside a repo's checkout) count for themselves, not for the
+checkout they sit in. The Bloom bot opens PRs and commits as Hatton, on `bot/…` branches,
+so for those PRs only cards that are or were assigned to the developer count. The session writes
+nothing here either: `gather.mjs` puts the days in `facts.json` as `standup` (from `standup.mjs`,
+every board), and `node standup.mjs` prints them (counting only pushed commits).
+
+## Colours
+
+Card links, PR links and State icons share four colours across the page: green for work the
+developer still has to do (In Progress, a draft PR), orange for Has Comments and for the comment
+summary in "Where it stands" and for a reviewed PR whose author has responded, purple for ready for review
+(Ready For Code Review, Ready For UI Review, an open PR that is not a draft), and blue for
+presumed done (Ready For Testing, Closed, a merged PR). Anything else is plain.
 
 ## The buttons
 
-- **The Orca button** (Orca's logo, in the row's lower right corner under the time, and the
-  Status pill) on a row with a worktree switches Orca to the worktree's agent terminal or, with no agent there, opens a "Claude" terminal running
+- **The Orca button** (Orca's logo, in the row's lower right corner under the time, the Code
+  step when it is next, and the "Needs your decision" or "Claude has a question" pill) on a row with a worktree switches Orca to the worktree's agent terminal or, with no agent there, opens a "Claude" terminal running
   `claude --continue || claude`.
 - **The worktree's path** opens that folder in VS Code (`code <path>`).
-- **Preflight** and **Make ready for reviewer** type `/preflight` or `/pr-ready-for-human` into
+- **Preflight**, **Request Peer Review** and **Merge without Peer Review** type `/preflight`,
+  `/request-peer-review` or `/merge-without-peer-review` into
   the worktree's Claude terminal, or start one with `claude --continue /<skill>` when there is
   none. When Claude is busy there, the server refuses and the page says so.
 - **The Orca button with a sparkle** (on a row without a worktree) makes one and starts Claude in it.
   With a PR it checks out the PR's branch; without one Orca makes a branch named
-  `<card>-<first three words of the title>` from the repo's default base, with Orca's branch
+  `<card>-<first three words of the title>` from `origin/master`, or from `origin/Version6.5` when
+  the title starts with `[6.5]` (Claude then starts by telling the developer which branch it is on), with Orca's branch
   prefix in front (e.g. `JohnThomson/`). The server then writes a "created from the dashboard"
   line to `events.log` (step 5).
-- **The close box** (an X, on a finished or reviewed line) hides that line; see "Finished cards".
 - **Refresh** (in the top bar, after "Checked 5 minutes ago") runs the server's gather straight away instead of waiting
   for the next 15-minute one, and writes its changes to `events.log` the same way (step 5). A
   click during a gather waits for that gather. Before the session's first `facts.json` it says to
