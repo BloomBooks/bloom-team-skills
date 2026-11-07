@@ -46,6 +46,11 @@ import { orca, quote, norm, setLog, bringOrcaToFront, knownWorktree, agentTermin
 const execP = promisify(exec);
 const execFileP = promisify(execFile);
 const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
+// The Orca plugin starts this server from Orca's install folder with ELECTRON_RUN_AS_NODE set.
+// There cmd.exe finds Orca.exe in the current folder before the orca CLI on PATH and runs it as
+// Node, so every `orca` command fails with "Cannot find module ...\orca\worktree".
+process.chdir(here);
+delete process.env.ELECTRON_RUN_AS_NODE;
 const dataDir = path.join(os.homedir(), ".claude", "bloom-dashboard");
 const rowsDir = path.join(dataDir, "rows");
 const eventsLog = path.join(dataDir, "events.log");
