@@ -174,7 +174,7 @@ function processCell(d) {
     const text = r ? (left ? `Your review (${left} of ${r.files} files left)` : "Your review") : "Your review";
     let body = label(text);
     if (now === 2 && d.pr) {
-      body = link(d.pr.replace(/\/$/, "") + "/files", text);
+      body = link(reviewableUrl(d.pr) || d.pr.replace(/\/$/, "") + "/files", text);
       body.className = "btn work";
       if (r) body.title = "Not yet marked Viewed in GitHub or reviewed in Reviewable:\n" + r.left.join("\n");
       if (blocked || working) { body.removeAttribute("href"); body.style.opacity = "0.45"; }
@@ -310,12 +310,17 @@ function markMerged(a, prState) {
   a.prepend(icon);
   return a;
 }
+// The PR's page in Reviewable, or null for a URL that is not a GitHub PR.
+function reviewableUrl(url) {
+  const m = String(url || "").match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+  return m ? `https://reviewable.io/reviews/${m[1]}/${m[2]}/${m[3]}` : null;
+}
 function prLinks(url, tone) {
   const pr = toned(url, "PR " + url.split("/").pop(), tone);
   if (tone === PR_TONE.merged) markMerged(pr, "merged");
-  const m = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
-  if (!m) return pr;
-  const rv = toned(`https://reviewable.io/reviews/${m[1]}/${m[2]}/${m[3]}`, null, tone);
+  const rvUrl = reviewableUrl(url);
+  if (!rvUrl) return pr;
+  const rv = toned(rvUrl, null, tone);
   rv.classList.add("reviewable");
   rv.title = "Open this PR in Reviewable";
   rv.setAttribute("aria-label", "Open this PR in Reviewable");

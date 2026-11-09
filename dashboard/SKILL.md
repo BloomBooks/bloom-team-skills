@@ -164,7 +164,7 @@ and later steps are dimmed:
    commit that `progress.mjs end` recorded, or tracked files have uncommitted changes
    (`codeChanged`, which the server works out from git every few seconds). So leave `nextSkill`
    at `request-peer-review` when new commits arrive; the page shows Preflight again by itself.
-3. **Your review (n of m files left)**: links to the PR's changed files until the developer has
+3. **Your review (n of m files left)**: links to the PR in Reviewable until the developer has
    reviewed every file. `own-review.mjs` counts a file as reviewed when the developer marked it
    Viewed on GitHub or reviewed in Reviewable, for the file's current content; the server runs it
    once a minute for these rows and puts the result on the row as `ownReview`.
