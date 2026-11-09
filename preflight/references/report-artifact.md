@@ -172,7 +172,9 @@ gate, in the left column, as its own card.
 Give the card sub-headings so it can be skimmed — **Problem**, **Cause** (omit the heading
 entirely when there is no separate cause to state), **What the PR does**; or, for a feature or an
 improvement, **Purpose** and **What the PR does**. Prose and short
-bullets, in behavior terms, not a commit log and not a file list.
+bullets, in behavior terms, not a commit log and not a file list. For a PR that fixes several
+separate problems, give each problem its own heading with its Problem, Cause and Fix under it, the
+way the PR description does (SKILL.md, "The PR description — one problem at a time").
 
 This card is the reason someone can open the report cold — a reviewer, or the developer's
 colleague picking up the card next week — and answer the decisions sensibly. It is **never**

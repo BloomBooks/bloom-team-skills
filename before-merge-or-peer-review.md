@@ -40,7 +40,8 @@ Check all of the following. **Any failure → go no further** (see "Not clean" b
   and after a merge it is the record of why the change was made. It should state the problem, the
   cause where that isn't obvious, and what the whole PR changes, followed by the reviewer sections
   (Screenshots when there is UI, Risk Evaluation, Ecosystem Impact, Automated Tests, E2E Coverage,
-  Notion Test Suite) — `preflight` writes exactly that (its "PR narrative" and "reviewer sections"), between
+  Notion Test Suite; for a PR that fixes several separate problems, each problem with its own
+  cause, fix, risk and tests under its own heading) — `preflight` writes exactly that (its "PR narrative" and "reviewer sections"), between
   `<!-- preflight-narrative:begin/end -->` markers. This is the one check that does **not**
   bounce: if the description is missing any of that, or the markers are there but the narrative
   plainly predates the current code, say so in the report and offer to refresh it —

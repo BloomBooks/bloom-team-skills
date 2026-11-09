@@ -57,8 +57,16 @@ bullets, one per coherent *group* of changes — "the path is now normalized at 
 every caller passes through", not "edited ProjectContext.cs". A PR that is both (a feature that
 also fixes a bug it ran into) leads with its main purpose and mentions the fix as one bullet.
 
+**A PR that fixes several separate problems** (or adds several separate things, each with its own
+purpose) tells each one's story in full before starting the next: that problem, its cause, its fix.
+It does not gather all the problems into one Problem section and all the causes into one Cause
+section, which leaves the reader matching the third Cause bullet to the third Problem bullet. "The
+PR description — one problem at a time" below gives the layout. The problems count as separate when
+each could have been its own ticket: different symptoms with different causes. One problem with
+several symptoms, or a fix that took several changes, is still one problem.
+
 **Keep it short, and keep it in behavior terms.** The parts together should fit on one screen —
-roughly 150–250 words. Someone who knows nothing about the branch should finish it knowing what
+roughly 150–250 words, or about 100–150 words per problem when there are several. Someone who knows nothing about the branch should finish it knowing what
 the PR is for and what it does. Say "opening a collection whose name ends in a period", not
 "`GetRealSettingsPath` now calls `GetPathAsOnDisk`". Name symbols only where a reviewer needs
 them to find the code.
@@ -91,7 +99,9 @@ on a PR without committing them, is in `screenshots.md` at the root of the bloom
 The PR description is written for the **reviewer**, not the tester. After the narrative it carries
 these sections, in this order, each under its own `##` heading. Every one is present on every PR;
 when a section has nothing to say, it says so in one line ("No significant risks.", "None.") so the
-reviewer can see it was considered rather than forgotten.
+reviewer can see it was considered rather than forgotten. A PR that fixes several separate problems
+splits Risk Evaluation, Automated Tests and E2E Coverage up by problem instead (see "The PR
+description — one problem at a time").
 
 1. **Screenshots** — only when the change involves UI (see "Show the UI" above). A few shots of
    what a user now sees, each with a one-line caption. Omit the heading for a PR with no UI.
@@ -132,13 +142,71 @@ reviewer can see it was considered rather than forgotten.
    inventory, each with its Test Case ID, title, URL and Automation state, or "None." Read the
    inventory to answer this; don't guess from memory of the session.
 
+## The PR description — one problem at a time
+
+When the PR fixes several separate problems (see "The PR narrative"), the reviewer sections that
+belong to one problem go with that problem, so a reviewer reads everything about one bug together
+and then moves on. Give each problem its own `##` heading: its number and the count in parentheses,
+then a few words naming what a user hit, e.g. `## (1/4) Backspace at the start of a block deleted
+the picture`. Order the problems the way a reviewer would read the code. Under it, each part starts with a bold label on its own
+line, in this order, and a part with nothing to say is left out:
+
+```markdown
+## (1/4) Backspace at the start of a block deleted the picture
+
+**Problem**
+
+Backspace at the very start of a block's text deleted the picture, and a second press emptied the
+whole block.
+
+**Cause**
+
+…
+
+**Fix**
+
+…
+
+**Risk**
+
+The guard runs on every keystroke in every text field, and now runs before CKEditor. …
+
+**Automated Tests**
+
+- `bloomFieldSpec.ts`: …
+
+**E2E Coverage**
+
+- `inline-images-keys-at-text-edges.spec.ts`: …
+```
+
+Leave a blank line after each label. Without it, GitHub joins the label and the text after it into
+one paragraph.
+
+Screenshots of a problem's UI go in that problem's **Fix**. A Risk part that would say "No
+significant risks" is still written, so the reviewer can see it was considered; Cause is left out
+under the same rule as in "The PR narrative".
+
+After the last problem come the sections that cover the whole PR, under their usual `##` headings
+and with their usual rules: **Ecosystem Impact** (with its `Harvester:` line), **Automated Tests**
+holding the `Test of the change:` line and any test that covers more than one problem, **E2E
+Coverage** holding the live checks and any spec that covers more than one problem, and **Notion
+Test Suite**. A whole-PR section with nothing left in it after the per-problem parts says so in one
+line ("Each problem lists its own tests above.").
+
+Open the description with one or two sentences saying where the problems came from and how many
+there are (for example, "Testing of the merged inline images found four bugs"), before the first
+problem's heading.
+
 **Don't list the checks.** Which gates passed, which suites ran, and what a tester should try are
 not reviewer material. The gates' state goes in the report; the testing steps go in the QA
 test-ideas comment on the card.
 
 All of these sit **inside** the narrative markers (Phase 3), because they describe the PR as it
 now stands and a later run has to be able to refresh them. The **report** opens with the narrative
-alone (problem, cause, fix; or purpose, what the PR does), not these sections.
+alone (problem, cause, fix; or purpose, what the PR does), not these sections. For a PR with
+several problems, the report keeps each problem's Problem, Cause and Fix together under that
+problem's heading, as the description does, and leaves out the rest.
 
 ## What the report is for — and what does not belong in it
 
