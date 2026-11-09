@@ -122,9 +122,17 @@ description — one problem at a time").
    Bloom comes from this repo's `harvester-development` and `harvester-production` branches,
    which are updated by hand, so a fix there reaches it only when someone remembers to. End the
    section with one of these lines, exactly: `Harvester: affected — <what it now does
-   differently>` or `Harvester: not affected`. Affected means the change alters what
-   `createArtifacts` does: a fix for a failure or wrong output the harvester would also hit, or
-   a change to what it produces.
+   differently>` or `Harvester: not affected — <the path you traced, and why the change is not
+   on it>`. Affected means the change alters what `createArtifacts` does: a fix for a failure
+   or wrong output the harvester would also hit, or a change to what it produces.
+   Content counts, not just code. Anything the diff adds or changes under `src/content`
+   (brandings, xmatter, templates, appearance themes) or in other files Bloom reads at run time
+   reaches the harvester too, because making the BloomPUB brings a copy of the book up to date
+   with the harvester's own, hand-updated Bloom. Say what that Bloom does with a book that needs
+   the new content but lacks it: a branding it doesn't have falls back to Default's presets
+   (`BrandingSettings.GetSettingsOrNull`), so a new branding's BloomPUBs get Default's back cover
+   until `harvester-production` carries it. Trace the path before writing the line; "it's only
+   content" is the reasoning that missed this on BL-17088.
 4. **Automated Tests** — the unit, component and end-to-end tests this PR adds or changes, each in
    a few words, then one line that records the test decision (see "The test decision"):
    `Test of the change: <which test(s)>`, `Test of the change: none — test-only change: <which
