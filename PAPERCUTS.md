@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-11-09 — dev-process-artifacts.md's contents-API snippet reads the wrong arguments
+
+- **Cut:** The "Republishing one file" snippet builds the request body with `node -e '...const [,,html,msg,sha]=process.argv...' <file> <msg> <sha>`. Under `node -e` the first argument is `process.argv[1]`, not `[2]`, so it opens the commit message as the HTML file and dies with ENOENT. The snippet also has a `#` comment inside the JavaScript, which is a syntax error there. A script file using `process.argv.slice(2)` worked.
+- **Idea:** Replace the inline snippet with a small `.mjs` (or `[,html,msg,sha]` and a `//` comment), in line with TEAM-AGENTS.md's advice against multi-line `node -e`.
+- **Context:** publishing the BL-16859 preflight report, Claude Opus 5.5 from Hatton's machine during preflight.
+
 ## 2026-11-07 — Orca's plugin check, types and scenario shots fail on this install
 
 - **Cut:** On Orca 1.4.248, `orca plugin types` and `orca plugin create --template worker-panel` fail with ENOENT for `resources/plugins/declarative/orca.d.ts`, so the plugin has no typings and `tsc` cannot run. `orca plugin check` and `orca plugin shot --scenario` fail with `orca-testing.mjs: cannot import "./orca-runtime.mjs": no such file in the plugin`, so no panel test or scenario check runs. The workaround was to transpile with esbuild for syntax only, and to screenshot the live panel with `orca plugin shot <key> --panel <id>` after focusing a worktree.
