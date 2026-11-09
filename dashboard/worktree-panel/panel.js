@@ -9,6 +9,7 @@ let current = null;      // the focused workspace: { displayName, branch }
 let paneKey = null;      // the Claude session picked, when the worktree runs several
 let lastJson = "";
 let lastState = null;
+let lastSelectedPane;    // the pane the worktree had selected at the last read
 
 function showNote(text) {
   const n = document.getElementById("note");
@@ -44,6 +45,17 @@ async function refresh() {
   if (c !== current) return;
   // A read that failed (the worker restarting, say) stops being news once one succeeds.
   if (document.getElementById("note").textContent.startsWith("Couldn't read this worktree")) showNote("");
+  // Moving to another pane in the worktree supersedes a session picked earlier: the panel follows
+  // the pane the developer is looking at.
+  if (s.found && s.selectedPane !== lastSelectedPane) {
+    const moved = lastSelectedPane !== undefined;
+    lastSelectedPane = s.selectedPane;
+    if (moved && paneKey && paneKey !== s.selectedPane && s.sessions.some(a => a.paneKey === s.selectedPane)) {
+      paneKey = null;
+      lastJson = "";
+      return refresh();
+    }
+  }
   lastState = s;
   const json = JSON.stringify(s);
   if (json === lastJson && !launched.size) return;
@@ -181,6 +193,7 @@ orca.on("workspace.changed", ({ context }) => {
   current = next;
   if (moved) {
     paneKey = null;
+    lastSelectedPane = undefined;
     lastJson = "";
     lastState = null;
     showNote("");

@@ -9,11 +9,21 @@ the worktree Orca has focused, then the worktree's checkout and its Claude sessi
   dashboard's Orca button, since the panel is already in Orca;
 - the checkout: uncommitted files, unpushed commits, commits behind the base branch;
 - the Claude session: its state and last message, with a picker when the worktree runs several,
-  and your last three prompts in it, read from its transcript in `~/.claude/projects`. Each
-  session's transcript is the one named by the Claude session id that Orca records for its pane
-  (`%APPDATA%\orca\agent-hooks\last-status.json`). Orca does not tell plugins which terminal has
-  focus, so until you pick one the panel follows the session you last typed a prompt into, and the
-  Commit links and the Process buttons type into that session.
+  and your last three prompts in it, read from its transcript. The panel follows the pane the
+  worktree has selected (the one you see in it); a session you pick holds until you move to
+  another pane. When the selected pane is no Claude session, it follows the session you last
+  typed a prompt into. The Commit links and the Process buttons type into the session it follows.
+
+Where it learns these from depends on the Orca version:
+
+| | Orca that reports it | Older Orca |
+| --- | --- | --- |
+| A pane's Claude session and transcript | `providerSession` on each agent of `orca worktree ps` | the session id in `%APPDATA%\orca\agent-hooks\last-status.json`, and `<id>.jsonl` in the worktree's `~/.claude/projects` folder |
+| The worktree's selected pane | `activeInWorkspace` on a terminal of `orca terminal list` | the selected tab and pane of `--include-visual-layouts`, when the worktree has one tab group |
+| A prompt typed onto your own unsent text | refused (`--refuse-draft`), and the panel says so | sent after it, as one prompt |
+
+Either way a prompt goes through `orca terminal send --wait-submit`, which Orca refuses while
+Claude asks for permission.
 
 The panel shares its code with the dashboard rather than copying it:
 
@@ -43,4 +53,6 @@ orca plugin shot local.bloom-worktree --panel worktree --out shot.png
 ```
 
 The worker reads the user environment variables and PATH folders that Orca's worker process lacks
-(`REVIEWABLE_URL`, `YOUTRACK_BOT`, `~/.vite-plus/bin`) from the registry when it starts.
+(`REVIEWABLE_URL`, `YOUTRACK_BOT`, `~/.vite-plus/bin`) from the registry when it starts. It runs
+the `orca` CLI that `ORCA_CLI_COMMAND` names when Orca sets it, so a development build of Orca
+answers its own plugins, and otherwise the `orca` on PATH.

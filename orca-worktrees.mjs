@@ -5,6 +5,7 @@
 //
 // Each function reports what it did through the function given to setLog (nothing by default).
 import { exec, execFile, spawn } from "node:child_process";
+import os from "node:os";
 import { promisify } from "node:util";
 
 const execP = promisify(exec);
@@ -15,25 +16,60 @@ export function setLog(fn) { log = fn; }
 
 export const norm = p => (p || "").replace(/\\/g, "/").toLowerCase();
 
-// orca is a .cmd shim on Windows, so it runs through a shell. Every argument is either fixed text
-// or has been checked against the patterns below, and none may contain a quote or a % sign.
+// For a command that runs through a shell (VS Code's `code` is a .cmd file): no argument may
+// contain a quote or a % sign.
 export function quote(a) {
   if (/["%\r\n]/.test(a)) throw new Error("refusing an argument with a quote, % or newline: " + a);
   return /^[\w.:\/@-]+$/.test(a) ? a : `"${a}"`;
 }
+// The orca CLI is an executable (resources\bin\orca.exe in Orca's install folder), so it runs
+// without a shell and its arguments pass through as they are. ORCA_CLI_COMMAND, which Orca sets in
+// its terminals, names the CLI of the Orca they belong to; a development build's is a .cmd file,
+// which only a shell runs, and then quote() applies. It runs from the home folder: Node looks for a
+// program in the current folder before PATH, and Orca starts plugin workers in its own install
+// folder, where it would find Orca.exe.
 export async function orca(...args) {
   const cli = process.env.ORCA_CLI_COMMAND || "orca";
+  const runOpts = { cwd: os.homedir(), maxBuffer: 64 << 20, windowsHide: true, timeout: 120_000 };
   let stdout;
   try {
-    ({ stdout } = await execP([cli, ...args.map(quote), "--json"].join(" "), { maxBuffer: 64 << 20, windowsHide: true }));
+    ({ stdout } = /\.(cmd|bat)$/i.test(cli)
+      ? await execP([`"${cli}"`, ...[...args, "--json"].map(quote)].join(" "), runOpts)
+      : await execFileP(cli, [...args, "--json"], runOpts));
   } catch (e) {
     // A failing orca exits non-zero with its JSON error on stdout; report that, not just "Command failed".
     if (!String(e.stdout || "").includes("{")) throw e;
     stdout = e.stdout;
   }
   const j = JSON.parse(stdout.slice(stdout.indexOf("{")));
-  if (j.ok === false) throw new Error(`orca ${args[0]} ${args[1]}: ${j.error?.code || "failed"} ${j.error?.message || ""}`.trim());
+  if (j.ok === false) {
+    const e = new Error(`orca ${args[0]} ${args[1]}: ${j.error?.code || "failed"} ${j.error?.message || ""}`.trim());
+    e.code = j.error?.code;
+    throw e;
+  }
   return j.result;
+}
+
+// Types a prompt into an agent's terminal as Orca delivers prompts: refused while the agent asks
+// for permission (agent_prompt_blocked) or while its input box holds text the developer has not
+// sent (agent_prompt_draft_present) or when Orca cannot read that box (agent_prompt_draft_unverified),
+// and watched for a few seconds for the turn it starts. An Orca without --refuse-draft cannot check
+// the input box, so the prompt goes without that check. Returns whether Orca saw the turn start.
+export async function typePrompt(handle, text) {
+  const send = refuse => orca("terminal", "send", "--terminal", handle, "--text", text, "--enter",
+    ...(refuse ? ["--refuse-draft"] : []), "--wait-submit", "5");
+  let result;
+  try {
+    result = await send(true);
+  } catch (e) {
+    if (["invalid_argument", "incompatible_runtime"].includes(e.code) && /refuse-draft/.test(e.message)) result = await send(false);
+    else if (/agent_prompt_draft_present/.test(e.message)) throw new Error("that Claude session has text in its input box that you haven't sent; send or clear it, then try again");
+    else if (/agent_prompt_draft_unverified/.test(e.message)) throw new Error("Orca couldn't read that Claude session's input box, so nothing was sent; try again");
+    else if (e.code === "agent_prompt_blocked") throw new Error("that Claude session is asking for permission; answer it first");
+    else throw e;
+  }
+  if (!result.send?.accepted) throw new Error("Orca did not accept the prompt");
+  return (result.send.prompt?.stages || []).includes("turn_started");
 }
 
 let orcaExe = null;

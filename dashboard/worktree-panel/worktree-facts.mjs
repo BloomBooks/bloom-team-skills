@@ -14,6 +14,7 @@ import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import { CARD, agentState, checksState, enrichRows, liveAgents, readJson, readProgress, readRows, reportDecisions, reportOf, rowOfWorktree, skillOf } from "../row-facts.mjs";
 import { ownReview } from "../own-review.mjs";
+import { orca, typePrompt } from "../../orca-worktrees.mjs";
 
 const execP = promisify(exec);
 const execFileP = promisify(execFile);
@@ -28,9 +29,9 @@ export const SKILLS = ["preflight", "request-peer-review", "merge-without-peer-r
 const norm = p => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
 // Orca starts its plugin workers from its install folder with ELECTRON_RUN_AS_NODE set and without
-// the user's folders in the environment. There cmd.exe finds Orca.exe in the current folder before
-// the orca CLI on PATH and runs it as Node, and gh cannot find its login under APPDATA. Every
-// command here runs from the home folder with this environment.
+// the user's folders in the environment. There a command named `orca` finds Orca.exe in the
+// current folder before the orca CLI on PATH and runs it as Node, and gh cannot find its login
+// under APPDATA. Every command here runs from the home folder with this environment.
 // own-review.mjs runs gh and reviewable with this process's environment, so the fix goes on
 // process.env itself.
 const env = process.env;
@@ -68,22 +69,11 @@ async function run(cmd, args, more = {}) {
 }
 const git = (wt, ...args) => run("git", ["-C", wt, ...args]);
 
-// orca is a .cmd shim on Windows, so it runs through a shell; no argument may hold a quote or %.
+// For a command that runs through a shell (VS Code's `code` is a .cmd file): no argument may
+// contain a quote or a % sign.
 function quote(a) {
   if (/["%\r\n]/.test(a)) throw new Error("refusing an argument with a quote, % or newline: " + a);
   return /^[\w.:\/@-]+$/.test(a) ? a : `"${a}"`;
-}
-export async function orca(...args) {
-  let stdout;
-  try {
-    ({ stdout } = await execP(["orca", ...args.map(quote), "--json"].join(" "), { ...opts, timeout: 30_000 }));
-  } catch (e) {
-    if (!String(e.stdout || "").includes("{")) throw new Error(`orca ${args.slice(0, 2).join(" ")} failed; is Orca running?`);
-    stdout = e.stdout;
-  }
-  const j = JSON.parse(stdout.slice(stdout.indexOf("{")));
-  if (j.ok === false) throw new Error(`orca ${args[0]} ${args[1]}: ${j.error?.message || j.error?.code || "failed"}`);
-  return j.result;
 }
 
 // ---- the worktree and its sessions -----------------------------------------------------------
@@ -112,14 +102,17 @@ async function findWorktree({ displayName, branch, terminalIds = [], path: wt })
 }
 
 // The Claude sessions in the worktree, for the panel's session picker, each with its Claude Code
-// session id.
+// session id and transcript. Orca gives both as `providerSession`; an Orca without that field
+// leaves the id to Orca's agent-hook record.
 function sessionsOf(w) {
-  const ids = claudeSessionIds();
-  return (w.agents || []).filter(a => !a.parentPaneKey).map(a => {
+  const agents = (w.agents || []).filter(a => !a.parentPaneKey);
+  const ids = agents.every(a => a.providerSession?.id) ? new Map() : claudeSessionIds();
+  return agents.map(a => {
     const state = agentState(a);
     return {
       paneKey: a.paneKey,
-      sessionId: ids.get(a.paneKey) ?? null,
+      sessionId: a.providerSession?.id ?? ids.get(a.paneKey) ?? null,
+      transcriptPath: a.providerSession?.transcriptPath ?? null,
       agent: a.agentType || "agent",
       title: a.conversationName || a.displayName || a.taskTitle || "",
       state,
@@ -132,8 +125,26 @@ function sessionsOf(w) {
   });
 }
 
-// The session the panel follows when the developer has not picked one: the one they last typed a
-// prompt into, from its transcript. Orca does not tell plugins which terminal has focus.
+// The pane the worktree has selected, the one the developer sees in it, as `tabId:leafId`. Orca
+// marks that terminal `activeInWorkspace`; an Orca without the mark still reports each tab group's
+// selected tab and each tab's selected pane, which settle it when the worktree has one tab group.
+async function selectedPane(wt) {
+  let list;
+  try {
+    list = await orca("terminal", "list", "--worktree", "path:" + wt, "--include-visual-layouts");
+  } catch {
+    return null;
+  }
+  const marked = list.terminals.find(t => t.activeInWorkspace);
+  if (marked) return `${marked.tabId}:${marked.leafId}`;
+  const root = list.visualLayouts?.find(l => norm(l.worktreePath) === norm(wt))?.root;
+  if (root?.type !== "group") return null;
+  const tab = root.tabs.find(t => t.tabId === root.activeTabId);
+  return tab?.activeLeafId ? `${tab.tabId}:${tab.activeLeafId}` : null;
+}
+
+// The session the panel follows when neither the developer's pick nor the worktree's selected pane
+// names one: the one they last typed a prompt into, from its transcript.
 function defaultSession(wt, sessions) {
   const lastPrompt = a => sessionTranscript(wt, a)?.prompts.at(-1)?.at ?? 0;
   return [...sessions].map(a => ({ a, at: a.sessionId ? lastPrompt(a) : 0 }))
@@ -297,9 +308,13 @@ function claudeSessionIds() {
   }
 }
 
-// A session's transcript: the one its session id names, or with no session (none is running in
-// the worktree), the worktree's newest.
+// A session's transcript: the file Orca reports for it, or the one its session id names, or with
+// no session (none is running in the worktree), the worktree's newest.
 function sessionTranscript(wt, session) {
+  if (session?.transcriptPath && fs.existsSync(session.transcriptPath)) {
+    const t = readTranscript(session.transcriptPath);
+    return { id: session.sessionId, title: t.title, prompts: t.prompts, updatedAt: t.mtimeMs };
+  }
   const folder = projectFolder(wt);
   if (!folder) return null;
   let file = session?.sessionId ? path.join(folder, session.sessionId + ".jsonl") : null;
@@ -360,7 +375,10 @@ export async function worktreeState({ displayName, branch, paneKey, terminalIds,
   if (pr && pr.state !== "OPEN") d.prState = pr.state.toLowerCase();
 
   const sessions = sessionsOf(w);
-  const followed = sessions.find(a => a.paneKey === paneKey) ?? defaultSession(wt, sessions);
+  const selected = await selectedPane(wt);
+  const followed = sessions.find(a => a.paneKey === paneKey)
+    ?? sessions.find(a => a.paneKey === selected)
+    ?? defaultSession(wt, sessions);
   return {
     found: true,
     d,
@@ -369,8 +387,9 @@ export async function worktreeState({ displayName, branch, paneKey, terminalIds,
     repo: w.repo || path.basename(wt),
     branch: b,
     git: gitState,
-    sessions: sessions.map(({ updatedAt, ...a }) => a),
+    sessions: sessions.map(({ updatedAt, transcriptPath, ...a }) => a),
     followed: followed?.paneKey ?? null,
+    selectedPane: selected,
     session: sessionTranscript(wt, followed),
   };
 }
@@ -416,7 +435,7 @@ export async function runSkill({ path: wt, skill, paneKey }) {
   const target = await agentTerminal(wt, paneKey);
   if (target) {
     if (agentState(target.agent) === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
-    await orca("terminal", "send", "--terminal", target.handle, "--text", "/" + skill, "--enter");
+    await typePrompt(target.handle, "/" + skill);
     await orca("terminal", "switch", "--terminal", target.handle);
     return `Sent /${skill} to Claude.`;
   }
@@ -435,9 +454,9 @@ export async function sendPrompt({ path: wt, prompt, paneKey }) {
   const target = await agentTerminal(wt, paneKey);
   if (!target) throw new Error("no Claude session is running in this worktree");
   if (agentState(target.agent) === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
-  await orca("terminal", "send", "--terminal", target.handle, "--text", text, "--enter");
+  const started = await typePrompt(target.handle, text);
   await orca("terminal", "switch", "--terminal", target.handle);
-  return `Asked Claude to ${text}.`;
+  return started ? `Asked Claude to ${text}.` : `Typed "${text}" into Claude's session; Orca hasn't seen it start yet.`;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {

@@ -45,14 +45,14 @@ import { fileURLToPath } from "node:url";
 import { diffFacts } from "./diff-facts.mjs";
 import { ownReview } from "./own-review.mjs";
 import { CARD, agentState, enrichRows, liveAgents, readJson, readProgress, readRows, rowsDir } from "./row-facts.mjs";
-import { orca, quote, norm, setLog, bringOrcaToFront, knownWorktree, agentTerminal, openWorktree, createWorktree } from "../orca-worktrees.mjs";
+import { orca, quote, norm, setLog, bringOrcaToFront, knownWorktree, agentTerminal, openWorktree, createWorktree, typePrompt } from "../orca-worktrees.mjs";
 
 const execP = promisify(exec);
 const execFileP = promisify(execFile);
 const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 // The Orca plugin starts this server from Orca's install folder with ELECTRON_RUN_AS_NODE set.
-// There cmd.exe finds Orca.exe in the current folder before the orca CLI on PATH and runs it as
-// Node, so every `orca` command fails with "Cannot find module ...\orca\worktree".
+// There a command named `orca` finds Orca.exe in the current folder before the orca CLI on PATH
+// and runs it as Node, so every `orca` command fails with "Cannot find module ...\orca\worktree".
 process.chdir(here);
 delete process.env.ELECTRON_RUN_AS_NODE;
 const dataDir = path.join(os.homedir(), ".claude", "bloom-dashboard");
@@ -232,9 +232,9 @@ async function runSkill(p, skill) {
   const target = await agentTerminal(wt);
   if (target) {
     if (agentState(target.agent) === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
-    await orca("terminal", "send", "--terminal", target.handle, "--text", "/" + skill, "--enter");
+    const started = await typePrompt(target.handle, "/" + skill);
     await orca("terminal", "switch", "--terminal", target.handle);
-    log(`sent /${skill} to ${target.handle} in ${wt}`);
+    log(`sent /${skill} to ${target.handle} in ${wt}${started ? "" : " (its turn not seen starting yet)"}`);
   } else {
     await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude --continue /" + skill, "--focus");
     log(`started Claude with /${skill} in ${wt}`);
@@ -277,6 +277,10 @@ const server = http.createServer((req, res) => {
   // The page's styles and its code for drawing a row, which the Worktree panel in Orca loads too.
   const shared = { "/dashboard.css": "text/css", "/row.js": "text/javascript" };
   if (req.method === "GET" && shared[pathname]) return send(res, 200, fs.readFileSync(path.join(here, pathname.slice(1)), "utf8"), shared[pathname]);
+  if (req.method === "GET" && /^\/icons\/icon-\d+\.png$/.test(pathname) && fs.existsSync(path.join(here, pathname.slice(1)))) {
+    res.writeHead(200, { "content-type": "image/png", "cache-control": "max-age=86400" });
+    return res.end(fs.readFileSync(path.join(here, pathname.slice(1))));
+  }
   if (req.method === "GET" && req.url === "/api/state") { lastPageRequest = Date.now(); return send(res, 200, readState()); }
   // `page`: a dashboard page has asked for /api/state in the last 8 seconds, so a window is showing.
   if (req.method === "GET" && req.url === "/api/health") return send(res, 200, { dashboard: true, pid: process.pid, page: Date.now() - lastPageRequest < 8000 });

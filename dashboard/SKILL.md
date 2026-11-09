@@ -13,11 +13,11 @@ and writes it to a file.
 
 The Orca plugin in `orca-plugin/` puts a Bloom Dashboard button in Orca's status bar. When this
 server answers, the button asks it to show its window (`POST /api/show`): `raise-window.ps1` brings
-the window to the front. Closing the window stops the server, so when the server does not answer, the button shows the bloom-team-skills workspace and types `/dashboard` into the
-session it started earlier if that session is still open (leaving one alone for 90 seconds after
-it starts), or else opens a terminal there running `claude "Open the dashboard"` (no leading slash,
-which Git Bash would rewrite into a Windows path). Either way it also starts `server.mjs` itself
-at once, so the window opens within a second or two showing the rows the last session wrote; this
+the window to the front. Closing the window stops the server, so when the server does not answer, the button leaves alone a session that it started under 90
+seconds ago, and otherwise opens a background terminal in the bloom-team-skills workspace running
+`claude "Open the dashboard"` (no leading slash, which Git Bash would rewrite into a Windows path).
+Neither case switches Orca away from the workspace that the developer is in. When it opens the
+terminal, it also starts `server.mjs` itself at once, so the window opens within a second or two showing the rows the last session wrote; this
 session's server then takes the port over in step 1, and the window reloads onto it. While a
 session starts, the button reads "Loading...". A developer loads it once
 with `orca plugin dev load <this folder>/orca-plugin --approve <fingerprint>` (`orca plugin

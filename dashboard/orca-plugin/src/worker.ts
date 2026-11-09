@@ -2,8 +2,8 @@
 //
 // A press:
 // - the dashboard server answers: ask it to bring its window to the front;
-// - the session this button started is under STARTING_MS old: show its workspace and nothing more;
-// - otherwise: open a terminal in the bloom-team-skills checkout running Claude on "Open the
+// - the session this button started is under STARTING_MS old: nothing more;
+// - otherwise: open a background terminal in the bloom-team-skills checkout running Claude on "Open the
 //   dashboard", and start the dashboard server at once, so the window opens within a second or two
 //   with the rows from the last session. The session's own server takes the port over when the
 //   session gets to it, and the window reloads onto that one.
@@ -134,8 +134,6 @@ export default function activate(orca: OrcaWorkerApi): void {
       orca.log('no bloom-team-skills workspace among ' + workspaces.length)
       return 'Orca has no bloom-team-skills workspace. Add the bloom-team-skills checkout to Orca first.'
     }
-    await orca.host.call('workspace.open', { workspaceId: checkout.id })
-
     const session = (await orca.storage.get(SESSION_KEY)) as Session | null
     if (session && Date.now() - session.startedAt < STARTING_MS) {
       orca.log('the dashboard session is still starting: ' + session.terminalId)
