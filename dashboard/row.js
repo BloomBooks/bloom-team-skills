@@ -341,7 +341,13 @@ function withLiveAgents(rows, agents) {
     const l = launched.get(key);
     if (l && (Date.now() - l.at > 60000 || a?.working || a?.waiting)) launched.delete(key);
     if (a?.waiting) return { ...d, who: "asking", question: a.question || "" };
-    if (a?.working) return { ...d, who: "agent", skill: a.skill || "", since: a.since || 0, tool: a.tool || "" };
+    if (a?.working) {
+      const r = { ...d, who: "agent", skill: a.skill || "", since: a.since || 0, tool: a.tool || "" };
+      // An agent can run preflight without having been started on /preflight (asked in words, or
+      // handed on by another skill); a preflight run that progress.mjs is recording says it is.
+      if (activeRun(r)) r.skill = "preflight";
+      return r;
+    }
     if (launched.has(key)) return { ...d, who: "agent", skill: l.skill, since: l.at, tool: "Starting…" };
     return d;
   });
