@@ -1,9 +1,9 @@
 // What the developer did on their most recent working days, for the dashboard's History section.
 //
-// A working day is a day (in this machine's time zone) with any of the activity below; History
-// shows the SHOW_DAYS most recent ones, today included, looking back at most LOOK_BACK_DAYS.
-// Skipping days with nothing on them is what lets Monday's standup show Friday and Saturday, and
-// lets someone who does not work Fridays see Thursday.
+// History covers today and the WEEKDAYS - 1 weekdays (Monday to Friday) before it, in this
+// machine's time zone, so Monday's standup covers Thursday, Friday, the weekend and Monday. This
+// returns the days in that span with any of the activity below; the page adds the weekdays that
+// have none, and leaves out a Saturday or Sunday that has none.
 //
 // Each day has three lists:
 // - finished: one of the developer's PRs was marked ready for review that day (or opened ready,
@@ -24,6 +24,10 @@
 // line "<repo>". Repos are the BloomBooks repos that Orca knows. Agents commit under the developer's
 // git name, so their commits count.
 //
+// The team's stand-up meeting is at STANDUP each weekday, local time. Work done on a weekday before
+// it was reported at that meeting, so a day lists a card once for the work before stand-up
+// (beforeStandup: true) and once for the work after it.
+//
 // The Bloom bot opens PRs on GitHub as Hatton, so a PR authored by the developer can be someone
 // else's work. Its ready-for-review and merge count only when its card is or was assigned to the
 // developer. The bot also commits as Hatton, on branches named bot/…, so for those PRs commits too
@@ -38,7 +42,15 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const SHOW_DAYS = 3;
+export const WEEKDAYS = 3;
+// The stand-up meeting's time of day, local time, Monday to Friday. board.html gets it from
+// /api/state.
+export const STANDUP = { hour: 8, minute: 45 };
+// Whether a time falls on a weekday before that day's stand-up.
+export function beforeStandup(t) {
+  const d = new Date(t);
+  return d.getDay() % 6 !== 0 && d.getHours() * 60 + d.getMinutes() < STANDUP.hour * 60 + STANDUP.minute;
+}
 const LOOK_BACK_DAYS = 14;
 const CARDS = /\bBL-\d+/gi;
 const CARD_URL = id => "https://issues.bloomlibrary.org/youtrack/issue/" + id;
@@ -71,6 +83,12 @@ export function dayOf(t) {
   const two = n => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
 }
+// The first day that History covers: the weekday WEEKDAYS - 1 weekdays before today.
+export function historyStart(now = new Date()) {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (let n = 0; n < WEEKDAYS - 1;) { d.setDate(d.getDate() - 1); if (d.getDay() % 6) n++; }
+  return dayOf(d);
+}
 const cardsIn = (...texts) => {
   for (const t of texts) { const m = String(t || "").match(CARDS); if (m) return [...new Set(m.map(c => c.toUpperCase()))]; }
   return [];
@@ -81,9 +99,11 @@ const normPath = p => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "").to
  * yt(path, params) calls the YouTrack REST API; githubLogin, youtrackLogin and gitName identify
  * the developer; worktrees are gather.mjs's worktree records ({ card, path, base }); repos are
  * the BloomBooks repos Orca knows ({ name, slug: "BloomBooks/x", path }); reviewed is
- * reviewedCards' list. Returns [{ date, finished, worked, reviewed }], newest day first, each list
- * [{ id, url, summary, state, pr, prState, at }] newest first, where at is the latest time that
- * counted and prState is "merged", "draft" or "open" (for a line with a pr).
+ * reviewedCards' list. Returns [{ date, finished, worked, reviewed }] for the days from
+ * historyStart() on that have any activity, newest day first, each list
+ * [{ id, url, summary, state, pr, prState, at, beforeStandup }] newest first, where at is the
+ * latest time that counted, prState is "merged", "draft" or "open" (for a line with a pr), and
+ * beforeStandup says the line covers only the work before that day's stand-up.
  */
 export async function standupDays({ yt, githubLogin, youtrackLogin, gitName, worktrees = [], repos = [], reviewed = [] }) {
   const since = Date.now() - LOOK_BACK_DAYS * 864e5;
@@ -253,8 +273,10 @@ export async function standupDays({ yt, githubLogin, youtrackLogin, gitName, wor
     const date = dayOf(e.at);
     if (!byDay.has(date)) byDay.set(date, { finished: new Map(), worked: new Map(), reviewed: new Map() });
     const list = byDay.get(date)[e.kind];
-    const was = list.get(e.id);
-    if (!was) { list.set(e.id, { ...e }); continue; }
+    const early = beforeStandup(e.at);
+    const key = early ? e.id + " before stand-up" : e.id;
+    const was = list.get(key);
+    if (!was) { list.set(key, { ...e, early }); continue; }
     if (e.at > was.at) was.at = e.at;
     if (!was.pr && e.pr) was.pr = e.pr;
     // A repo line says what a commit says, if any commit that day has a message.
@@ -269,12 +291,15 @@ export async function standupDays({ yt, githubLogin, youtrackLogin, gitName, wor
       summary: i?.summary || e.title || e.id,
       state: card ? i?.customFields?.find(c => c.name === "State")?.value?.name ?? "" : "",
       pr: e.pr, prState: e.pr ? prState.get(e.pr) || "open" : "", at: new Date(e.at).toISOString(),
+      beforeStandup: e.early,
     };
   };
   const newest = (a, b) => b.at.localeCompare(a.at);
-  return [...byDay.keys()].sort().reverse().slice(0, SHOW_DAYS).map(date => {
+  const start = historyStart();
+  return [...byDay.keys()].filter(date => date >= start).sort().reverse().map(date => {
     const d = byDay.get(date);
-    for (const id of d.finished.keys()) d.worked.delete(id);
+    // A card finished on one side of stand-up is listed only as finished on that side.
+    for (const key of d.finished.keys()) d.worked.delete(key);
     return {
       date,
       finished: [...d.finished.values()].map(line).sort(newest),
@@ -321,6 +346,6 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
   const reviewed = await reviewedCards(yt, dev.github, dev.youtrack.login);
   for (const day of await standupDays({ yt, githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: bloomRepos(orca), reviewed })) {
     console.log(day.date);
-    for (const kind of ["finished", "worked", "reviewed"]) for (const c of day[kind]) console.log(`  ${kind.padEnd(9)} ${c.id.padEnd(22)} ${c.state.padEnd(21)} ${c.summary}`);
+    for (const kind of ["finished", "worked", "reviewed"]) for (const c of day[kind]) console.log(`  ${kind.padEnd(9)} ${c.beforeStandup ? "early " : "      "}${c.id.padEnd(22)} ${c.state.padEnd(21)} ${c.summary}`);
   }
 }

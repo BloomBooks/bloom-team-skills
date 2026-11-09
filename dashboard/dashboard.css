@@ -191,6 +191,9 @@ a.st-comments { color: var(--you); }
 a.st-review { color: var(--done); }
 a.st-done { color: var(--accent); }
 .pr-links { display: inline-flex; align-items: center; gap: 6px; }
+/* The merge symbol before a merged PR's number, in the link's colour. */
+.merged-icon { display: inline-flex; vertical-align: -2px; margin-right: 4px; }
+.merged-icon svg { width: 14px; height: 14px; fill: currentColor; stroke: none; }
 /* An icon takes no text-decoration, so hover draws the underline that a text link gets. */
 a.reviewable { display: inline-flex; padding-bottom: 1px; }
 a.reviewable:hover { box-shadow: inset 0 -1px 0 currentColor; }
@@ -198,11 +201,13 @@ a.reviewable svg { width: 15px; height: 15px; fill: none; stroke: currentColor; 
 /* A standup day: its date, then a labelled list for each kind of work that has lines. */
 .day { margin-bottom: 14px; }
 .day h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--fg); }
+.day p.nothing { margin: 0; font-size: 13px; color: var(--muted); }
 .day h4 { margin: 8px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--muted); }
 /* History's to-do items: a box for a new one, then each item with a checkbox and a delete button. */
 .task-form { display: flex; gap: 8px; margin: 0 0 14px; width: 100%; max-width: 520px; justify-self: end; }
 .task-form input { flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 10px; }
 .task-form input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.task-note { margin: -8px 0 14px; width: 100%; max-width: 520px; justify-self: end; font-size: 13px; color: var(--you); }
 ul.lines li.task label { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
 ul.lines li.task input { width: 16px; height: 16px; flex: none; accent-color: var(--accent); cursor: pointer; }
 ul.lines li.task.checked .title { color: var(--muted); text-decoration: line-through; }
@@ -223,6 +228,14 @@ button.refresh:focus-visible { outline: 2px solid var(--accent); outline-offset:
    so it belongs in Has Comments, or the PR is merged, so it belongs in Ready For Testing). */
 ul.lines li.fu-responded { box-shadow: inset 3px 0 0 var(--you); background: var(--you-bg); }
 ul.lines li.fu-forgot, ul.lines li.fu-merged { box-shadow: inset 3px 0 0 var(--you); background: var(--you-bg); }
+/* A History line's icon for Finished, Worked on or Reviewed, which names itself on hover. */
+ul.lines .kind { flex: none; display: inline-flex; color: var(--muted); cursor: default; }
+ul.lines .kind-finished { color: var(--accent); }
+/* A History day's stand-up: a rule with the meeting's time, then the work before it, dimmed. */
+.standup-line { display: flex; align-items: center; gap: 10px; margin: 10px 0 6px; font-size: 12px; color: var(--muted); }
+.standup-line::before, .standup-line::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.before-standup { opacity: 0.55; }
+.day ul.lines.tasks + ul.lines { margin-top: 8px; }
 ul.lines .fu { font-size: 12px; font-weight: 600; flex: none; white-space: nowrap; }
 ul.lines li.fu-responded .fu { color: var(--you); }
 ul.lines li.fu-forgot .fu, ul.lines li.fu-merged .fu { color: var(--you); }

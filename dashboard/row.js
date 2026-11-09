@@ -261,7 +261,7 @@ function localTime(iso) {
 
 // The colour class of a card link, by the card's State, and of a PR link, by the PR's state:
 // st-work (green) for work the developer still has to do, st-comments (orange) for Has Comments, st-review (purple) for ready for review,
-// st-done (blue) for presumed done.
+// st-done (blue, --accent) for presumed done. History's Finished icon is the same blue.
 const CARD_TONE = { "In Progress": "st-work", "Has Comments": "st-comments", "Ready For Code Review": "st-review", "Ready For UI Review": "st-review", "Ready For Testing": "st-done", "Closed": "st-done" };
 const PR_TONE = { draft: "st-work", open: "st-review", merged: "st-done" };
 // The icons of the status chips, drawn in the chip's --tone: an empty circle, a half-filled one
@@ -298,8 +298,19 @@ function toned(url, text, tone) {
 // A PR's GitHub link and, beside it in the same colour, Reviewable's rabbit linking to the same
 // PR in Reviewable (https://reviewable.io/reviews/<owner>/<repo>/<number>).
 const REVIEWABLE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="9" cy="6" rx="2" ry="4.5" transform="rotate(-15 9 6)"/><ellipse cx="17.5" cy="7.5" rx="1.8" ry="4" transform="rotate(40 17.5 7.5)"/><circle cx="13" cy="15.5" r="6"/><circle cx="11" cy="15" r="2.4"/><path d="M9.6 17l-1.6 5"/></svg>';
+// GitHub's merge symbol (Octicons git-merge-16), put inside a merged PR's link before its text;
+// hovering it says "Merged".
+const MERGED_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"/></svg>';
+function markMerged(a, prState) {
+  if (prState !== "merged") return a;
+  const icon = el("span", { class: "merged-icon", title: "Merged", role: "img", "aria-label": "Merged" });
+  icon.innerHTML = MERGED_ICON;
+  a.prepend(icon);
+  return a;
+}
 function prLinks(url, tone) {
   const pr = toned(url, "PR " + url.split("/").pop(), tone);
+  if (tone === PR_TONE.merged) markMerged(pr, "merged");
   const m = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
   if (!m) return pr;
   const rv = toned(`https://reviewable.io/reviews/${m[1]}/${m[2]}/${m[3]}`, null, tone);

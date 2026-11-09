@@ -44,6 +44,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { diffFacts } from "./diff-facts.mjs";
 import { ownReview } from "./own-review.mjs";
+import { STANDUP } from "./standup.mjs";
 import { CARD, agentState, enrichRows, liveAgents, readJson, readProgress, readRows, rowsDir } from "./row-facts.mjs";
 import { orca, quote, norm, setLog, bringOrcaToFront, knownWorktree, agentTerminal, openWorktree, createWorktree, typePrompt } from "../orca-worktrees.mjs";
 
@@ -219,7 +220,7 @@ function readState() {
   try { developer = (readJson(path.join(os.homedir(), ".claude", "bloom-developer.json")).name || "").split(" ")[0]; } catch {}
   const facts = readFacts();
   enrichRows(rows, facts, ownReviews);
-  return { serverPid: process.pid, board, developer, rows, agents, tasks: readTasks(), standup: facts?.standup || null, backForReview: facts?.backForReview || null, gatheredAt: facts?.gatheredAt || "" };
+  return { serverPid: process.pid, board, developer, rows, agents, tasks: readTasks(), standup: facts?.standup || null, standupAt: STANDUP, backForReview: facts?.backForReview || null, gatheredAt: facts?.gatheredAt || "" };
 }
 
 // ---- Orca actions ---------------------------------------------------------------------------

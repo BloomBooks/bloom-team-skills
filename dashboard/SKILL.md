@@ -269,11 +269,13 @@ The session writes nothing for these: `gather.mjs` puts them in `facts.json` as 
 
 ## History
 
-Below the groups, the page's History shows what the developer did on their three most recent days that have
-any activity, today included, newest first, so that Monday's standup shows Friday and Saturday,
-and someone who does not work Fridays sees Thursday. A day within the last week is headed by its
-weekday ("Friday"), and older ones add the date. Each day lists, one line per card (title, State,
-PR, card id):
+Below the groups, the page's History shows what the developer did today and on the two weekdays
+(Monday to Friday) before it, newest first, each listed even when it has nothing on it, plus a
+Saturday or Sunday in between that has any activity. So Monday's standup shows Monday, Friday and
+Thursday, and the weekend days only if the developer worked them. A day within the last week is headed by its
+weekday ("Friday"), and older ones add the date. Each day lists its tasks, then its work in one
+list, newest first, one line per card (title, State, PR, card id), each line starting with an icon
+for one of these, which names it on hover (a check in a circle, a short dash, an eye):
 
 - **Finished:** one of the developer's PRs was marked ready for review that day (or opened ready,
   not as a draft), or was merged that day, by anyone.
@@ -296,6 +298,12 @@ PR, card id):
   writes, through `POST /api/task/create|check|uncheck|delete`. It is the one file the dashboard
   keeps that nothing can work out again from git, GitHub or the transcripts, so never delete or
   rewrite it.
+
+The team's stand-up meeting is at 8:45 local time, Monday to Friday (`STANDUP` in `standup.mjs`).
+Work done before it was reported at it, so on a weekday whose stand-up has passed, a line with the
+meeting's time splits the day: the work after the meeting above it, and the work before it dimmed
+below it. A card worked on both before and after the meeting has a line on each side. A task
+checked off before the meeting goes below the line too. Until today's meeting, today has no line.
 
 A PR names its card in its title or, failing that, its branch, and a commit on a default branch in
 its message; a PR that names no card is a line of its own, `<repo>#<number>`, and other work in a

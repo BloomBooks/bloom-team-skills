@@ -38,6 +38,7 @@
 
   <section class="group" id="standup">
     <form id="task-form" class="task-form"><input id="task-text" type="text" placeholder="Add a task" aria-label="New task" autocomplete="off"><button type="submit" class="refresh">Add</button></form>
+    <p id="task-note" class="task-note" role="alert" hidden></p>
     <div id="standup-days"></div>
   </section>
 </div>
@@ -120,11 +121,14 @@ const FOLLOW_UP = {
 // itself, a repo's line its commits), its PR at the far right, and, when given, a time.
 function lineItem(f, time, timeTitle) {
   const isPr = f.pr && f.pr === f.url;
+  // History's lines say prState; reviewed.mjs's lines for "Back with you for review" say merged.
+  const prState = f.prState || (f.merged ? "merged" : "");
   return el("li", f.followUp ? { class: "fu-" + f.followUp } : {},
+    f.kind ? kindIcon(f.kind) : null,
     f.followUp ? el("span", { class: "fu", title: FOLLOW_UP[f.followUp].title }, FOLLOW_UP[f.followUp].text) : null,
     el("span", { class: "title", title: f.summary }, f.summary),
-    el("span", { class: "id" }, stateIcon(f.state), f.url ? toned(f.url, f.id, isPr ? PR_TONE[f.prState] : CARD_TONE[f.state]) : f.id),
-    f.pr && !isPr ? el("span", { class: "id" }, toned(f.pr, "PR " + f.pr.split("/").pop(), PR_TONE[f.prState])) : null,
+    el("span", { class: "id" }, stateIcon(f.state), !f.url ? f.id : isPr ? markMerged(toned(f.url, f.id, PR_TONE[prState]), prState) : toned(f.url, f.id, CARD_TONE[f.state])),
+    f.pr && !isPr ? el("span", { class: "id" }, markMerged(toned(f.pr, "PR " + f.pr.split("/").pop(), PR_TONE[prState]), prState)) : null,
     time ? el("span", { class: "when", title: timeTitle + " " + new Date(time).toLocaleString() }, localTime(time)) : null);
 }
 function renderBack(items) {
@@ -142,6 +146,19 @@ function dayName(date) {
   return t.toLocaleDateString([], days < 7 ? { weekday: "long" } : { weekday: "long", month: "short", day: "numeric" });
 }
 const STANDUP_KINDS = [["finished", "Finished"], ["worked", "Worked on"], ["reviewed", "Reviewed"]];
+// The icon at the start of a History line, with what it means on hover: a check in a circle for
+// Finished, a short dash for Worked on (most lines, so it stays quiet), an eye for Reviewed.
+const KIND_ICONS = {
+  finished: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>',
+  worked: '<path d="M9 12h6"/>',
+  reviewed: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+};
+function kindIcon(kind) {
+  const label = STANDUP_KINDS.find(([k]) => k === kind)[1];
+  const icon = el("span", { class: "kind kind-" + kind, title: label, role: "img", "aria-label": label });
+  icon.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${KIND_ICONS[kind]}</svg>`;
+  return icon;
+}
 // A date as YYYY-MM-DD in the viewer's own time zone, the form History's days use.
 function localDate(t) {
   const two = n => String(n).padStart(2, "0");
@@ -155,38 +172,80 @@ function taskItem(t) {
   const del = action("task-delete", "Delete this task", "×", () => changeTask("delete", { id: t.id }), "task-delete:" + t.id);
   return el("li", { class: "task" + (t.checked ? " checked" : "") }, el("label", {}, box, el("span", { class: "title" }, t.text)), del);
 }
+// A failed task change says why under the Add box, where the developer is looking: the page's
+// own note is at the top, out of view when History is scrolled into view.
 async function changeTask(what, body) {
-  showNote("");
+  showTaskNote("");
   try {
     const r = await fetch("/api/task/" + what, { method: "POST", headers: { "content-type": "application/json", "x-dashboard-token": window.DASHBOARD_TOKEN }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (!j.ok) { showNote("Couldn't change the task: " + (j.error || r.status)); return false; }
+    if (r.status === 403) { showTaskNote("The dashboard server has restarted since this page loaded. Reload the page."); return false; }
+    if (!j.ok) { showTaskNote("Couldn't change the task: " + (j.error || r.status)); return false; }
     lastTasks = j.tasks;
     renderStandup(lastStandup, lastTasks);
     return true;
-  } catch { showNote("The dashboard server isn't answering. Is its Claude session still open?"); return false; }
+  } catch { showTaskNote("The dashboard server isn't answering. It runs only while its Claude session is open; run /dashboard to start it again."); return false; }
 }
-// History: the three most recent days with any activity, newest first. Open tasks always show
-// under today, which makes today one of those days; a checked task shows under the day it was
-// checked, which counts as activity on that day.
-let lastStandup = null, lastTasks = [];
+function showTaskNote(text) {
+  const n = document.getElementById("task-note");
+  n.textContent = text || "";
+  n.hidden = !text;
+}
+// History: today and the two weekdays (Monday to Friday) before it, newest first, each shown even
+// with nothing on it, plus a Saturday or Sunday in between that has any activity. Open tasks show
+// under today; a checked task shows under the day it was checked, which counts as activity on
+// that day. standup.mjs's historyStart() works out the same first day.
+//
+// Each day's work is one list, newest first, each line labelled Finished, Worked on or Reviewed.
+// On a weekday whose stand-up has passed, a line marks the meeting, and the work before it (which
+// was reported there) is dimmed below it. standup.mjs marks those lines beforeStandup.
+let lastStandup = null, lastTasks = [], standupAt = { hour: 8, minute: 45 };
 function renderStandup(days, tasks) {
-  const byDate = new Map((days || []).map(d => [d.date, { ...d, tasks: [] }]));
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (let n = 0; n < 2;) { first.setDate(first.getDate() - 1); if (first.getDay() % 6) n++; }
+  const byDate = new Map();
+  for (const d = new Date(first); d <= now; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() % 6) byDate.set(localDate(d), { date: localDate(d), tasks: [] });
+  }
+  const today = localDate(now), start = localDate(first);
   const dayOf = date => { if (!byDate.has(date)) byDate.set(date, { date, tasks: [] }); return byDate.get(date); };
-  const today = localDate(new Date());
-  for (const t of tasks || []) dayOf(t.checked ? localDate(new Date(t.checked)) : today).tasks.push(t);
-  const shown = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
+  dayOf(today);
+  for (const d of days || []) if (d.date >= start && d.date <= today) Object.assign(dayOf(d.date), d);
+  for (const t of tasks || []) {
+    const date = t.checked ? localDate(new Date(t.checked)) : today;
+    if (date >= start) dayOf(date).tasks.push(t);
+  }
+  const shown = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
   // Open tasks first, then the ones checked off that day, each in the order they were made.
   const order = (a, b) => (!!a.checked - !!b.checked) || a.created.localeCompare(b.created);
+  const meeting = new Date(now.getFullYear(), now.getMonth(), now.getDate(), standupAt.hour, standupAt.minute);
+  const early = t => { const d = new Date(t); return d.getDay() % 6 !== 0 && d.getHours() * 60 + d.getMinutes() < standupAt.hour * 60 + standupAt.minute; };
+  // A day's tasks and work lines, either the ones before its stand-up or the ones after.
+  const part = (day, before) => {
+    const out = [];
+    const dayTasks = day.tasks.filter(t => !!t.checked && early(t.checked) === before);
+    if (!before) dayTasks.push(...day.tasks.filter(t => !t.checked));
+    if (dayTasks.length) out.push(el("ul", { class: "lines tasks" }, ...dayTasks.sort(order).map(taskItem)));
+    const work = STANDUP_KINDS.flatMap(([kind]) => (day[kind] || []).filter(f => !!f.beforeStandup === before).map(f => ({ ...f, kind })))
+      .sort((a, b) => b.at.localeCompare(a.at));
+    if (work.length) out.push(el("ul", { class: "lines" }, ...work.map(f => lineItem(f))));
+    return out;
+  };
+  const meetingLabel = "stand-up " + meeting.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const box = document.getElementById("standup-days");
-  box.replaceChildren(...shown.map(day => el("div", { class: "day" },
-    el("h3", {}, dayName(day.date)),
-    day.tasks.length ? el("h4", {}, "Tasks") : null,
-    day.tasks.length ? el("ul", { class: "lines tasks" }, ...day.tasks.sort(order).map(taskItem)) : null,
-    ...STANDUP_KINDS.filter(([k]) => day[k]?.length).flatMap(([k, label]) => [
-      el("h4", {}, label),
-      el("ul", { class: "lines" }, ...day[k].map(f => lineItem(f))),
-    ]))));
+  box.replaceChildren(...shown.map(day => {
+    // Today's stand-up has not happened yet: everything so far goes in the report.
+    const met = day.date !== today || now >= meeting;
+    const after = met ? part(day, false) : [...part(day, false), ...part(day, true)];
+    const before = met ? part(day, true) : [];
+    return el("div", { class: "day" },
+      el("h3", {}, dayName(day.date)),
+      !after.length && !before.length ? el("p", { class: "nothing" }, "Nothing recorded.") : null,
+      ...after,
+      before.length ? el("div", { class: "standup-line" }, el("span", {}, meetingLabel)) : null,
+      before.length ? el("div", { class: "before-standup", title: "Done before this day's stand-up, so already reported there" }, ...before) : null);
+  }));
 }
 document.getElementById("task-form").addEventListener("submit", async e => {
   e.preventDefault();
@@ -226,6 +285,7 @@ async function refresh() {
   renderBack(state.backForReview);
   lastStandup = state.standup;
   lastTasks = state.tasks || [];
+  if (state.standupAt) standupAt = state.standupAt;
   renderStandup(lastStandup, lastTasks);
 }
 // When the server last gathered YouTrack, GitHub and git facts (every 15 minutes, or on Refresh),
