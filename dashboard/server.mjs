@@ -45,7 +45,7 @@ import { fileURLToPath } from "node:url";
 import { diffFacts } from "./diff-facts.mjs";
 import { ownReview } from "./own-review.mjs";
 import { STANDUP } from "./standup.mjs";
-import { CARD, agentState, enrichRows, liveAgents, readJson, readProgress, readRows, rowsDir } from "./row-facts.mjs";
+import { CARD, agentState, checkoutState, enrichRows, liveAgents, readJson, readProgress, readRows, rowsDir } from "./row-facts.mjs";
 import { orca, quote, norm, setLog, bringOrcaToFront, knownWorktree, agentTerminal, openWorktree, createWorktree, typePrompt } from "../orca-worktrees.mjs";
 
 const execP = promisify(exec);
@@ -85,12 +85,17 @@ let agents = {};          // normalized worktree path -> liveAgents() of its age
 let lastStates = null;    // path -> "working+done" etc., for events.log
 let orcaDown = false;
 const workingSeen = new Map();
+// normalized worktree path -> checkoutState(), for each worktree whose last preflight run has
+// ended, so the page can tell when the code changed after it.
+let checkouts = new Map();
 async function pollAgents() {
   try {
     const ps = (await orca("worktree", "ps")).worktrees;
     const next = {};
     const states = new Map();
     const runs = readProgress();
+    const ended = ps.filter(w => runs.get(norm(w.path))?.endedAt);
+    checkouts = new Map((await Promise.all(ended.map(async w => [norm(w.path), await checkoutState(w.path)]))).filter(([, c]) => c));
     for (const w of ps) {
       const list = w.agents || [];
       next[norm(w.path)] = liveAgents(w, runs.get(norm(w.path)), workingSeen);
@@ -219,7 +224,7 @@ function readState() {
   let developer = "";
   try { developer = (readJson(path.join(os.homedir(), ".claude", "bloom-developer.json")).name || "").split(" ")[0]; } catch {}
   const facts = readFacts();
-  enrichRows(rows, facts, ownReviews);
+  enrichRows(rows, facts, ownReviews, readProgress(), checkouts);
   return { serverPid: process.pid, board, developer, rows, agents, tasks: readTasks(), standup: facts?.standup || null, standupAt: STANDUP, backForReview: facts?.backForReview || null, gatheredAt: facts?.gatheredAt || "" };
 }
 

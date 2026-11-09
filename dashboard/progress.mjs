@@ -8,7 +8,8 @@
 // <step> is one of STEPS below; <state> is running, done, failed or skipped. The run belongs to
 // the git checkout of the current folder (or --worktree <path>). It writes
 // ~/.claude/bloom-dashboard/progress/<checkout>.json, which the dashboard server reads.
-// It never fails the caller: a problem prints a warning and exits 0.
+// `end` also records the commit the run ended on (`head`), which tells the dashboard whether the
+// code has changed since. It never fails the caller: a problem prints a warning and exits 0.
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { progressDir, progressFile } from "./row-facts.mjs";
@@ -29,7 +30,11 @@ try {
   let run = {};
   try { run = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
   if (step === "start") run = { worktree: key, startedAt: now, steps: {} };
-  else if (step === "end") run.endedAt = now;
+  else if (step === "end") {
+    run.endedAt = now;
+    // The commit the run ended on. A different HEAD later means the code has moved on since.
+    try { run.head = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(); } catch {}
+  }
   else if (STEPS.includes(step) && STATES.includes(state)) {
     run.worktree ??= key;
     run.steps ??= {};

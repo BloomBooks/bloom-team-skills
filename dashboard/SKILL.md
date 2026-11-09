@@ -153,7 +153,11 @@ and later steps are dimmed:
    Orca, or creates one.
 2. **Preflight**: finished once `nextSkill` is `request-peer-review` and the PR is neither
    conflicting nor failing CI (`prMergeable` and `prChecks`, which the server copies from
-   `facts.json`). A PR that becomes conflicting or fails CI makes Preflight the next step again.
+   `facts.json`). A PR that becomes conflicting or fails CI makes Preflight the next step again,
+   and so does any change to the code after the last preflight run ended: HEAD is no longer the
+   commit that `progress.mjs end` recorded, or tracked files have uncommitted changes
+   (`codeChanged`, which the server works out from git every few seconds). So leave `nextSkill`
+   at `request-peer-review` when new commits arrive; the page shows Preflight again by itself.
 3. **Your review (n of m files left)**: links to the PR's changed files until the developer has
    reviewed every file. `own-review.mjs` counts a file as reviewed when the developer marked it
    Viewed on GitHub or reviewed in Reviewable, for the file's current content; the server runs it

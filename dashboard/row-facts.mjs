@@ -6,6 +6,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileP = promisify(execFile);
 
 export const dataDir = path.join(os.homedir(), ".claude", "bloom-dashboard");
 export const rowsDir = path.join(dataDir, "rows");
@@ -94,6 +98,37 @@ export async function reportDecisions(report) {
   } catch { return null; }
 }
 
+// ---- the code since the last preflight -------------------------------------------------------
+
+// What `codeChangedSincePreflight` needs from a checkout: HEAD's commit and commit time, and the
+// number of tracked files with uncommitted changes. Untracked files are left out: a checkout
+// collects ones that are never committed (.claude/, scratch output). null when git fails.
+export async function checkoutState(wt) {
+  const git = async (...a) => (await execFileP("git", ["-C", wt, ...a], { windowsHide: true })).stdout.trim();
+  try {
+    const [head, status] = await Promise.all([
+      git("log", "-1", "--format=%H %cI"),
+      git("status", "--porcelain", "--untracked-files=no"),
+    ]);
+    const [sha, time] = head.split(" ");
+    return { head: sha, headTime: time, uncommitted: status.split(/\r?\n/).filter(Boolean).length };
+  } catch { return null; }
+}
+
+/**
+ * Whether the code has changed since the worktree's last preflight run ended, so that preflight
+ * is the next step again: HEAD is no longer the commit the run ended on, or tracked files have
+ * uncommitted changes. A run recorded without its commit is compared by time instead: a HEAD
+ * commit made after the run ended. false while a run is going (its own fixes change the code) and
+ * when there is no run or no `checkout` (checkoutState) to compare.
+ */
+export function codeChangedSincePreflight(run, checkout) {
+  if (!run?.endedAt || !checkout) return false;
+  if (checkout.uncommitted > 0) return true;
+  if (run.head) return checkout.head !== run.head;
+  return !!checkout.headTime && Date.parse(checkout.headTime) > Date.parse(run.endedAt);
+}
+
 // ---- files the dashboard keeps ---------------------------------------------------------------
 
 // The file progress.mjs writes a checkout's preflight run to.
@@ -143,10 +178,11 @@ export function rowOfWorktree(rows, worktree, branchCard) {
  * (`prState`, "draft" or "open"), mergeability and CI (`prMergeable`, `prChecks`) from `facts.prs`,
  * whether the card has the "Approved Plan" tag (`approvedPlan`) from `facts.cards`, the
  * developer's own review of the PR (`ownReview`, from `ownReviews`, PR URL -> own-review.mjs's
- * answer) and the worktree's latest preflight run (`progress`). A PR not among `facts.prs`
- * (merged or closed) is left to the page.
+ * answer), the worktree's latest preflight run (`progress`), and whether the code has changed
+ * since that run (`codeChanged`, from `checkouts`, worktree path as norm() gives it ->
+ * checkoutState). A PR not among `facts.prs` (merged or closed) is left to the page.
  */
-export function enrichRows(rows, facts, ownReviews = new Map(), runs = readProgress()) {
+export function enrichRows(rows, facts, ownReviews = new Map(), runs = readProgress(), checkouts = new Map()) {
   const prFacts = new Map((facts?.prs || []).map(p => [p.url, p]));
   const approved = new Set((facts?.cards || []).filter(c => c.approvedPlan).map(c => c.id));
   for (const r of rows) {
@@ -154,7 +190,9 @@ export function enrichRows(rows, facts, ownReviews = new Map(), runs = readProgr
     if (p) { r.prState = p.isDraft ? "draft" : "open"; r.prMergeable = p.mergeable; r.prChecks = p.checks; }
     r.approvedPlan = approved.has(r.card);
     if (ownReviews.has(r.pr)) r.ownReview = ownReviews.get(r.pr);
-    if (r.worktree && runs.has(norm(r.worktree))) r.progress = runs.get(norm(r.worktree));
+    const key = norm(r.worktree).replace(/\/+$/, "");
+    if (r.worktree && runs.has(key)) r.progress = runs.get(key);
+    r.codeChanged = codeChangedSincePreflight(r.progress, r.worktree ? checkouts.get(key) : null);
   }
   return rows;
 }

@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
-import { CARD, agentState, checksState, enrichRows, liveAgents, readJson, readProgress, readRows, reportDecisions, reportOf, rowOfWorktree, skillOf } from "../row-facts.mjs";
+import { CARD, agentState, checkoutState, checksState, codeChangedSincePreflight, enrichRows, liveAgents, readJson, readProgress, readRows, reportDecisions, reportOf, rowOfWorktree, skillOf } from "../row-facts.mjs";
 import { ownReview } from "../own-review.mjs";
 import { orca, typePrompt } from "../../orca-worktrees.mjs";
 
@@ -164,8 +164,8 @@ async function gitFacts(wt) {
     else if (line && !line.startsWith("#")) changed++;
   }
   const b = base || "origin/master";
-  const [behind, headTime] = await Promise.all([git(wt, "rev-list", "--count", `HEAD..${b}`), git(wt, "log", "-1", "--format=%cI")]);
-  return { changed, unpushed, base: b.replace(/^origin\//, ""), behind: behind == null ? null : Number(behind), headTime: headTime || null };
+  const behind = await git(wt, "rev-list", "--count", `HEAD..${b}`);
+  return { changed, unpushed, base: b.replace(/^origin\//, ""), behind: behind == null ? null : Number(behind) };
 }
 
 // ---- the PR and the card, as gather.mjs reads them -------------------------------------------
@@ -349,11 +349,11 @@ export async function worktreeState({ displayName, branch, paneKey, terminalIds,
   const cardId = (CARD.test(row?.card || "") ? row.card.toUpperCase() : null) ?? branchCard;
   const runs = readProgress();
   const run = runs.get(norm(wt));
-  const [gitState, { card, pr }] = await Promise.all([gitFacts(wt), slowFacts(wt, cardId)]);
+  const [gitState, checkout, { card, pr }] = await Promise.all([gitFacts(wt), checkoutState(wt), slowFacts(wt, cardId)]);
 
   // With no row from the dashboard session, the panel makes one from the card and the PR. A
-  // preflight run that ended after the last commit then means preflight is done.
-  const preflightDone = !!(pr && run?.endedAt && gitState.headTime && Date.parse(run.endedAt) >= Date.parse(gitState.headTime));
+  // preflight run that has ended with no change to the code since then means preflight is done.
+  const preflightDone = !!(pr && run?.endedAt && checkout && !codeChangedSincePreflight(run, checkout));
   const d = row ? { ...row } : {
     card: cardId,
     cardUrl: card?.url ?? null,
@@ -371,7 +371,7 @@ export async function worktreeState({ displayName, branch, paneKey, terminalIds,
   const openPr = pr && pr.state === "OPEN" ? [{ url: pr.url, isDraft: pr.isDraft, mergeable: pr.mergeable, checks: pr.checks }] : [];
   const reviewed = d.pr && d.nextSkill === "request-peer-review" ? ownReviewOf(d.pr) : null;
   enrichRows([d], { prs: openPr, cards: card ? [{ id: card.id, approvedPlan: card.approvedPlan }] : [] },
-    new Map(reviewed ? [[d.pr, reviewed]] : []), runs);
+    new Map(reviewed ? [[d.pr, reviewed]] : []), runs, new Map(checkout ? [[norm(wt), checkout]] : []));
   if (pr && pr.state !== "OPEN") d.prState = pr.state.toLowerCase();
 
   const sessions = sessionsOf(w);

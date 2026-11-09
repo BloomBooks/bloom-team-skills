@@ -99,8 +99,10 @@ function statusPill(d) {
 // Reviewable); Request Peer Review, which squashes and checks the PR, with Merge without Peer
 // Review beside it when the card has the "Approved Plan" tag; then the peer review itself.
 // A step is finished when what comes after it has started: Code once there is a PR or the session
-// names a next skill; Preflight once the session names request-peer-review and the PR is neither
-// conflicting nor failing CI; the review once every file is reviewed. The first unfinished step is
+// names a next skill; Preflight once the session names request-peer-review, the PR is neither
+// conflicting nor failing CI, and the code has not changed since the last preflight run ended
+// (`codeChanged`: a new commit, or uncommitted changes to tracked files); the review once every
+// file is reviewed. The first unfinished step is
 // the only enabled button. An agent started on a step's skill shows on that step; any other agent
 // shows on Code. A question or decision for the developer shows above the steps and disables them.
 function processCell(d) {
@@ -110,7 +112,7 @@ function processCell(d) {
   const r = d.ownReview;
   const left = r ? r.files - r.reviewed : null;
   const codeDone = !!(d.pr || d.nextSkill);
-  const preflightDone = d.nextSkill === "request-peer-review" && !broken;
+  const preflightDone = d.nextSkill === "request-peer-review" && !broken && !d.codeChanged;
   const reviewDone = preflightDone && left === 0;
   const done = [codeDone, preflightDone, reviewDone, false, false];
   let now = done.indexOf(false);
