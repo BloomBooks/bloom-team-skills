@@ -23,6 +23,12 @@ session starts, the button reads "Loading...". A developer loads it once
 with `orca plugin dev load <this folder>/orca-plugin --approve <fingerprint>` (`orca plugin
 validate` prints what it may do; loading without `--approve` prints the fingerprint).
 
+A session whose command line is `claude "Open the dashboard"` exists only for the dashboard, and
+each one holds about 300 MB, so `server.mjs` ends such sessions itself: once listening, it kills
+every one that started before it except the one that started it; when it exits (window closed,
+idle, or handed over), it kills the one that started it. A `/dashboard` typed into a working
+session has another command line, and the server leaves it alone.
+
 A second Orca plugin, whose manifest is this folder's `orca-plugin.json` and whose files are in
 `worktree-panel/`, shows one row of this dashboard, for the worktree Orca has focused, in a
 Worktree tab of Orca's right sidebar, with the worktree's Claude session and the developer's last

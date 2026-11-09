@@ -270,10 +270,74 @@ function send(res, code, body, type = "application/json") {
   res.end(typeof body === "string" ? body : JSON.stringify(body));
 }
 
+// ---- sessions that exist only for the dashboard ----------------------------------------------
+// The Orca plugin's button starts `claude "Open the dashboard"`. Such a session has nothing to do
+// once its server is gone, and each one holds about 300 MB, so a server kills them: on listening,
+// every one that started before it other than its own; on exiting, its own. A /dashboard typed
+// into a working session has another command line and is never touched.
+const serverStarted = Date.now();
+const DEDICATED = /^"?[^"]*claude(\.exe)?"?\s+"?Open the dashboard"?\s*$/i;
+
+// Every process as { pid, ppid, name, cmd, created }, or [] off Windows or when the list fails.
+async function processes() {
+  if (process.platform !== "win32") return [];
+  try {
+    const ps = "Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = $_.ProcessId; ppid = $_.ParentProcessId; name = $_.Name; cmd = $_.CommandLine; created = $_.CreationDate.ToUniversalTime().ToString('o') } } | ConvertTo-Json -Compress";
+    const { stdout } = await execFileP("powershell.exe", ["-NoProfile", "-Command", ps], { windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+    return JSON.parse(stdout).map(p => ({ ...p, created: Date.parse(p.created) }));
+  } catch (e) {
+    log("could not list processes: " + e.message);
+    return [];
+  }
+}
+const isDedicated = p => /^claude(\.exe)?$/i.test(p.name || "") && DEDICATED.test((p.cmd || "").trim());
+
+// The pids from this process up to the first claude.exe above it, this process first.
+function ancestry(all) {
+  const byPid = new Map(all.map(p => [p.pid, p]));
+  const chain = [];
+  for (let p = byPid.get(process.pid); p && !chain.includes(p.pid); p = byPid.get(p.ppid)) {
+    chain.push(p.pid);
+    if (/^claude(\.exe)?$/i.test(p.name || "")) break;
+  }
+  return chain;
+}
+function descendants(all, pid) {
+  const out = [];
+  for (const p of all) if (p.ppid === pid && p.pid !== pid) out.push(p.pid, ...descendants(all, p.pid));
+  return out;
+}
+function kill(pid) { try { process.kill(pid); } catch {} }
+
+async function endStaleSessions() {
+  const all = await processes();
+  const chain = ancestry(all);
+  for (const p of all) {
+    if (!isDedicated(p) || chain.includes(p.pid) || !(p.created < serverStarted)) continue;
+    for (const d of descendants(all, p.pid)) kill(d);
+    kill(p.pid);
+    log(`ended the dashboard session pid ${p.pid}, which started ${new Date(p.created).toISOString()} and had no server`);
+  }
+}
+
+// Kills the session that started this server when it exists only for the dashboard, with its other
+// child processes (its event watch), leaving this process and the shell between to exit on their own.
+async function endOwnSession() {
+  const all = await processes();
+  const chain = ancestry(all);
+  const own = all.find(p => p.pid === chain[chain.length - 1]);
+  if (!own || !isDedicated(own)) return;
+  for (const d of descendants(all, own.pid)) if (!chain.includes(d)) kill(d);
+  kill(own.pid);
+  log(`ended this server's dashboard session pid ${own.pid}`);
+}
+
 const IDLE_MINUTES = 5;
-function exitWindowClosed(why) {
+async function exitWindowClosed(why) {
   log(why + "; exiting");
   console.log("WINDOW_CLOSED: " + why);
+  server.close();
+  await endOwnSession();
   process.exit(0);
 }
 let lastPageRequest = 0;   // when a page last asked for /api/state; 0 until one has
@@ -296,7 +360,7 @@ const server = http.createServer((req, res) => {
     log("handing over to a newer server");
     console.log("REPLACED by a dashboard server that another session started");
     server.close();
-    setTimeout(() => process.exit(0), 200);
+    setTimeout(() => endOwnSession().finally(() => process.exit(0)), 200);
     return;
   }
   // A local script (work-on-youtrack, after it assigns a card) asks for a gather; it answers at
@@ -440,6 +504,7 @@ server.on("listening", async () => {
     if (lastPageRequest && Date.now() - lastPageRequest > IDLE_MINUTES * 60000) exitWindowClosed(`no dashboard page has asked for ${IDLE_MINUTES} minutes`);
   }, 30000);
   log("listening on " + origin + " pid " + process.pid);
+  endStaleSessions().catch(e => log("ending stale sessions: " + e.message));
   // After a takeover, a window left open on the old server asks within 3 s and reloads onto this
   // one, so open another only when none has asked.
   if (openWindow && tookOver) setTimeout(() => { if (!lastPageRequest) openAppWindow(); }, 8000);
