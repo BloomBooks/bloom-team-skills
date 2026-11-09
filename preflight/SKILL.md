@@ -277,12 +277,21 @@ everything else) when it is any of:
 - a **large or architecturally-significant** change, or one touching **many files**;
 - a **semantic** merge conflict (resolve only trivial ones — lockfile, imports, formatting);
 - **disagreeing with a human comment** (always report; never auto-dismiss a human);
+- **not fixing a finding that is right about what the code does**, from a bot or a human: calling
+  a real bug, however small or rare, "by design", "deliberate", "a known limitation", "out of
+  scope" or "not worth the cost" is a product decision, and it is the developer's. A behavior
+  counts as decided only when you can point to where the developer decided it (their words in a
+  conversation, a decision-report answer, their reply on a thread); a limitation that an agent
+  wrote into the test ideas, a code comment or an earlier thread reply is not that, and is no
+  reason to dismiss a finding;
 - **changing what an existing test asserts or expects** (including a snapshot or visual
   baseline), or skipping or deleting it, unless the developer already approved that change (see
   "Changing an existing test needs the developer's approval" in `TEAM-AGENTS.md`). Leave the
   suite red and say in the report that it waits on this decision.
 
-Disagreeing with a **bot** does *not* need the user — post a reply and move on. **Agreeing** with
+Disagreeing with a **bot** does *not* need the user when the bot is wrong about what the code
+does — post a reply and move on. A bot that is right about the behavior is not mistaken, however
+little you think the behavior matters: fix it, or put it in the decision report. **Agreeing** with
 a human is fine to act on too: if their point is a clearly-correct, in-scope fix, make the fix,
 post a brief thanks noting what you changed, and resolve the thread. The report is only for
 *disagreement* with a human (or anything else that crosses the lines above) — not for the simple
@@ -629,8 +638,10 @@ already ran in Phase 1; its captured outcome joins the results here.
   outcome and resolve the thread** (prefix the body with an identifier of which model you
   are): "Fixed in `<sha>`: …", and for a **human** a brief thanks for the catch. A
   documented, resolved thread is the record a later human reviewer sees.
-  - **Bot** is mistaken → **post a reply** explaining why **and resolve the thread** — refuting
-  a bot needs no user sign-off.
+  - **Bot** is mistaken about what the code does → **post a reply** explaining why **and resolve
+  the thread** — refuting a bot needs no user sign-off. If the bot describes the behavior
+  correctly and you would rather not change it, it is not mistaken: that is the autonomy line's
+  "not fixing a finding that is right" case, so it goes to the decision report.
   - Crosses the autonomy line, **or you disagree with a human** → **decision report**, with the
   thread left **open** (never auto-dismiss a human; it gets closed when the decision comes
   back — see "Processing the user's decisions"). Only clear-cut, acted-on items get closed
