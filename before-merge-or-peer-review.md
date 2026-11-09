@@ -152,6 +152,20 @@ operations every tracker skill provides). Moving the card afterwards is each ski
    - **Succinct:** scale it to the change. A small change gets two or three sentences and a
      handful of checkboxes. Cut any item this diff has no plausible way of breaking, and any
      setup a tester doesn't need.
+6. **Harvester checkboxes (BloomDesktop).** When the PR description's Ecosystem Impact section
+   says `Harvester: affected` (or it lacks the line and the diff changes what
+   `Bloom.exe createArtifacts` does; see `preflight`, "Ecosystem Impact"), post a new comment on
+   the card holding just these two checkboxes, so that nobody forgets to bring the change to the
+   harvester:
+
+   ```
+   - [ ] Deployed to dev harvester
+   - [ ] Deployed to prod harvester
+   ```
+
+   Post it through the tracker skill. If a comment containing `Deployed to prod harvester`
+   already exists, leave it, ticked or not. Never tick them yourself, and never put them in the
+   description. Say in the report that the comment was added.
 
 When the skill then moves the card: **never move a card backwards.** If it's already in the
 target state, or further along, leave it and say so in the report rather than downgrading it.

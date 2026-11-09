@@ -105,6 +105,16 @@ reviewer can see it was considered rather than forgotten.
    versions of the app opening the same files, other repos and services, new or changed
    dependencies, localization (new strings, and whether they reach translators). Say which of
    these were checked and which were not.
+   In BloomDesktop, always consider the **harvester**, which makes Bloom Library's downloads by
+   running `Bloom.exe createArtifacts` (`src/BloomExe/CLI/CreateArtifactsCommand.cs`) on every
+   uploaded book: it loads the book, then makes the BloomPUB (`BloomPubMaker`, image
+   compression), the ePUB (`EpubMaker`), thumbnails, the `.bloomSource` and the JSON texts. Its
+   Bloom comes from this repo's `harvester-development` and `harvester-production` branches,
+   which are updated by hand, so a fix there reaches it only when someone remembers to. End the
+   section with one of these lines, exactly: `Harvester: affected — <what it now does
+   differently>` or `Harvester: not affected`. Affected means the change alters what
+   `createArtifacts` does: a fix for a failure or wrong output the harvester would also hit, or
+   a change to what it produces.
 4. **Automated Tests** — the unit, component and end-to-end tests this PR adds or changes, each in
    a few words, then one line that records the test decision (see "The test decision"):
    `Test of the change: <which test(s)>`, `Test of the change: none — test-only change: <which
