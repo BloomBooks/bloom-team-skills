@@ -7,8 +7,8 @@
 // A service that needs a token is called through `callService`, which sends the request to the
 // tool server, a Cloudflare Worker that holds the tokens and adds the right one. The Worker lets
 // in the bot (by its own token) and any member of the BloomBooks GitHub organization (by their
-// `gh auth token`), and decides what each may do; its rules are in bloom-bot's
-// worker/src/services.js. Public services (the forum, Bloom Library, TeamCity as a guest, the
+// `gh auth token`), and passes each request on as it is, with the token added (bloom-bot's
+// worker/src/services.js). Public services (the forum, Bloom Library, TeamCity as a guest, the
 // status pages) are called directly.
 //
 //   youtrack [GET|POST|DELETE] <api path> [@<file>]     YouTrack's REST API as the Bot account
@@ -116,27 +116,29 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = 120_000) {
  * "cloudflare", "mixpanel") and returns the checked Response. Scripts in the team skills and the
  * bot's jobs call it too, for the services they use themselves. */
 export async function callService(service, apiPath, { method = "GET", body, bodyBytes, contentType } = {}) {
-    // Bytes, such as a file upload, travel to the tool server as base64.
-    const bodyBase64 = bodyBytes === undefined ? undefined : Buffer.from(bodyBytes).toString("base64");
-    const request = { service, method, path: apiPath, body, bodyBase64, contentType };
+    // The tool server passes the request on as it is, so the body goes as text or as bytes, such as
+    // a file upload, and the headers here are the ones the service sees.
+    const sent = bodyBytes ?? body;
+    const headers = { Accept: "application/json" };
+    if (sent !== undefined) headers["Content-Type"] = contentType || "application/json";
     const where = `${service} ${method} ${apiPath}`;
     if (settings.direct && !settings.workerUrl && !process.env.BLOOM_BOT_WORKER_URL) {
-        return check(await settings.direct(request), where, service);
+        return check(await settings.direct({ service, method, path: apiPath, headers, body: sent }), where, service);
     }
     const server = workerUrl();
     let response;
     try {
-        response = await fetch(new URL("/call", server), {
-            method: "POST",
+        response = await fetch(`${server.replace(/\/$/, "")}/${service}${apiPath}`, {
+            method,
             signal: AbortSignal.timeout(150_000),
-            headers: { Authorization: `Bearer ${signInToken()}`, "Content-Type": "application/json" },
-            body: JSON.stringify(request),
+            headers: { ...headers, Authorization: `Bearer ${signInToken()}` },
+            body: sent,
         });
     } catch (error) {
         throw new Error(`the tool server (${server}) is down: ${error.name === "TimeoutError" ? "no reply within 150 s" : error.cause?.message ?? error.message}`);
     }
     if (response.headers.get("Bloom-Bot-Forwarded") === "yes") return check(response, where, service);
-    // The tool server's own answer: the request wasn't let through, or the service couldn't be reached.
+    // The tool server's own answer: no such service, a missing token, or the service couldn't be reached.
     const text = await response.text();
     let error;
     try {
