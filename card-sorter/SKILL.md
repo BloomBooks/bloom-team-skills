@@ -15,7 +15,8 @@ confirms the list of changes.
 
 - `server.mjs <dataDir> [port]` serves the app (default port 5177) and saves decisions. Its
   header describes the data folder.
-- `youtrack.mjs`: the only code that talks to YouTrack, as the Bot account (`$YOUTRACK_BOT`):
+- `youtrack.mjs`: the only code that talks to YouTrack, as the Bot account (through
+  `bloom-services`, so it needs only `gh` signed in):
   `pull` re-extracts the cards, `push` applies a confirmed plan.
 - `app/`: the page.
 - `analysis-brief.md`: a model brief for the analysis agents, with placeholders for the board's

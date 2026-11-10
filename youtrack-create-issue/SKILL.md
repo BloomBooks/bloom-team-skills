@@ -40,24 +40,27 @@ Use the chosen value as the `State` field below.
 
 ## 3. Create via the REST API
 
-Calls use the base URL, headers, and tokens from the **`youtrack-api`** skill. Creating an issue
-and setting its fields are **writes**, so authenticate with **`$YOUTRACK_BOT`** (the Bot
-account), and start the issue **description** with the attribution tag from `youtrack-api` §1
+Calls go through the **`youtrack-api`** skill's `yt` command, as the Bot account. Creating an
+issue and setting its fields are **writes**, so start the issue **description** with the
+attribution tag from `youtrack-api` §1
 (e.g. `[Claude Opus 4.8 from Hatton's machine during youtrack-create-issue]`).
+
+The paths below are as `yt` takes them, after `/youtrack/api`: `GET <path>` is `yt "<path>"`,
+and `POST <path>` with a body is `yt POST "<path>" @<body file>`.
 
 **Look IDs up dynamically — do not trust the cached values, they change every release:**
 
-- Project: `GET /api/admin/projects?fields=id,shortName,name&query=Bloom` → "Bloom" is shortName
+- Project: `GET /admin/projects?fields=id,shortName,name&query=Bloom` → "Bloom" is shortName
   `BL` (currently id `77-0`).
-- Board + sprint for the target version: the board is **"Bloom Kanban"** (`GET /api/agiles?fields=id,name` →
+- Board + sprint for the target version: the board is **"Bloom Kanban"** (`GET /agiles?fields=id,name` →
   currently agile id `89-5`), and each release is a **sprint** on it
-  (`GET /api/agiles/<agileId>/sprints?fields=id,name,archived&$top=200` → find the one named like
+  (`GET /agiles/<agileId>/sprints?fields=id,name,archived&$top=200` → find the one named like
   `Bloom 6.6`). The issue's version field is the **`Kanban Board`** single-version custom field.
 - **Never create a card on an archived board.** A finished release's sprint stays in that list with
   `archived: true` (e.g. `Bloom 6.5`); a card put there is off every board anyone is working from.
   If the requested board's sprint is archived, do not create the issue: stop and ask which current
   board it belongs on, offering the non-archived sprints from the same list.
-- State / Type values: `GET /api/admin/projects/<projectId>/customFields?fields=field(name),bundle(values(name))&$top=200`.
+- State / Type values: `GET /admin/projects/<projectId>/customFields?fields=field(name),bundle(values(name))&$top=200`.
 
 **Order matters (workflow rule):** there is a rule *"Set Kanban Board before leaving Incoming."*
 So set the board/sprint **before** setting State to anything other than `Incoming`, or the State
@@ -66,20 +69,20 @@ command returns HTTP 400.
 Recommended sequence:
 
 1. **Create** the issue (no state yet):
-   `POST /api/issues?fields=id,idReadable` with body
+   `POST /issues?fields=id,idReadable` with body
    `{"project":{"id":"<projectId>"},"summary":"...","description":"..."}`
    → capture `idReadable` (e.g. `BL-16428`) and `id` (e.g. `83-50346`).
-2. **Type**: `POST /api/commands` with `{"query":"Type Bug","issues":[{"idReadable":"<idReadable>"}]}`.
+2. **Type**: `POST /commands` with `{"query":"Type Bug","issues":[{"idReadable":"<idReadable>"}]}`.
 3. **Board/sprint** (do this before State): add the issue to the release sprint —
-   `POST /api/agiles/<agileId>/sprints/<sprintId>/issues` with `{"id":"<numericId>"}`.
-4. **State**: `POST /api/commands` with
+   `POST /agiles/<agileId>/sprints/<sprintId>/issues` with `{"id":"<numericId>"}`.
+4. **State**: `POST /commands` with
    `{"query":"State <Chosen State>","issues":[{"idReadable":"<idReadable>"}]}`
    (e.g. `State Ready For Work`). If you set State to `Incoming`, step 3 isn't strictly required.
 5. **Assignee** (only if the requester asked for one, e.g. "assigned to me"): follow
    `youtrack-api` §3 "Set an issue's Assignee". Look the login up first; it is not derivable from a
    name or email, so do not guess plausible logins.
 6. **Verify**:
-   `GET /api/issues/<idReadable>?fields=idReadable,summary,customFields(name,value(name))`
+   `GET /issues/<idReadable>?fields=idReadable,summary,customFields(name,value(name))`
    and confirm Type, Kanban Board, State, and any Assignee are what was requested (add `login`
    to the `value(...)` fields to read the Assignee).
 
@@ -87,7 +90,7 @@ Recommended sequence:
 
 Give the user the readable id and a clickable link:
 `https://issues.bloomlibrary.org/youtrack/issue/<idReadable>`, and note the final Type / board /
-state. The reporter will be the **Bot** account (since you created it with `$YOUTRACK_BOT`); the
+state. The reporter will be the **Bot** account (every `yt` call is made as the Bot); the
 attribution tag in the description records which model/developer actually filed it. Do not push
 code or change anything else
 unless separately asked.

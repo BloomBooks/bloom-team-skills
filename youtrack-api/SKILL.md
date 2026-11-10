@@ -1,6 +1,6 @@
 ---
 name: youtrack-api
-description: How to talk to the Bloom YouTrack tracker over REST — authentication, base URL, and common operations (read an issue, find an issue id, list/post/edit comments, a card's guide to a stack of PRs, set an issue's State, assign an issue, attachments). Bloom's implementation of the "tracker skill" that preflight, request-peer-review and merge-without-peer-review ask for, and the shared low-level building block the other youtrack-* skills rely on.
+description: How to talk to the Bloom YouTrack tracker over REST — access, base URL, and common operations (read an issue, find an issue id, list/post/edit comments, a card's guide to a stack of PRs, set an issue's State, assign an issue, attachments). Bloom's implementation of the "tracker skill" that preflight, request-peer-review and merge-without-peer-review ask for, and the shared low-level building block the other youtrack-* skills rely on.
 ---
 
 # Using the Bloom YouTrack REST API
@@ -38,22 +38,25 @@ Auth is this skill's business alone; callers must not reason about tokens. A tea
 `preflight` for a different tracker writes their own skill covering those five operations, however
 their tracker authenticates, and declares it in their repo's `AGENTS.md`.
 
-## 1. Authentication — `$YOUTRACK_BOT` for everything (never hard-code a token in a committed file)
+## 1. Access — the `bloom-services` commands, as the shared Bot account
 
-**Every** call, read or write, authenticates as the shared **Bloom "Bot"** account, using its
-YouTrack **permanent token** (`perm-…`) from `$YOUTRACK_BOT`:
+**Every** call, read or write, goes through the team's tool server (the `bloom-services` skill),
+which makes it as the shared **Bloom "Bot"** account. You need no token: the tool server signs you
+in with your GitHub login (`gh auth login`, once). The examples below write the command as `yt`,
+short for:
 
 ```
--H "Authorization: Bearer $YOUTRACK_BOT"
+node ~/.claude/skills/bloom-services/tools.mjs youtrack
 ```
 
-Check it's there with `echo "${YOUTRACK_BOT:+set}"`. To get the token: ask the repo owner (it's
-distributed out-of-band, like every secret here — never committed).
+It takes `[GET|POST|DELETE] <api path> [@<body file>]`, where the path is what follows
+`/youtrack/api`. A POST's JSON body goes in a file, passed as `@<file>`. Quote a path holding `&`,
+`$` or parentheses.
 
 **Never authenticate as a human.** Ignore any personal YouTrack token (`$YOUTRACK`) you find in the
 environment or in older docs — do not use it for reads, and not for writes, where it would make an
 automated change look like it came from the human at the keyboard, which is exactly what the Bot
-account exists to avoid. If `$YOUTRACK_BOT` is unset, do **not** fall back to it; see §4.
+account exists to avoid. If the tool server can't be reached, do **not** fall back to it; see §4.
 
 The Bot looks users up, searches by `Assignee:`, and sets the `Assignee` field through YouTrack's
 **Read User Basic Role**, which must be granted to the Bot **globally**: granted only on a project,
@@ -78,20 +81,17 @@ team-wide attribution rule in `TEAM-AGENTS.md`.
 The tag goes on a line of its own, followed by a blank line (`\n\n` in the JSON), and the text
 starts after that.
 
-Validate the token before doing real work:
+Check that YouTrack is reachable before doing real work:
 ```bash
 # should report the BOT's login:
-curl -s -H "Authorization: Bearer $YOUTRACK_BOT" \
-  "https://issues.bloomlibrary.org/youtrack/api/users/me?fields=login,name"
+yt "/users/me?fields=login,name"
 ```
-A 200 with the Bot's login confirms the token works.
+The Bot's login confirms it works.
 
 ## 2. Conventions
 
 - **Base URL:** `https://issues.bloomlibrary.org/youtrack/api`
-- **Headers:** every call sends `Accept: application/json` and
-  `Authorization: Bearer $YOUTRACK_BOT` (see §1). POSTs also send
-  `Content-Type: application/json`.
+- **Headers and token:** the tool server adds them (see §1); `yt` takes the path after the base URL.
 - **Fields:** YouTrack returns nothing unless you ask — always pass a `fields=` query param
   listing what you want (e.g. `fields=idReadable,summary,description`).
 - **Web URL is a SPA:** `https://issues.bloomlibrary.org/youtrack/issue/BL-xxxxx` is a
@@ -101,8 +101,7 @@ A 200 with the Bot's login confirms the token works.
 
 ### Read an issue
 ```bash
-curl -s -H "Authorization: Bearer $YOUTRACK_BOT" -H "Accept: application/json" \
-  "https://issues.bloomlibrary.org/youtrack/api/issues/BL-16467?fields=idReadable,summary,description,customFields(name,value(name))"
+yt "/issues/BL-16467?fields=idReadable,summary,description,customFields(name,value(name))"
 ```
 
 ### Find the issue id for the current work
@@ -118,21 +117,18 @@ on.
 
 ### List an issue's comments
 ```bash
-curl -s -H "Authorization: Bearer $YOUTRACK_BOT" \
-  "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/comments?fields=text"
+yt "/issues/<issue-id>/comments?fields=text"
 ```
 
 ### Post a comment
-Start the text with the attribution tag from §1:
+Start the text with the attribution tag from §1 (the tool server refuses a comment without one).
+Write the JSON to a file, then post it:
 ```bash
-curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/comments" \
-  -H "Authorization: Bearer $YOUTRACK_BOT" \
-  -H "Content-Type: application/json" \
-  -d '{"text": "[Claude Opus 4.8 from Hatton'\''s machine during preflight]\n\nyour comment text"}'
+# comment.json: {"text": "[Claude Opus 4.8 from Hatton's machine during preflight]\n\nyour comment text"}
+yt POST "/issues/<issue-id>/comments" @comment.json
 ```
 Before posting, list existing comments and check you are not creating a duplicate (e.g. when
-posting a PR link, `grep -i "github.com.*pull"` the existing comment text first). For bodies
-with embedded quotes/code, write the JSON to a file and use `curl -d @file.json`.
+posting a PR link, `grep -i "github.com.*pull"` the existing comment text first).
 
 To retract a comment the Bot posted, mark it deleted: `POST .../issues/<issue-id>/comments/<comment-id>`
 with `{"deleted": true}`. A hard `DELETE` returns 403, and so does either kind of delete, or an
@@ -195,9 +191,8 @@ reviewer has already ticked stays ticked when you edit the comment.
 The value name must match exactly, including capitalization:
 
 ```bash
-curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>?fields=customFields(name,value(name))" \
-  -H "Authorization: Bearer $YOUTRACK_BOT" -H "Content-Type: application/json" \
-  -d '{"customFields":[{"name":"State","$type":"StateIssueCustomField","value":{"name":"Ready For Code Review"}}]}'
+# state.json: {"customFields":[{"name":"State","$type":"StateIssueCustomField","value":{"name":"Ready For Code Review"}}]}
+yt POST "/issues/<issue-id>?fields=customFields(name,value(name))" @state.json
 ```
 
 The response echoes the new State — read it back rather than assuming the write took. Bloom's
@@ -212,35 +207,32 @@ Pass the **login**, not the display name. Logins are not derivable from a person
 Bot, not for the developer, so search the user list:
 
 ```bash
-curl -s -H "Authorization: Bearer $YOUTRACK_BOT" \
-  "https://issues.bloomlibrary.org/youtrack/api/users?fields=id,login,name&\$top=500"
+yt '/users?fields=id,login,name&$top=500'
 ```
 
 Then set it:
 
 ```bash
-curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/commands" \
-  -H "Authorization: Bearer $YOUTRACK_BOT" -H "Content-Type: application/json" \
-  -d '{"query":"Assignee <login>","issues":[{"idReadable":"<issue-id>"}]}'
+# assign.json: {"query":"Assignee <login>","issues":[{"idReadable":"<issue-id>"}]}
+yt POST "/commands" @assign.json
 ```
 
 Success returns `{}`, so read the field back:
 
 ```bash
-curl -s -H "Authorization: Bearer $YOUTRACK_BOT" \
-  "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>?fields=customFields(name,value(name,login))"
+yt "/issues/<issue-id>?fields=customFields(name,value(name,login))"
 ```
 
 A failure here means the Bot's global role is missing (§1).
 
 ### List an issue's attachments
 ```bash
-curl -s -H "Authorization: Bearer $YOUTRACK_BOT" \
-  "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/attachments?fields=name,url,size"
+yt "/issues/<issue-id>/attachments?fields=name,url,size"
 ```
 
 ### Download an attachment
-The `url` that the listing returns already starts with `/youtrack/api/files/…?sign=…`, so put only
+`node ~/.claude/skills/bloom-services/tools.mjs attachment <issue-id> <name>` saves one to
+`./.card/<name>`. To fetch one yourself: the `url` that the listing returns already starts with `/youtrack/api/files/…?sign=…`, so put only
 the host in front of it:
 
 ```bash
@@ -250,13 +242,12 @@ curl -s -o image.png "https://issues.bloomlibrary.org<url>"
 Prefixing it with the API base (`https://issues.bloomlibrary.org/youtrack`) doubles the
 `/youtrack` and returns YouTrack's web app page as HTML, still with status 200, so the saved file
 starts with `<!doctype html>`. The `sign` parameter authorizes the request; no header is needed.
+
+### Upload an attachment
 ```bash
-curl -s -X POST "https://issues.bloomlibrary.org/youtrack/api/issues/<issue-id>/attachments?fields=id,name,size" \
-  -H "Authorization: Bearer $YOUTRACK_BOT" \
-  -F "file=@screenshot.png;type=image/png"
+node ~/.claude/skills/bloom-services/tools.mjs youtrack-upload <issue-id> screenshot.png
 ```
-Several `-F file=@…` fields in one call work, but the response only echoes one of them — confirm
-what actually landed by listing the attachments afterwards, not by reading the POST response.
+It takes several files at once and prints the ones the card now lists.
 
 ### Uploading an image or video is only half the job — INLINE it
 
@@ -284,18 +275,14 @@ plays at — e.g. slowed to half speed with the real timing stated, since a bug 
 in 300 ms is unwatchable at true speed.
 
 When you update a description to add media, fetch the current `description`, edit it, and POST it
-back whole (`-d @file.json`) — there is no partial-update; anchor your replacement on unique
+back whole (`yt POST /issues/<issue-id> @file.json`) — there is no partial-update; anchor your replacement on unique
 existing text and assert the anchor was found before writing, so a failed match can't silently
 blank a section.
 
-## 4. If `$YOUTRACK_BOT` looks unset
+## 4. If the tool server refuses or can't be reached
 
-On Windows, first check the User scope
-(`[Environment]::GetEnvironmentVariable('YOUTRACK_BOT','User')`); an empty shell variable is
-usually a stale inherited env block, not a missing token.
-
-If the User scope *is* empty too, you have no YouTrack access — and you must **not** substitute
-some other token, including `$YOUTRACK`.
-Tell the user plainly: "I need the Bloom Bot token (`$YOUTRACK_BOT`) to reach YouTrack." For a
-low-stakes write (a PR-link comment) note that it's skipped and continue with the rest of the task;
-otherwise let the user set the token or do the YouTrack step manually.
+Its message says why; the `bloom-services` skill's "When a command fails" covers each case. You
+have no YouTrack access without it — and you must **not** substitute some other token, including
+`$YOUTRACK`. Tell the user plainly what the message said. For a low-stakes write (a PR-link
+comment) note that it's skipped and continue with the rest of the task; otherwise let the user
+fix the access or do the YouTrack step manually.

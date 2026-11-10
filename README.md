@@ -52,7 +52,8 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 | `merge-without-peer-review` | Step 3 instead of peer review, for a card tagged "Approved Plan": the same checks and card cleanup, then merge the PR and move the card to Ready For Testing.                                                                 |
 | `devin-review`             | Single source of truth for operating Devin (devinreview.com / app.devin.ai): trigger, read signals, post findings to GitHub.                                                            |
 | `reviewable-replies`       | Reply to Reviewable.io review discussions per-thread via the `reviewable` CLI.                                                                                                          |
-| `youtrack-api`             | Low-level: auth and REST conventions for our YouTrack (`issues.bloomlibrary.org`).                                                                                                      |
+| `bloom-services`           | Reach YouTrack, Sentry, Slack history, Notion, Cloudflare and Mixpanel with no token of your own, through the team's tool server, signed in with your GitHub login; and how to change Azure, Supabase or Sentry settings with your own account. |
+| `youtrack-api`             | Low-level: access and REST conventions for our YouTrack (`issues.bloomlibrary.org`).                                                                                                      |
 | `youtrack-fix`             | Fix an issue given a `BL-xxxxx` id: plan, branch, implement, commit.                                                                                                                    |
 | `youtrack-create-issue`    | File a new bug/task/card on the right board in the right state.                                                                                                                         |
 | `bloom-youtrack-reporting` | Query and report across YouTrack issues.                                                                                                                                                |
@@ -108,7 +109,6 @@ Set these in your user environment (never commit them — see [Ground rules](#gr
 
 | Variable                   | What                                | How to get it                                                                                                                   |
 | -------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `**YOUTRACK_BOT**`         | The shared **Bloom "Bot"** account's permanent token (`perm-…`) — the **only** token the YouTrack skills use, for reads and writes alike | Get it from the repo owner (distributed out-of-band, never committed). Makes automated YouTrack changes show up as authored by *Bot*, not by you; the comment/issue text carries a `[model from dev's machine during skill]` tag for provenance. Never use a personal YouTrack token instead. |
 | `**REVIEWABLE_API_TOKEN**` | Reviewable agent token (`rvbl_…`)   | In Reviewable: **Account settings** → **Provision new agent** → choose the **Author** agent type. Used by `reviewable-replies`. |
 | `**REVIEWABLE_URL**`       | `https://reviewable.io`             | Constant. Used by `reviewable-replies`.                                                                                         |
 | `**SIL_BLOOM_DOCS_NOTION_TOKEN**` | Your own Notion personal access token, for `bloom-docs` | https://app.notion.com/developers → **Personal access tokens** → **New token**. It sees what you can see in Notion, so no page needs sharing with it. |
@@ -279,8 +279,9 @@ Notes:
 ## Ground rules
 
 - **Never commit a token or secret here** — this repo is public. Skills reference tokens only
-  by environment variable name (`$YOUTRACK_BOT`, `REVIEWABLE_API_TOKEN`, …). The
-  shared `$YOUTRACK_BOT` token in particular is distributed to each dev out-of-band, never here.
+  by environment variable name (`REVIEWABLE_API_TOKEN`, …). The shared services' tokens
+  (YouTrack's Bot, Sentry, Slack, Notion, …) are held by the team's tool server, which
+  `bloom-services` signs in to with your GitHub login, so no developer holds them.
 - Repo-specific skills (build quirks, XLF strings, etc.) stay in that repo's
   `.github/skills/`; this repo is for cross-repo team workflow.
 - Skills that touch a developer's _personal_ setup (e.g. a private board) stay in that
