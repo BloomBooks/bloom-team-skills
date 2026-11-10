@@ -1,8 +1,7 @@
-// Tests for the rules of History in standup.mjs and reviewed.mjs. Run: node --test "dashboard/**/*.test.mjs"
+// Tests for the rules of History in standup.mjs (reviewed.mjs has its own). Run: node --test "dashboard/**/*.test.mjs"
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { beforeStandup, bloomRepos, dayOf, historyStart, readyTimes } from "./standup.mjs";
-import { followUp } from "./reviewed.mjs";
 
 const ready = at => ({ __typename: "ReadyForReviewEvent", createdAt: at });
 const draft = at => ({ __typename: "ConvertToDraftEvent", createdAt: at });
@@ -44,16 +43,4 @@ test("bloomRepos keeps the BloomBooks repos Orca knows", () => {
   ];
   assert.deepEqual(bloomRepos(repos), [{ path: "D:/bloom", slug: "BloomBooks/BloomDesktop", name: "BloomDesktop" }]);
   assert.deepEqual(bloomRepos(undefined), []);
-});
-
-test("a reviewed card back in Ready For Code Review: merged, responded or forgot", () => {
-  const line = extra => ({ commentedAt: "2026-11-09T10:00:00.000Z", authorAt: "", merged: false, closed: false, ...extra });
-  assert.equal(followUp("Ready For Code Review", line({ merged: true, closed: true })), "merged");
-  assert.equal(followUp("Ready For Code Review", line({ authorAt: "2026-11-09T11:00:00.000Z" })), "responded");
-  assert.equal(followUp("Ready For Code Review", line({ authorAt: "2026-11-09T09:00:00.000Z" })), "forgot");
-  assert.equal(followUp("Has Comments", line()), "");
-});
-
-test("a PR closed without merging needs nothing more from its reviewer", () => {
-  assert.equal(followUp("Ready For Code Review", { commentedAt: "2026-11-09T10:00:00.000Z", authorAt: "2026-11-09T11:00:00.000Z", merged: false, closed: true }), "");
 });

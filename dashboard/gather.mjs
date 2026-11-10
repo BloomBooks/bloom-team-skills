@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { developer } from "../developer.mjs";
 import { callService } from "../bloom-services/sources.mjs";
-import { reviewedCards } from "./reviewed.mjs";
+import { reviewedCards, backForReview as cardsBackForReview } from "./reviewed.mjs";
 import { bloomRepos, standupDays } from "./standup.mjs";
 import { cardOf, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
 import { orca as orcaCli } from "../orca-worktrees.mjs";
@@ -148,13 +148,18 @@ await Promise.all(prs.filter(p => p.report).map(async p => { p.reportDecisions =
 
 // board is null when every board was kept; boardActivity is set only when the board was chosen
 // by currentVersionBoard.
-// The cards whose PRs the developer reviewed lately, from every board (reviewed.mjs). The ones
-// with a followUp are back with the developer: backForReview. null when GitHub or YouTrack would
-// not give them, so the page keeps no stale list and the rest of the gather still counts.
+// The cards whose PRs the developer reviewed lately, from every board (reviewed.mjs), and of
+// those, the cards in Ready For Code Review that need the developer, judged from all of each card's
+// PRs: backForReview. null when GitHub or YouTrack would not give them, so the page keeps no stale
+// list and the rest of the gather still counts.
 let reviewed = null;
 try { reviewed = await reviewedCards(yt, dev.github, dev.youtrack.login); }
 catch (e) { console.warn("could not list reviewed cards: " + e.message); }
-const backForReview = reviewed && reviewed.filter(r => r.followUp);
+let backForReview = null;
+if (reviewed) {
+  try { backForReview = cardsBackForReview(reviewed, dev.github); }
+  catch (e) { console.warn("could not judge the reviewed cards' PRs: " + e.message); }
+}
 // What the developer did on their most recent working days, from every board (standup.mjs);
 // null in the same way.
 let standup = null;

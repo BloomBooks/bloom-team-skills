@@ -226,7 +226,7 @@ button.refresh:focus-visible { outline: 2px solid var(--accent); outline-offset:
 /* Reviewed cards back in Ready For Code Review: orange when the author has answered since your
    last comment; amber when the card is probably in the wrong State (the author hasn't answered,
    so it belongs in Has Comments, or the PR is merged, so it belongs in Ready For Testing). */
-ul.lines li.fu-responded { box-shadow: inset 3px 0 0 var(--you); background: var(--you-bg); }
+ul.lines li.fu-responded, ul.lines li.fu-new { box-shadow: inset 3px 0 0 var(--you); background: var(--you-bg); }
 ul.lines li.fu-forgot, ul.lines li.fu-merged { box-shadow: inset 3px 0 0 var(--you); background: var(--you-bg); }
 /* A History line's icon for Finished, Worked on or Reviewed, which names itself on hover. */
 ul.lines .kind { flex: none; display: inline-flex; color: var(--muted); cursor: default; }
@@ -237,6 +237,6 @@ ul.lines .kind-finished { color: var(--accent); }
 .before-standup { opacity: 0.55; }
 .day ul.lines.tasks + ul.lines { margin-top: 8px; }
 ul.lines .fu { font-size: 12px; font-weight: 600; flex: none; white-space: nowrap; }
-ul.lines li.fu-responded .fu { color: var(--you); }
+ul.lines li.fu-responded .fu, ul.lines li.fu-new .fu { color: var(--you); }
 ul.lines li.fu-forgot .fu, ul.lines li.fu-merged .fu { color: var(--you); }
 @media (max-width: 640px) { ul.lines li { flex-wrap: wrap; } ul.lines .title { flex-basis: 100%; white-space: normal; } }

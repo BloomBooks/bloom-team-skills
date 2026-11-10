@@ -102,10 +102,15 @@ the page it served.
 
 ## Back with you for review, and History
 
-Above the groups, the other people's PRs that the developer reviewed whose cards are in Ready For
-Code Review and need them again: **Author responded** (orange), **Move to Has Comments?** (amber, the
-author has not responded) or **Move to Ready For Testing?** (amber, the PR is merged). A PR closed
-without merging needs nothing more. `reviewed.mjs` works these out (`followUp`).
+Above the groups, the cards in Ready For Code Review whose PRs (other people's) the developer
+reviewed, when they need the developer again. Each card is judged from all its PRs, not just the
+ones the developer commented on, since a card often has a stack merged weeks ago and then a new PR
+for a bug found in testing. The card waits for its open PR (drafts aside): **Author responded**
+(orange, the author answered since the developer's last comment on it), **New PR to review**
+(orange, no comment from the developer yet, and no review asked of someone else instead) or
+**Move to Has Comments?** (amber, the author has not responded). With no open PR, **Move to Ready
+For Testing?** (amber) only when the developer merged the card's last PR; someone else's merge is
+theirs to follow through. `reviewed.mjs` works these out (`backForReview`, `cardFollowUps`).
 
 Below the groups, History shows today and the two weekdays before it, plus a weekend day with any
 activity, each day's lines marked **Finished** (a PR marked ready or opened ready, or merged),
