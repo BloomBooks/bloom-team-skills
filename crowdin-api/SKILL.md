@@ -19,6 +19,19 @@ strings in JSON or Android XML, but the sync behaviour they describe — Crowdin
 from GitHub, and a string that vanishes from the source takes its translations with it — is the
 same everywhere.
 
+## Reading needs no token of your own
+
+The team's tool server holds a read-only Crowdin token, so any read can go through the
+`bloom-services` skill, signed in by your GitHub login:
+
+```
+node <bloom-services>/tools.mjs crowdin "/projects/261564/files?limit=200"
+node <bloom-services>/tools.mjs crowdin "/projects/261564/languages/fr/progress"
+```
+
+The path is anything under `https://api.crowdin.com/api/v2`. Only writes need the bot's token,
+below.
+
 ## Never write to Crowdin as a person
 
 Every write must go in as **SILCrowdinBot**, never a developer's account. BloomDesktop's

@@ -1,5 +1,5 @@
 // The commands that read and write the team's web services: YouTrack, Sentry, Slack, Zulip,
-// Notion, Cloudflare, Mixpanel, Contentful, Bloom Library's books and Parse server, the community
+// Notion, Cloudflare, Crowdin, Mixpanel, Contentful, Bloom Library's books and Parse server, the community
 // forum, TeamCity and the status pages. tools.mjs beside this file runs them for a developer's Claude; the Bloom bot's
 // bot-tools.mjs (in the private BloomBooks/bloom-bot repo) runs the same ones for the bot. Each
 // command takes its arguments and the text of its @<file> body, and returns the text to print.
@@ -49,6 +49,8 @@
 //   teamcity <api path>                                  a GET on TeamCity's REST API, as a guest
 //   cloudflare <api path>                                a GET on Cloudflare's API (/zones, ...)
 //   cloudflare-status                                    what https://www.cloudflarestatus.com/ reports now
+//   crowdin <api path>                                   a GET on Crowdin's API v2 (/projects/261564/...),
+//                                                        with a read-only token
 //   mixpanel-projects                                    the Mixpanel projects the service account can read
 //   mixpanel <project id> <api path>                     a GET on Mixpanel's Query API for one project
 //   parse <api path>                                     a GET on Bloom Library's Parse server with its
@@ -66,9 +68,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-// Where the tool server runs: the Worker on Cloudflare (bloom-bot's docs/cloudflare-tools/PLAN.md),
-// so that developers need to set nothing. BLOOM_BOT_WORKER_URL, when set, points elsewhere, such as
-// a copy run on the bot's machine with `wrangler dev`.
+// Where the tool server runs: the Worker on Cloudflare (bloom-bot's worker/README.md), so that
+// developers need to set nothing. BLOOM_BOT_WORKER_URL, when set, points elsewhere, such as a copy
+// run with `wrangler dev` while changing it.
 const DEFAULT_WORKER_URL = "https://bloom-bot-tools.sil-language-technology.workers.dev";
 
 const YOUTRACK = "https://issues.bloomlibrary.org/youtrack";
@@ -737,6 +739,9 @@ export const sourceCommands = {
     },
     async cloudflare(args) {
         return json(await serviceJson("cloudflare", apiPath(args[0])));
+    },
+    async crowdin(args) {
+        return json(await serviceJson("crowdin", apiPath(args[0])));
     },
     async "cloudflare-status"() {
         const summary = await statusSummary("https://www.cloudflarestatus.com/api/v2/summary.json");

@@ -1,6 +1,6 @@
 ---
 name: bloom-services
-description: Reach the Bloom team's services with no token of your own, through the team's tool server, signed in by your GitHub login. Use to read YouTrack cards (and comment or change them as the Bot), Sentry issues, Slack channel history, Notion (the roadmap, the docs site's pages, the manual test cases in Test Case Runs), Cloudflare, Mixpanel, Bloom Library's Contentful content and Parse server, the community forum, TeamCity builds or a Bloom Library book; and before changing Azure, Supabase or Sentry settings with your own account.
+description: Reach the Bloom team's services with no token of your own, through the team's tool server, signed in by your GitHub login. Use to read YouTrack cards (and comment or change them as the Bot), Sentry issues, Slack channel history, Notion (the roadmap, the docs site's pages, the manual test cases in Test Case Runs), Cloudflare, Crowdin (reading), Mixpanel, Bloom Library's Contentful content and Parse server, the community forum, TeamCity builds or a Bloom Library book; and before changing Azure, Supabase or Sentry settings with your own account.
 ---
 
 # The team's services
@@ -54,6 +54,8 @@ you ask for, so the rules below are yours to keep.
   bot from your own session, and never open Slack's Socket Mode connection (`slack-connect`): a
   second connection takes some of the bot's messages away from it.
 - **Contentful** changes are made in Contentful's own web app; `contentful-management` only reads.
+- **Crowdin** reads go through here (`crowdin /projects/261564/...`); the token is read-only. A write
+  goes in as SILCrowdinBot, never as you: the `crowdin-api` skill.
 
 ## When a command fails
 
