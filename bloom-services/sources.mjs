@@ -38,10 +38,10 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-// Where the tool server runs. It has no address on Cloudflare yet: until it does, the bot runs it
-// on its own machine and BLOOM_BOT_WORKER_URL names it. Set this to the Worker's address once it is
-// deployed (bloom-bot's docs/cloudflare-tools/PLAN.md), so that developers need to set nothing.
-const DEFAULT_WORKER_URL = undefined;
+// Where the tool server runs: the Worker on Cloudflare (bloom-bot's docs/cloudflare-tools/PLAN.md),
+// so that developers need to set nothing. BLOOM_BOT_WORKER_URL, when set, points elsewhere, such as
+// a copy run on the bot's machine with `wrangler dev`.
+const DEFAULT_WORKER_URL = "https://bloom-bot-tools.sil-language-technology.workers.dev";
 
 const YOUTRACK = "https://issues.bloomlibrary.org/youtrack";
 const SLACK_MAX_MESSAGES = 1000;
