@@ -22,6 +22,9 @@ import { pathToFileURL } from "node:url";
 
 const exec = promisify(execFile);
 async function out(cmd, args) {
+  // On Windows the `reviewable` CLI is a .cmd shim (Volta and npm install it that way), which
+  // execFile cannot start without a shell, so cmd.exe runs it.
+  if (process.platform === "win32" && cmd === "reviewable") [cmd, args] = ["cmd.exe", ["/d", "/c", cmd, ...args]];
   const { stdout } = await exec(cmd, args, { encoding: "utf8", maxBuffer: 64 << 20, windowsHide: true, timeout: 120000 });
   return stdout;
 }
@@ -103,7 +106,9 @@ export async function ownReview(prUrl, githubLogin) {
         if (now && (sha === gh.head || (await blobAt(owner, repo, sha, path)) === now)) reviewed.add(path);
       });
       reviewableOk = true;
-    } catch {}
+    } catch (e) {
+      console.error("own-review: could not read Reviewable's marks:", e.message);
+    }
   } else reviewableOk = true;
 
   const left = gh.files.map(f => f.path).filter(p => !reviewed.has(p));

@@ -2,11 +2,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
-## 2026-11-10 — own-review.mjs can never read Reviewable on Windows
-- **Cut:** `dashboard/own-review.mjs` runs the `reviewable` CLI with Node's `execFile` and no shell. Volta installs it on Windows as `reviewable.cmd`, which `execFile` cannot start (`ENOENT`), and the script swallows the error, so it always reports `"reviewable": false` and every file as unreviewed. `request-peer-review` then asks the developer whether they reviewed files they had in fact all marked in Reviewable, and the dashboard (`server.mjs`) and worktree panel (`worktree-facts.mjs`), which import `ownReview`, count Reviewable-reviewed files as still to do. The other tools these scripts start (`git`, `gh`, `powershell.exe`) are real `.exe`s, so only `reviewable` is affected.
-- **Idea:** on win32 run it through `cmd.exe /d /s /c reviewable ...` (or `shell: true` with quoted args), and report the error instead of swallowing it.
-- **Context:** BloomDesktop PR #8558 (BL-16179); all 11 files were marked reviewed at HEAD when read through the shell.
-
 ## 2026-11-09 — dev-process-artifacts.md's contents-API snippet reads the wrong arguments
 
 - **Cut:** The "Republishing one file" snippet builds the request body with `node -e '...const [,,html,msg,sha]=process.argv...' <file> <msg> <sha>`. Under `node -e` the first argument is `process.argv[1]`, not `[2]`, so it opens the commit message as the HTML file and dies with ENOENT. The snippet also has a `#` comment inside the JavaScript, which is a syntax error there. A script file using `process.argv.slice(2)` worked.
