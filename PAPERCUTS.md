@@ -410,3 +410,13 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   usual reservations, or have the test script check the excluded ranges first. Meanwhile, a
   temporary config that copies the browser project with `api: { port: 63360 }` runs them.
 - **Context:** BL-17020 undo, the whole-suite run before adding commits to PR 8484.
+
+## 2026-11-10 — The reviewable CLI hangs from an agent's Bash call unless stdin is closed
+
+- **Cut:** `reviewable review discussions list --pr=...` ran past the 120 s tool timeout with no
+  output. The CLI reads stdin, and the agent's Bash call leaves stdin open, so it waits for input
+  forever. `... </dev/null` returned in a few seconds. The `reviewable-replies` skill shows the
+  read-only commands without a redirect.
+- **Idea:** In `reviewable-replies`, add `</dev/null` to every command that takes no body (state,
+  list, view, publish), and say why.
+- **Context:** BL-16859, replying to review comments on PR 8557.
