@@ -947,6 +947,7 @@ async function synchronize() {
         const r = await fetch("/api/pull", { method: "POST" });
         const pulled = await r.json();
         if (!r.ok) throw new Error(pulled.error);
+        allTags = null;
         await load();
         if (Object.values(decisions).some((d) => d.tags?.add.length) && !(await loadTags())) throw new Error(`could not read YouTrack's tags, so the tags to add have no ids: ${tagError}`);
         pendingPlan = buildPlan();

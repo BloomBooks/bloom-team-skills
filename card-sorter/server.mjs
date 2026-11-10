@@ -223,7 +223,7 @@ http.createServer((req, res) => {
         return res.end(JSON.stringify(buildData()));
     }
     if (url.pathname === "/api/tags") {
-        // Read once per server run; a tag made in YouTrack later shows after a restart.
+        // Read again after each Synchronize, so a tag made or shared in YouTrack shows then.
         return respond(res, async () => (tagList ??= await visibleTags()));
     }
     if (url.pathname === "/api/decisions" && req.method === "POST") {
@@ -237,6 +237,7 @@ http.createServer((req, res) => {
         return respond(res, async () => {
             const config = buildData().config;
             lastOwnWrite = Date.now();
+            tagList = null;
             const result = await pull(dataDir, config);
             pruneDecisions();
             return result;
