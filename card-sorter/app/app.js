@@ -7,7 +7,9 @@ const boardEl = $("#board");
 const detailEl = $("#detail");
 
 let data = null;            // { config, cards, decisions, extractedAt }
-let decisions = {};         // id -> { column?, note?, at }
+let decisions = {};         // id -> { column?, note?, tags?: { add: [name], remove: [name] }, at }
+let allTags = null;         // every tag the Bot can see, [{ id, name, background, foreground }], from /api/tags
+let tagError = null;        // why the tag list could not be read
 let columns = [];           // config.columns
 let byId = new Map();
 let colCards = [];          // per column: cards in display order
@@ -42,7 +44,7 @@ function scoreOf(a) {
 
 /** The column a card is in on the tracker now. */
 function originalColumn(c) {
-    const fits = (col) => col.board === c.board && (col.state == null || col.state === c.state);
+    const fits = (col) => (col.anyBoard || col.board === c.board) && (col.state == null || col.state === c.state);
     let i = columns.findIndex((col) => col.asFound && fits(col));
     if (i < 0) i = columns.findIndex(fits);
     return i < 0 ? 0 : i;
@@ -83,6 +85,7 @@ const groupings = {
     reportedBy: { label: "Reported by", key: (c) => c.analysis?.reportedBy ?? "?" },
     roadmap: { label: "Roadmap feature", key: (c) => c.analysis?.roadmap ?? "Not on the roadmap" },
     assignee: { label: "Assignee", key: (c) => c.assignee ?? "Unassigned" },
+    board: { label: "Board", key: (c) => c.board ?? "No board" },
     origin: { label: "Where it started", key: (c) => columns[c.originalCol].label },
 };
 const sorts = {
@@ -97,7 +100,7 @@ const sorts = {
 function matchesSearch(c, q) {
     if (!q) return true;
     const a = c.analysis ?? {};
-    return [c.id, c.title, c.description, a.plain, a.area, a.evidence, a.status, a.roadmap, c.assignee, ...c.tags]
+    return [c.id, c.title, c.description, a.plain, a.area, a.evidence, a.status, a.roadmap, c.assignee, ...c.tags.map((t) => t.name)]
         .some((s) => s && String(s).toLowerCase().includes(q));
 }
 
@@ -237,13 +240,14 @@ function renderDetail() {
         ${selection.size > 1 ? `<div class="multi"><b>${selection.size} cards selected.</b> Press 1–${columns.length} to move them all, Enter to move each to its proposal, Esc to clear.</div>` : ""}
         <div class="d-head">
             <a href="${data.config.trackerUrl}${c.id}" target="_blank">${c.id} ↗</a>
-            <span class="state">${esc(c.type)} · ${age} days old${c.assignee ? ` · ${esc(c.assignee)}` : ""}</span>
+            <span class="state">${esc(c.board ?? "No board")} / ${esc(c.state)} · ${esc(c.type)} · ${age} days old${c.assignee ? ` · ${esc(c.assignee)}` : ""}</span>
         </div>
         <div class="d-title">${esc(c.title)}</div>
         <p class="d-plain">${esc(a?.plain ?? "Not analyzed yet.")}</p>
         <div class="d-where">Now in <b>${esc(columns[here].label)}</b>${here !== c.originalCol ? ` (started in ${esc(columns[c.originalCol].label)})` : ""}</div>
         ${a ? `<div class="proposal-why">Proposed: <b>${esc(proposalLabel(c))}</b>. ${esc(a.proposalWhy)}</div>` : ""}
         <textarea class="note" placeholder="Note (n)">${esc(dec.note ?? "")}</textarea>
+        ${tagsHtml(c)}
 
         ${a?.status ? `<div class="status">${esc(a.status)}</div>` : ""}
         ${a ? `<dl class="facts">
@@ -256,7 +260,6 @@ function renderDetail() {
             ${a.roadmap ? `<dt>Roadmap</dt><dd>${esc(a.roadmap)}</dd>` : ""}
             <dt>Area</dt><dd>${esc(a.area)} · ${esc(a.kind)}</dd>
         </dl>` : ""}
-        ${c.tags.length ? `<div class="chips">${c.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join("")}</div>` : ""}
 
         ${work.length ? `<h3>Existing work</h3><div class="work"><ul>${work.map((w) => w.kind === "pr"
             ? `<li><a href="${w.url}" target="_blank">${esc(w.repo)} #${w.number}</a> ${esc(w.state)}: ${esc(w.title)}</li>`
@@ -268,6 +271,91 @@ function renderDetail() {
         <button class="more" data-act="expand">${descExpanded ? "Show less" : "Show all"} (d)</button>
         ${c.comments.length ? `<h3>Comments (${c.comments.length})</h3>${descExpanded ? c.comments.map((m) => `<div class="comment"><div class="who">${esc(m.author)} · ${new Date(m.created).toLocaleDateString()}</div>${md(m.text, c.id)}</div>`).join("") : `<div class="why" style="font-size:13px">Press d to show them.</div>`}` : ""}
     </div>`;
+}
+
+// ---------- tags ----------
+
+/** The card's tags as they will be after pushing, each marked "add" or "remove" while that change waits for the push. */
+function tagRows(c) {
+    const t = decisions[c.id]?.tags ?? { add: [], remove: [] };
+    const rows = c.tags.map((tag) => ({ tag, pending: t.remove.includes(tag.name) ? "remove" : null }));
+    for (const name of t.add) rows.push({ tag: allTags?.find((x) => x.name === name) ?? { name }, pending: "add" });
+    return rows;
+}
+
+function tagsHtml(c) {
+    const rows = tagRows(c);
+    const shown = new Set(rows.map((r) => r.tag.name));
+    const chip = ({ tag, pending }) => {
+        const colors = tag.background ? ` style="background:${esc(tag.background)};color:${esc(tag.foreground ?? "inherit")}"` : "";
+        const title = pending === "add" ? "Will be added when you push. Click × to drop it."
+            : pending === "remove" ? "Will be removed when you push. Click ↺ to keep it."
+            : "Click × to remove it when you push.";
+        return `<span class="chip tag${pending ? ` ${pending}` : ""}"${colors} title="${title}">${esc(tag.name)}<button class="tag-x" data-tag="${esc(tag.name)}" aria-label="${pending === "remove" ? "Keep" : "Remove"} ${esc(tag.name)}">${pending === "remove" ? "↺" : "×"}</button></span>`;
+    };
+    return `<div class="tags">
+        ${rows.map(chip).join("")}
+        <span class="tag-add"><input class="tag-input" list="tag-names" placeholder="Add a tag (t)" autocomplete="off"><button class="tag-btn" data-act="add-tag">Add</button></span>
+        <datalist id="tag-names">${(allTags ?? []).filter((t) => !shown.has(t.name)).map((t) => `<option value="${esc(t.name)}"></option>`).join("")}</datalist>
+        <div class="tag-msg">${esc(tagError ? `Could not read YouTrack's tags: ${tagError}` : "")}</div>
+    </div>`;
+}
+
+/** Reads the tag list once; the details redraw when it arrives. */
+async function loadTags() {
+    if (allTags) return allTags;
+    try {
+        const r = await fetch("/api/tags");
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error);
+        allTags = j;
+        tagError = null;
+    } catch (e) {
+        tagError = e.message;
+    }
+    return allTags;
+}
+
+/** Changes the card's waiting tag changes with `fn(t)`, then saves and redraws. */
+function changeTags(c, fn) {
+    const d = (decisions[c.id] ??= {});
+    const t = d.tags ?? { add: [], remove: [] };
+    fn(t);
+    if (t.add.length || t.remove.length) d.tags = t;
+    else delete d.tags;
+    d.at = new Date().toISOString();
+    if (isEmptyDecision(d)) delete decisions[c.id];
+    save();
+    renderBoard();
+    renderDetail();
+}
+
+/** The × or ↺ on a chip: drops a waiting add, undoes a waiting remove, or removes a tag the card has. */
+function toggleTag(c, name) {
+    changeTags(c, (t) => {
+        if (t.add.includes(name)) t.add = t.add.filter((n) => n !== name);
+        else if (t.remove.includes(name)) t.remove = t.remove.filter((n) => n !== name);
+        else t.remove.push(name);
+    });
+}
+
+/** Adds the tag typed in the box, or says why it can't. */
+function addTypedTag(c) {
+    const input = detailEl.querySelector(".tag-input");
+    const typed = input.value.trim();
+    if (!typed) return;
+    const say = (msg) => (detailEl.querySelector(".tag-msg").textContent = msg);
+    if (!allTags) return say(tagError ? `Could not read YouTrack's tags: ${tagError}` : "Still reading YouTrack's tags; try again in a moment.");
+    const tag = allTags.find((t) => t.name.toLowerCase() === typed.toLowerCase());
+    if (!tag) return say(`YouTrack has no tag named "${typed}".`);
+    const pending = decisions[c.id]?.tags;
+    const onCard = c.tags.some((t) => t.name === tag.name);
+    if ((onCard && !pending?.remove.includes(tag.name)) || pending?.add.includes(tag.name)) return say(`${c.id} already has "${tag.name}".`);
+    changeTags(c, (t) => {
+        if (onCard) t.remove = t.remove.filter((n) => n !== tag.name);
+        else t.add.push(tag.name);
+    });
+    detailEl.querySelector(".tag-input")?.focus();
 }
 
 function renderProgress() {
@@ -341,8 +429,13 @@ function place(c, colIndex) {
     if (colIndex === c.originalCol) delete d.column;
     else d.column = columns[colIndex].key;
     d.at = new Date().toISOString();
-    if (d.column == null && !d.note) delete decisions[c.id];
+    if (isEmptyDecision(d)) delete decisions[c.id];
     return { id: c.id, before };
+}
+
+/** True when a decision records nothing, so it can be dropped. */
+function isEmptyDecision(d) {
+    return d.column == null && !d.note && !d.tags;
 }
 
 /** The cards an action applies to: the selection, or the card under the cursor. */
@@ -493,6 +586,7 @@ const keyHelp = [
     ["u", "undo the last move"],
     ["] / [", "next / previous group"],
     ["n", "write a note (Esc to leave it)"],
+    ["t", "add a tag (Enter adds it; the tags change in YouTrack when you push)"],
     ["d", "show the whole description and the comments"],
     ["o", "open the card in YouTrack"],
     ["g / G", "next / previous grouping"],
@@ -580,6 +674,7 @@ document.addEventListener("keydown", (e) => {
             case "Enter": return moveCards(targets(), proposedColumn), true;
             case "u": return undo(), true;
             case "n": setTimeout(() => detailEl.querySelector(".note")?.focus(), 0); return true;
+            case "t": setTimeout(() => detailEl.querySelector(".tag-input")?.focus(), 0); return true;
             case "d": descExpanded = !descExpanded; renderDetail(); return true;
             case "o": if (cursorId) window.open(data.config.trackerUrl + cursorId, "_blank"); return true;
             case "g": case "G": prefs.group = cycle(groupings, prefs.group, e.key === "g" ? 1 : -1); savePrefs(); syncControls(); render(); return true;
@@ -707,8 +802,22 @@ detailEl.addEventListener("input", (e) => {
     const d = (decisions[cursorId] ??= {});
     d.note = e.target.value;
     if (!d.note) delete d.note;
-    if (d.column == null && !d.note) delete decisions[cursorId];
+    if (isEmptyDecision(d)) delete decisions[cursorId];
     save();
+});
+detailEl.addEventListener("click", (e) => {
+    const c = byId.get(cursorId);
+    if (!c) return;
+    const x = e.target.closest(".tag-x");
+    if (x) return toggleTag(c, x.dataset.tag);
+    if (e.target.closest("[data-act=add-tag]")) addTypedTag(c);
+});
+detailEl.addEventListener("keydown", (e) => {
+    if (e.target.matches(".tag-input") && e.key === "Enter") {
+        e.preventDefault();
+        const c = byId.get(cursorId);
+        if (c) addTypedTag(c);
+    }
 });
 $("#group").addEventListener("change", (e) => { prefs.group = e.target.value; savePrefs(); render(); boardEl.focus(); });
 $("#sort").addEventListener("change", (e) => { prefs.sort = e.target.value; savePrefs(); render(); boardEl.focus(); });
@@ -780,7 +889,9 @@ let pendingPlan = null;
  * Works out what pushing would change. Each card goes to its column's board and state (a column
  * with no state keeps the card's state); as-found and come-back-later cards stay where they are.
  * Order: within each YouTrack column, cards chosen for it come first, then the ones still as
- * found, then the ones to come back to, each in the order the sorter shows them.
+ * found, then the ones to come back to, each in the order the sorter shows them. Cards with no
+ * board, and cards still as found in an anyBoard column, get no order: no single YouTrack column
+ * matches them.
  */
 function buildPlan() {
     const moves = [];
@@ -802,15 +913,24 @@ function buildPlan() {
             if (!col.asFound && !col.later) {
                 board = col.board;
                 state = col.state ?? c.state;
-                if (board !== c.board || state !== c.state) moves.push({ id: c.id, title: c.title, from: `${c.board} / ${c.state}`, board, state: col.state ?? null });
+                if (board !== c.board || state !== c.state) moves.push({ id: c.id, title: c.title, from: `${c.board ?? "No board"} / ${c.state}`, board, state: col.state ?? null });
                 if (columns.some((x) => x.asFound && x.board === col.board && x.state === col.state)) keep.push(c.id);
             }
+            if (board == null || col.anyBoard) continue;
             const key = `${board}|${state}`;
             if (!orders.has(key)) orders.set(key, { board, state, ids: [] });
             orders.get(key).ids.push(c.id);
         }
     }
-    return { moves, closes, keep, orders: [...orders.values()] };
+    const tags = [];
+    for (const [id, d] of Object.entries(decisions)) {
+        const c = byId.get(id);
+        if (!c || !d.tags) continue;
+        const add = d.tags.add.map((n) => allTags?.find((t) => t.name === n)).filter((t) => t && !c.tags.some((x) => x.id === t.id));
+        const remove = d.tags.remove.map((n) => c.tags.find((t) => t.name === n)).filter(Boolean);
+        if (add.length || remove.length) tags.push({ id, title: c.title, add: add.map(({ id, name }) => ({ id, name })), remove: remove.map(({ id, name }) => ({ id, name })) });
+    }
+    return { moves, closes, keep, orders: [...orders.values()], tags };
 }
 
 function showSync(html) {
@@ -828,6 +948,7 @@ async function synchronize() {
         const pulled = await r.json();
         if (!r.ok) throw new Error(pulled.error);
         await load();
+        if (Object.values(decisions).some((d) => d.tags?.add.length) && !(await loadTags())) throw new Error(`could not read YouTrack's tags, so the tags to add have no ids: ${tagError}`);
         pendingPlan = buildPlan();
         renderPlan(pulled, pendingPlan);
     } catch (e) {
@@ -841,7 +962,7 @@ async function synchronize() {
 function renderPlan(pulled, plan) {
     const pulledLine = `Pulled ${pulled.total} cards.` +
         (pulled.added.length ? ` New: ${pulled.added.join(", ")} (in their as-found columns).` : " No new cards.") +
-        (pulled.dropped.length ? ` Gone from Open/Ready For Work, so dropped: ${pulled.dropped.join(", ")}.` : "");
+        (pulled.dropped.length ? ` No longer in the boards and states this sorter pulls, so dropped: ${pulled.dropped.join(", ")}.` : "");
     const byTarget = new Map();
     for (const m of plan.moves) {
         const k = `${m.board} / ${m.state ?? "(keeps its state)"}`;
@@ -855,6 +976,8 @@ function renderPlan(pulled, plan) {
         ${plan.moves.length ? [...byTarget].map(([k, ms]) => `<p><b>→ ${esc(k)}</b></p><ul>${ms.map((m) => `<li>${m.id} ${esc(m.title)} <span class="why">(from ${esc(m.from)})</span></li>`).join("")}</ul>`).join("") : "<p>None.</p>"}
         <h3>Close ${plan.closes.length} card${plan.closes.length === 1 ? "" : "s"}, each with a comment</h3>
         ${plan.closes.length ? `<ul>${plan.closes.map((c) => `<li>${c.id} ${esc(c.title)}<div class="comment-text">${esc(c.comment)}</div></li>`).join("")}</ul>` : "<p>None.</p>"}
+        <h3>Change the tags on ${plan.tags.length} card${plan.tags.length === 1 ? "" : "s"}</h3>
+        ${plan.tags.length ? `<ul>${plan.tags.map((t) => `<li>${t.id} ${esc(t.title)}: ${[...t.add.map((x) => `add "${esc(x.name)}"`), ...t.remove.map((x) => `remove "${esc(x.name)}"`)].join(", ")}</li>`).join("")}</ul>` : "<p>None.</p>"}
         <h3>Order</h3>
         <p>Set the order of ${orderCount} cards in ${plan.orders.length} YouTrack column${plan.orders.length === 1 ? "" : "s"} to match the sorter (cards chosen for a column first, then the ones still as found). Columns already in that order are left alone.</p>
         <ul>${plan.orders.map((o) => `<li>${esc(o.board)} / ${esc(o.state)}: ${o.ids.length}</li>`).join("")}</ul>
@@ -993,7 +1116,7 @@ async function load() {
     applyDetailWidth();
     $("#help").innerHTML = `<div class="box"><table>${keyHelp.map(([k, v]) => `<tr><td><kbd>${esc(k)}</kbd></td><td>${esc(v)}</td></tr>`).join("")}</table>
         <p>Score = benefit (reach × severity, +6 for a roadmap feature, +2 for a partner request) × (1 − 0.12 per risk step above 1) ÷ (1 + lines/800), scaled to 100.</p></div>`;
-    $("#keys").innerHTML = [["j k h l", "move"], ["⇧j ⇧k", "select range"], ["Space", "select"], [`1–${columns.length}`, "move to column"], ["Ctrl ← →", "move a column over"], ["Enter", "to proposal"], ["u", "undo"], ["n", "note"], ["d", "details"], ["g", "group"], ["/", "search"], ["?", "all keys"]]
+    $("#keys").innerHTML = [["j k h l", "move"], ["⇧j ⇧k", "select range"], ["Space", "select"], [`1–${columns.length}`, "move to column"], ["Ctrl ← →", "move a column over"], ["Enter", "to proposal"], ["u", "undo"], ["n", "note"], ["t", "tag"], ["d", "details"], ["g", "group"], ["/", "search"], ["?", "all keys"]]
         .map(([k, v]) => `<span><kbd>${esc(k)}</kbd> ${esc(v)}</span>`).join("");
     if (!cursorId || !byId.has(cursorId)) cursorId = prefs.lastCursor && byId.has(prefs.lastCursor) ? prefs.lastCursor : null;
     // ?card=BL-123 opens on that card with its description expanded (handy for screenshots).
@@ -1006,6 +1129,7 @@ async function load() {
     if (!cursorId) cursorId = colCards.find((l) => l.length)?.[0]?.id ?? null;
     render();
     boardEl.focus();
+    if (!allTags) loadTags().then(() => renderDetail());
 }
 
 window.addEventListener("beforeunload", () => {

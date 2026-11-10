@@ -26,8 +26,11 @@ confirms the list of changes.
 1. **Make the data folder** outside every repo, e.g. `<worktree>/output/split-<release>/`, with
    `raw/youtrack.json` holding `{"cards": []}`.
 2. **Write `config.json`** in it when the columns differ from the defaults in `server.mjs`
-   (`defaultConfig`: the 6.6 and 6.7 boards, Issues We'll Live With, Close / done, Come back
-   later). Each column names a Kanban Board value and a State.
+   (`defaultConfig`: every BL card in Incoming, the 6.6 and 6.7 boards, Issues We'll Live With,
+   Close / done, Come back later). Each column names a Kanban Board value and a State. A column
+   with `anyBoard: true` names only a State and holds every card of `pull.project` in that state,
+   on any board or none; keep it whenever you write your own columns, so the developer sees what
+   is still waiting in Incoming.
 3. **Start the server** in the background: `node <this folder>/server.mjs <dataDir>`, and give the
    developer the URL. Press Synchronize, or ask the developer to, to pull the cards in.
 4. **Add the context** the analysis reads, in `raw/`: `prs-<repo>.json` from
@@ -41,7 +44,8 @@ confirms the list of changes.
 ## While the developer sorts
 
 The page reloads itself when the app's files or the data change, so edits show at once.
-Decisions are saved in `decisions.json` as the developer makes them. YouTrack changes only when
+Decisions are saved in `decisions.json` as the developer makes them, and so are tag changes made in
+the card's details (the chips' ×, or the "Add a tag" box). YouTrack changes only when
 the developer presses "Push to YouTrack" after reading the list of changes. A card that has left
 the board's states in YouTrack drops out at the next Synchronize.
 

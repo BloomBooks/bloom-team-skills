@@ -32,7 +32,7 @@ async function yt(method, p, body) {
 
 const cardFields = [
     "id", "idReadable", "summary", "description", "created", "updated", "resolved", "votes",
-    "reporter(login,fullName)", "tags(name)",
+    "reporter(login,fullName)", "tags(id,name,color(background,foreground))",
     "customFields(name,value(name,login,fullName,presentation,minutes))",
     "links(direction,linkType(name,sourceToTarget,targetToSource),issues(idReadable,summary,resolved))",
     "attachments(name,mimeType,size,url)",
@@ -43,24 +43,40 @@ function fieldValue(card, name) {
     return card.customFields.find((f) => f.name === name)?.value?.name ?? null;
 }
 
-/**
- * Re-extracts the cards. In scope: unresolved cards in one of `states` on a board that a column
- * names. A card on one of `sourceBoards` comes in even if it is new; a card on another board stays
- * only if the sorter already had it. Returns what changed.
- */
-export async function pull(dataDir, config) {
-    const rawFile = path.join(dataDir, "raw", "youtrack.json");
-    const before = fs.existsSync(rawFile) ? JSON.parse(fs.readFileSync(rawFile, "utf8")).cards : [];
-    const known = new Set(before.map((c) => c.idReadable));
-    const boards = [...new Set(config.columns.map((c) => c.board).filter(Boolean))];
-    const query = `#Unresolved State: ${config.pull.states.map((s) => `{${s}}`).join(", ")} Kanban Board: ${boards.map((b) => `{${b}}`).join(", ")}`;
+/** Every card a YouTrack query finds, with the fields the sorter shows. */
+async function findAll(query) {
     const all = [];
     for (let skip = 0; ; skip += 100) {
         const page = await yt("GET", `/issues?query=${encodeURIComponent(query)}&fields=${cardFields}&$top=100&$skip=${skip}`);
         all.push(...page);
         if (page.length < 100) break;
     }
-    const cards = all.filter((c) => config.pull.sourceBoards.includes(fieldValue(c, "Kanban Board")) || known.has(c.idReadable));
+    return all;
+}
+
+/**
+ * Re-extracts the cards. In scope: unresolved cards in one of `states` on a board that a column
+ * names. A card on one of `sourceBoards` comes in even if it is new; a card on another board stays
+ * only if the sorter already had it. Also in scope, new or not: unresolved cards of `pull.project`
+ * in the state of an `anyBoard` column, on any board or none. Returns what changed.
+ */
+export async function pull(dataDir, config) {
+    const rawFile = path.join(dataDir, "raw", "youtrack.json");
+    const before = fs.existsSync(rawFile) ? JSON.parse(fs.readFileSync(rawFile, "utf8")).cards : [];
+    const known = new Set(before.map((c) => c.idReadable));
+    const boards = [...new Set(config.columns.map((c) => c.board).filter(Boolean))];
+    const queries = [`#Unresolved State: ${config.pull.states.map((s) => `{${s}}`).join(", ")} Kanban Board: ${boards.map((b) => `{${b}}`).join(", ")}`];
+    const anyBoardStates = config.columns.filter((c) => c.anyBoard).map((c) => c.state);
+    if (anyBoardStates.length) {
+        // Without a project, the state alone would bring in every project's cards (thousands of BH cards sit in Incoming).
+        if (!config.pull.project) throw new Error("an anyBoard column needs pull.project in config.json");
+        queries.push(`#Unresolved project: {${config.pull.project}} State: ${anyBoardStates.map((s) => `{${s}}`).join(", ")}`);
+    }
+    const [onBoards, anyBoard = []] = await Promise.all(queries.map(findAll));
+    const cards = onBoards.filter((c) => config.pull.sourceBoards.includes(fieldValue(c, "Kanban Board")) || known.has(c.idReadable));
+    const inBoards = new Set(cards.map((c) => c.idReadable));
+    cards.push(...anyBoard.filter((c) => !inBoards.has(c.idReadable)));
+    const query = queries.join("  +  ");
     const now = new Set(cards.map((c) => c.idReadable));
     fs.writeFileSync(rawFile + ".tmp", JSON.stringify({ extractedAt: new Date().toISOString(), query, cards }, null, 1));
     fs.renameSync(rawFile + ".tmp", rawFile);
@@ -69,6 +85,26 @@ export async function pull(dataDir, config) {
         added: cards.filter((c) => !known.has(c.idReadable)).map((c) => c.idReadable),
         dropped: before.filter((c) => !now.has(c.idReadable)).map((c) => c.idReadable),
     };
+}
+
+/**
+ * Every tag the Bot can see, by name: [{ id, name, background, foreground }]. A tag also says who
+ * may put it on a card, which the Bot cannot read for its own groups, so a tag listed here can
+ * still be refused when pushed.
+ */
+export async function visibleTags() {
+    const all = [];
+    for (let skip = 0; ; skip += 500) {
+        const page = await yt("GET", `/tags?fields=id,name,color(background,foreground)&$top=500&$skip=${skip}`);
+        all.push(...page);
+        if (page.length < 500) break;
+    }
+    return all.map(tagOf).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** A tag as the page draws it, in YouTrack's own colours. */
+export function tagOf(t) {
+    return { id: t.id, name: t.name, background: t.color?.background ?? null, foreground: t.color?.foreground ?? null };
 }
 
 /** The agile board's sprint id for a Kanban Board value (the board's sprints are its versions). */
@@ -84,10 +120,39 @@ async function sprintIdFor(config, boardName) {
  *   moves:  [{ id, board, state }]   set Kanban Board and State
  *   closes: [{ id, comment }]        resolve the card, adding the comment
  *   orders: [{ board, state, ids }]  make `ids` the top of that column, in that order
- * Returns one line per thing done or failed. A failure is reported and the rest carries on.
+ *   tags:   [{ id, add: [{ id, name }], remove: [{ id, name }] }]  put tags on the card or take them off
+ * Returns one line per thing done or failed. A failure is reported and the rest carries on. A
+ * card's tag line has `tagsDone` only when all of its tag changes went through.
  */
 export async function push(config, plan) {
     const log = [];
+    for (const t of plan.tags ?? []) {
+        const failed = [];
+        for (const tag of t.add) {
+            try {
+                await yt("POST", `/issues/${t.id}/tags?fields=id`, { id: tag.id });
+            } catch (e) {
+                failed.push(`add "${tag.name}": ${e.message}`);
+            }
+        }
+        for (const tag of t.remove) {
+            try {
+                await yt("DELETE", `/issues/${t.id}/tags/${tag.id}`);
+            } catch (e) {
+                failed.push(`remove "${tag.name}": ${e.message}`);
+            }
+        }
+        try {
+            const now = new Set(((await yt("GET", `/issues/${t.id}?fields=tags(id)`)).tags ?? []).map((x) => x.id));
+            for (const tag of t.add) if (!now.has(tag.id) && !failed.some((f) => f.startsWith(`add "${tag.name}"`))) failed.push(`"${tag.name}" is not on the card afterwards`);
+            for (const tag of t.remove) if (now.has(tag.id) && !failed.some((f) => f.startsWith(`remove "${tag.name}"`))) failed.push(`"${tag.name}" is still on the card`);
+        } catch (e) {
+            failed.push(`reading the tags back: ${e.message}`);
+        }
+        const what = [...t.add.map((x) => `+${x.name}`), ...t.remove.map((x) => `−${x.name}`)].join(", ");
+        if (failed.length) log.push({ ok: false, text: `${t.id}: tags ${what}: ${failed.join("; ")}` });
+        else log.push({ ok: true, id: t.id, tagsDone: true, text: `${t.id} tags: ${what}` });
+    }
     for (const m of plan.moves) {
         try {
             const customFields = [{ name: "Kanban Board", $type: "SingleVersionIssueCustomField", value: { name: m.board } }];
