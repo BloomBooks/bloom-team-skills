@@ -433,29 +433,31 @@ no CI.
 ## Progress for the dashboard
 
 The developer's dashboard shows which phase of a run is happening, read from a file that
-`dashboard/progress.mjs` in the bloom-team-skills clone writes. Record each change as it happens,
-with one command run from the worktree, and go on at once: it is quick and never fails the run.
+`dashboard/progress.mjs` in the bloom-team-skills clone writes. Each phase below opens with a
+**Progress** line naming its commands; `progress <args>` there means this, run from the worktree:
 
 ```
-node "$HOME/.claude/skills/dashboard/progress.mjs" <step> <state> [short note]
+node "$HOME/.claude/skills/dashboard/progress.mjs" <args>
 ```
 
-- `start` first thing in Phase 0 (it forgets the last run), and `end` after the final summary,
-  also when the run stops early.
-- `<step>`: `discover` (Phase 0), `local` (Phase 1), `merge` (Phase 2), `publish` (Phase 3), the
-  four parts of Phase 4 — `devin`, `ci`, `bots` (fixing and answering review comments) and `tests`
-  (step 4's related tests and repo checks) — and `report` (Phase 5).
-- `<state>`: `running` when the step starts, then `done`, `failed` (it needs the developer) or
-  `skipped`. Every step ends in one of those three before `end`, including a step that this run
-  had nothing to do for (`skipped`, with the reason as its note: `merge skipped "already up to
-  date"`), so that the dashboard never shows a step as not yet started on a finished run. The Phase 4 parts overlap, so several can be `running` at once, and a fix-push cycle
-  sets `devin`, `ci` and `tests` back to `running`.
+Run each one as the change happens and go on at once: it is quick and never fails the run.
+
+- `progress start` forgets the last run; `progress end` closes this one. A run that stops early
+  still runs `progress end` before its last message: a run left without an end shows on the
+  dashboard as preflight still going.
+- `progress <step> <state> [short note]`: `<state>` is `running` when the step starts, then
+  `done`, `failed` (it needs the developer) or `skipped`. Every step ends in one of those three
+  before `end`, including a step that this run had nothing to do for (`skipped`, with the reason
+  as its note), so that the dashboard never shows a step as not yet started on a finished run.
 - The note is a few words that a glance at the dashboard needs: `bots running "round 2 of 4"`,
   `tests failed "2 C# tests fail"`, `ci running "3 of 5 checks"`.
 
 When the script is not there (`$HOME/.claude/skills/dashboard` missing), skip these commands.
 
 ## Phase 0 — Discover
+
+**Progress:** `progress start` and `progress discover running` first, before anything else;
+`progress discover done` when the phase ends.
 
 - Identify branch, base (default `master`/`main` — confirm via remote HEAD), and `owner/repo`
 from `git remote get-url origin`.
@@ -481,6 +483,9 @@ work/review board). If found, invoke it to mark this worktree as actively being 
 use it for all later board moves. If none, skip board steps silently.
 
 ## Phase 1 — Local quality gate (loop until clean)
+
+**Progress:** `progress local running` now; `progress local done` (or `failed`) when the gate is
+clean or capped.
 
 **The fast gate — run at every level, and before every push:** repeat until **typecheck**,
 then **lint**, then **fast tests** (only changed/related tests, non-watch) all pass. Fix
@@ -530,6 +535,9 @@ Cap the loop at **4 cycles** to avoid churn; note in the report if capped.
 
 ## Phase 2 — Integrate the base (before publishing)
 
+**Progress:** `progress merge running` now; when the merge settles, `progress merge done`, or
+`progress merge skipped "already up to date"`, or `progress merge failed "semantic conflict"`.
+
 Fold `origin/<base>` in **before the push**, so the PR's first pushed state is already the
 integrated, mergeable one — never a snapshot that gets superseded a moment later — and so the
 gate has run against the code as it will actually merge. Base may break the branch with **no git
@@ -553,6 +561,9 @@ commit trailer, identifying which model you are. Let the hooks run.
   worthwhile for review — and leave the base integration to the user.
 
 ## Phase 3 — Publish (push, draft PR, link)
+
+**Progress:** `progress publish running` now; `progress publish done` once the PR is open and
+linked.
 
 Everything is already committed in Phase 2; this phase only pushes and opens the PR.
 
@@ -628,6 +639,12 @@ posted here means that step finds it already present and does nothing.)
 
 The gauntlet runs every reviewer (see "The reviewers") to a terminal state. The local review
 already ran in Phase 1; its captured outcome joins the results here.
+
+**Progress:** this phase has four parts, which overlap: `devin`, `ci`, `bots` (fixing and
+answering review comments) and `tests` (step 4's related tests and repo checks). Run
+`progress <part> running` as each starts (`devin` and `ci` at step 1, `bots` at step 2's first
+comment, `tests` at step 4) and its `done`, `failed` or `skipped` as each reaches its terminal
+state in step 5. Every push in step 3 sets `devin`, `ci` and `tests` back to `running`.
 
 1. **Trigger Devin** for the current HEAD via the `devin-review` skill (on BloomDesktop the
  push already triggered it via CI; elsewhere the skill loads the review URL — either way it
@@ -740,6 +757,9 @@ already ran in Phase 1; its captured outcome joins the results here.
  reviewer terminal and the related tests green, proceed to Phase 5.
 
 ## Phase 5 — Converge, land, report
+
+**Progress:** `progress report running` on entering; `progress report done` once the report is
+published, then `progress end` just before the final summary.
 
 Enter when: fast gate clean, **the related tests green at HEAD** (apart from failures
 waiting on a decision to change an existing test), every reviewer terminal

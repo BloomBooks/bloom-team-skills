@@ -204,10 +204,14 @@ function processCell(d) {
 }
 // A preflight run that progress.mjs is recording in the row's worktree: not ended, and either an
 // agent works there or the run wrote within the last 45 minutes (a run whose agent died stops
-// showing then).
+// showing then). An agent started on request-peer-review or merge-without-peer-review counts only
+// when the run wrote after that agent began working: those skills can hand the work back to
+// preflight, but a run that a stopped preflight left without an end is older than the agent.
 function activeRun(d) {
   const p = d.progress;
   if (!p || p.endedAt || !p.steps) return false;
+  if (d.who === "agent" && d.skill && d.skill !== "preflight" && SKILL_STATUS[d.skill]
+    && new Date(p.updatedAt).getTime() < (d.since || 0)) return false;
   return d.who === "agent" || Date.now() - new Date(p.updatedAt) < 45 * 60000;
 }
 // The phases of a preflight run, top to bottom; the parts of the automated reviews and tests run

@@ -31,6 +31,9 @@ try {
   try { run = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
   if (step === "start") run = { worktree: key, startedAt: now, steps: {} };
   else if (step === "end") {
+    // A run that already ended keeps its end time and commit, so request-peer-review and
+    // merge-without-peer-review can close a run that preflight left open without moving either.
+    if (run.endedAt || !run.startedAt) process.exit(0);
     run.endedAt = now;
     // The commit the run ended on. A different HEAD later means the code has moved on since.
     try { run.head = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(); } catch {}
