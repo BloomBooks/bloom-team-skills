@@ -53,7 +53,9 @@ you ask for, so the rules below are yours to keep.
 - **Slack posts** (`slack-post`, `slack-upload`, `slack-delete`) are for the bot. Don't post as the
   bot from your own session, and never open Slack's Socket Mode connection (`slack-connect`): a
   second connection takes some of the bot's messages away from it.
-- **Contentful** changes are made in Contentful's own web app; `contentful-management` only reads.
+- **Contentful** changes are made in Contentful's own web app. The tool server holds no management
+  token, so `contentful-management` and `contentful-model` fail; `contentful` and
+  `contentful-preview` read through Contentful's public APIs.
 - **Crowdin** reads go through here (`crowdin /projects/261564/...`); the token is read-only. A write
   goes in as SILCrowdinBot, never as you: the `crowdin-api` skill.
 
