@@ -98,27 +98,51 @@ function statusPill(d) {
 // developer's own review of the PR (files not yet marked Viewed in GitHub or reviewed in
 // Reviewable); Request Peer Review, which squashes and checks the PR, with Merge without Peer
 // Review beside it when the card has the "Approved Plan" tag; then the peer review itself.
-// A step is finished when what comes after it has started: Code once there is a PR or the session
-// names a next skill; Preflight once the session names request-peer-review, the PR is neither
-// conflicting nor failing CI, and the code has not changed since the last preflight run ended
-// (`codeChanged`: a new commit, or uncommitted changes to tracked files); the review once every
-// file is reviewed. The first unfinished step is
-// the only enabled button. An agent started on a step's skill shows on that step; any other agent
-// shows on Code. A question or decision for the developer shows above the steps and disables them.
-function processCell(d) {
+const STEP = { code: 0, preflight: 1, review: 2, request: 3, peer: 4 };
+/**
+ * The Process column as data, which processCell draws. A step is finished when what comes after
+ * it has started: Code once there is a PR or the session names a next skill; Preflight once the
+ * session names request-peer-review, the PR is neither conflicting nor failing CI, and the code has
+ * not changed since the last preflight run ended (`codeChanged`); the review once every file is
+ * reviewed. The first unfinished step is `now`, the only one offered; when the review cannot be
+ * read, the review and Request Peer Review are offered together. An agent started on a step's skill
+ * shows on that step (`running`); any other agent shows on Code. A question or decision for the
+ * developer (`blocked`) and a working agent disable every step.
+ *
+ * Returns { blocked, working, broken, now, running, reviewUnknown, left, enabled, since, oldReport,
+ * states }, where `states` holds each step's "done", "now", "running", "later" or, for a peer
+ * review that came back with comments, "comments".
+ */
+function processModel(d) {
   const blocked = d.who === "asking" || d.who === "you";
   const working = d.who === "agent";
   const broken = d.prMergeable === "CONFLICTING" || d.prChecks === "FAILURE";
   const r = d.ownReview;
   const left = r ? r.files - r.reviewed : null;
-  const codeDone = !!(d.pr || d.nextSkill);
   const preflightDone = d.nextSkill === "request-peer-review" && !broken && !d.codeChanged;
-  const reviewDone = preflightDone && left === 0;
-  const done = [codeDone, preflightDone, reviewDone, false, false];
-  let now = done.indexOf(false);
-  // When the review cannot be read, the review and Request Peer Review are both offered.
+  const done = [!!(d.pr || d.nextSkill), preflightDone, preflightDone && left === 0, false, false];
+  const now = done.indexOf(false);
   const reviewUnknown = preflightDone && !r;
-
+  // Preflight runs on its step; the two review-request skills on Request Peer Review.
+  const skill = Object.keys(SKILL_STATUS).indexOf(d.skill);
+  const running = !working ? -1 : skill === 0 ? STEP.preflight : skill > 0 ? STEP.request : STEP.code;
+  const offered = i => i === now || (i === STEP.request && reviewUnknown);
+  const states = done.map((isDone, i) => i === running ? "running" : isDone ? "done" : offered(i) ? "now" : "later");
+  if (d.ytState === "Has Comments") states[STEP.peer] = "comments";
+  return {
+    blocked, working, broken, now, running, reviewUnknown, left, states,
+    enabled: !blocked && !working,
+    // How long the agent has worked: a preflight run's own start, when progress.mjs recorded one,
+    // beats when the server first saw the agent working.
+    since: (d.runShowing && Date.parse(d.progress?.startedAt)) || d.since || 0,
+    // While Preflight is the next step, the report is from an earlier run that no longer covers the
+    // code. A report with decisions waiting is the current one: preflight stopped on them.
+    oldReport: now === STEP.preflight && !(d.reportDecisions > 0),
+  };
+}
+function processCell(d) {
+  const m = processModel(d);
+  const r = d.ownReview;
   const skillButton = (s, enabled) => {
     const b = d.worktree ? action("orca skill", "Run /" + s + " in this worktree's Claude session", SKILL_BUTTON[s],
       async () => { if (await post("/api/run-skill", { path: d.worktree, skill: s })) { launched.set(normPath(d.worktree), { skill: s, at: Date.now() }); lastJson = ""; refresh(); } }, "skill:" + d.worktree) : el("button", { type: "button", class: "orca skill", title: "This card has no worktree yet" }, SKILL_BUTTON[s]);
@@ -127,92 +151,66 @@ function processCell(d) {
   };
   const label = text => el("span", { class: "lbl" }, text);
   // The running step: its name, how long the agent has worked, and what it is doing now.
-  // A preflight run's own start time, when progress.mjs recorded one, beats the server's.
-  const since = (activeRun(d) && new Date(d.progress.startedAt).getTime()) || d.since;
   const runningLabel = text => el("span", { class: "lbl" }, text,
-    since ? el("span", { class: "elapsed", "data-since": String(since) }, elapsedText(since)) : null,
+    m.since ? el("span", { class: "elapsed", "data-since": String(m.since) }, elapsedText(m.since)) : null,
     d.tool ? el("small", { title: d.tool }, d.tool) : null);
-  const running = SKILL_STATUS[d.skill] ? Object.keys(SKILL_STATUS).indexOf(d.skill) : -1;
-  // The step an agent is working on: preflight is step 1; the two review-request skills step 3.
-  const agentStep = !working ? -1 : running === 0 ? 1 : running > 0 ? 3 : 0;
 
   const steps = [];
-  // 0. Code
+  // Code
   {
     let body;
-    if (agentStep === 0) body = runningLabel("Agent working");
-    else if (now === 0) {
+    if (m.running === STEP.code) body = runningLabel("Agent working");
+    else if (m.now === STEP.code) {
       body = rowLink(d, d.worktree ? "Code" : "Start coding") || label("Code");
-      if (body.tagName === "BUTTON") { restyle(body, "orca skill"); body.disabled = blocked || working; }
+      if (body.tagName === "BUTTON") { restyle(body, "orca skill"); body.disabled = !m.enabled; }
     } else body = label("Code");
     steps.push(body);
   }
-  // 1. Preflight
   // Preflight, with a "report" link to its right when there is a report, in the developer's colour
   // when the report lists decisions waiting on them.
   {
     const n = d.reportDecisions;
     let body;
-    if (agentStep === 1) body = runningLabel("Preflighting");
+    if (m.running === STEP.preflight) body = runningLabel("Preflighting");
     else {
-      body = now === 1 ? skillButton("preflight", !blocked && !working) : label(broken && d.pr ? "Preflight (conflict or CI failing)" : "Preflight");
+      body = m.now === STEP.preflight ? skillButton("preflight", m.enabled) : label(m.broken && d.pr ? "Preflight (conflict or CI failing)" : "Preflight");
       if (d.report) {
-        // While Preflight is the next step, the report is from an earlier run that no longer
-        // covers the code: "old report". A report with decisions waiting is the current one:
-        // preflight stopped on them.
-        const old = now === 1 && !(n > 0);
-        const a = link(d.report, (old ? "old report" : "report") + (n > 0 && !old ? ` (${n} decision${n > 1 ? "s" : ""})` : ""));
-        a.className = "report" + (n > 0 && !old ? " you" : "");
-        a.title = old ? "Open the report of an earlier preflight, from before the latest changes" : "Open the preflight report";
+        const a = link(d.report, (m.oldReport ? "old report" : "report") + (n > 0 && !m.oldReport ? ` (${n} decision${n > 1 ? "s" : ""})` : ""));
+        a.className = "report" + (n > 0 && !m.oldReport ? " you" : "");
+        a.title = m.oldReport ? "Open the report of an earlier preflight, from before the latest changes" : "Open the preflight report";
         body = el("span", { class: "alts" }, body, a);
       }
     }
     steps.push(body);
   }
-  // 2. Your review
+  // Your review
   {
-    const text = r ? (left ? `Your review (${left} of ${r.files} files left)` : "Your review") : "Your review";
+    const text = r && m.left ? `Your review (${m.left} of ${r.files} files left)` : "Your review";
     let body = label(text);
-    if (now === 2 && d.pr) {
+    if (m.now === STEP.review && d.pr) {
       body = link(reviewableUrl(d.pr) || d.pr.replace(/\/$/, "") + "/files", text);
       body.className = "btn work";
       if (r) body.title = "Not yet marked Viewed in GitHub or reviewed in Reviewable:\n" + r.left.join("\n");
-      if (blocked || working) { body.removeAttribute("href"); body.style.opacity = "0.45"; }
+      if (!m.enabled) { body.removeAttribute("href"); body.style.opacity = "0.45"; }
     }
     steps.push(body);
   }
-  // 3. Request Peer Review (squash and checks), or merge
+  // Request Peer Review (squash and checks), or merge
   {
-    const enabled = (now === 3 || reviewUnknown) && !blocked && !working;
-    if (agentStep === 3) steps.push(runningLabel(SKILL_STATUS[d.skill]));
-    else if (now === 3 || reviewUnknown) steps.push(el("span", { class: "alts" }, skillButton("request-peer-review", enabled), d.approvedPlan ? skillButton("merge-without-peer-review", enabled) : null));
+    const offered = m.now === STEP.request || m.reviewUnknown;
+    if (m.running === STEP.request) steps.push(runningLabel(SKILL_STATUS[d.skill]));
+    else if (offered) steps.push(el("span", { class: "alts" }, skillButton("request-peer-review", m.enabled), d.approvedPlan ? skillButton("merge-without-peer-review", m.enabled) : null));
     else steps.push(label(d.approvedPlan ? "Request Peer Review, or Merge" : "Request Peer Review"));
   }
-  // 4. Peer review, done by a teammate; orange when it came back with comments.
+  // Peer review, done by a teammate; orange when it came back with comments.
   steps.push(label(d.ytState === "Has Comments" ? "Peer review: comments back" : "Peer review"));
 
   const ol = el("ol", { class: "steps" });
-  steps.forEach((body, i) => {
-    let cls = i === agentStep ? "running" : done[i] ? "done" : i === now || (i === 3 && reviewUnknown) ? "now" : "later";
-    if (i === 4 && d.ytState === "Has Comments") cls = "comments";
-    const icon = { done: "check", now: "dot", running: "spin", later: "empty", comments: "bubble" }[cls];
-    ol.append(withIcon(el("li", { class: cls }, body), icon));
-  });
-  const badge = blocked ? statusPill(d) : null;
+  const icon = { done: "check", now: "dot", running: "spin", later: "empty", comments: "bubble" };
+  steps.forEach((body, i) => ol.append(withIcon(el("li", { class: m.states[i] }, body), icon[m.states[i]])));
+  const badge = m.blocked ? statusPill(d) : null;
   if (badge) badge.classList.add("process-badge");
   return el("div", {}, badge ? el("div", {}, badge) : null, ol);
-}
-// A preflight run that progress.mjs is recording in the row's worktree: not ended, and either an
-// agent works there or the run wrote within the last 45 minutes (a run whose agent died stops
-// showing then). An agent started on request-peer-review or merge-without-peer-review counts only
-// when the run wrote after that agent began working: those skills can hand the work back to
-// preflight, but a run that a stopped preflight left without an end is older than the agent.
-function activeRun(d) {
-  const p = d.progress;
-  if (!p || p.endedAt || !p.steps) return false;
-  if (d.who === "agent" && d.skill && d.skill !== "preflight" && SKILL_STATUS[d.skill]
-    && new Date(p.updatedAt).getTime() < (d.since || 0)) return false;
-  return d.who === "agent" || Date.now() - new Date(p.updatedAt) < 45 * 60000;
 }
 // The phases of a preflight run, top to bottom; the parts of the automated reviews and tests run
 // at the same time. Preflight also records `ci`, which is left out: on BloomDesktop the PR's
@@ -333,25 +331,22 @@ function prLinks(url, tone) {
 }
 
 // Orca's live agent states override the Status that Claude last wrote: a waiting agent means
-// Claude has a question in its terminal, a working one means an agent has the card.
-// A skill button that was just clicked counts as that skill running for up to a minute, until
-// Orca reports the agent working, so the step spins at once.
+// Claude has a question in its terminal, a working one means an agent has the card. `agents` maps
+// a worktree path, as normPath gives it, to what row-facts.mjs's liveAgents made of its agents,
+// which has already worked out the skill (preflight whenever its run shows) and whether the
+// preflight run shows. A skill button that was just clicked counts as that skill running for up
+// to a minute, until Orca reports the agent working, so the step spins at once (`launched`).
 const launched = new Map();
-const normPath = p => (p || "").replace(/\\/g, "/").toLowerCase();
-function withLiveAgents(rows, agents) {
+// The same form as norm() in orca-worktrees.mjs, which the server keys `agents` by.
+const normPath = p => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+function withLiveAgents(rows, agents, now = Date.now()) {
   return rows.map(d => {
     const key = normPath(d.worktree);
     const a = d.worktree && agents[key];
     const l = launched.get(key);
-    if (l && (Date.now() - l.at > 60000 || a?.working || a?.waiting)) launched.delete(key);
+    if (l && (now - l.at > 60000 || a?.working || a?.waiting)) launched.delete(key);
     if (a?.waiting) return { ...d, who: "asking", question: a.question || "" };
-    if (a?.working) {
-      const r = { ...d, who: "agent", skill: a.skill || "", since: a.since || 0, tool: a.tool || "" };
-      // An agent can run preflight without having been started on /preflight (asked in words, or
-      // handed on by another skill); a preflight run that progress.mjs is recording says it is.
-      if (activeRun(r)) r.skill = "preflight";
-      return r;
-    }
+    if (a?.working) return { ...d, who: "agent", skill: a.skill || "", since: a.since || 0, tool: a.tool || "", runShowing: !!a.runShowing };
     if (launched.has(key)) return { ...d, who: "agent", skill: l.skill, since: l.at, tool: "Starting…" };
     return d;
   });

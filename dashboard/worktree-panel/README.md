@@ -31,7 +31,9 @@ The panel shares its code with the dashboard rather than copying it:
 | --- | --- |
 | `../row.js` | draws a row, and applies Orca's live agents to it (`withLiveAgents`) |
 | `../dashboard.css` | the styles; `panel.html` adds only the sidebar layout |
-| `../row-facts.mjs` | the rules for agents, CI checks, preflight runs, the rows and what the server adds to a row |
+| `../row-facts.mjs` | the rules for agents, CI checks, preflight runs, the rows and what the server adds to a row; `panelRow`, the panel's own row when the session wrote none or its PR has been replaced |
+| `../transcripts.mjs` | which lines of a Claude Code transcript are the developer's prompts (History counts them too) |
+| `../../orca-worktrees.mjs` | the buttons: open the session, run a skill, type a prompt, open the folder in VS Code |
 
 `worktree-facts.mjs` (run by `worker.ts`) finds the worktree's row by its path, as the server does,
 and reads the card and the PR live from YouTrack and GitHub where the server reads `facts.json`.
@@ -53,6 +55,7 @@ orca plugin shot local.bloom-worktree --panel worktree --out shot.png
 ```
 
 The worker reads the user environment variables and PATH folders that Orca's worker process lacks
-(`REVIEWABLE_URL`, `YOUTRACK_BOT`, `~/.vite-plus/bin`) from the registry when it starts. It runs
+(`REVIEWABLE_URL`, `YOUTRACK_BOT`, `~/.vite-plus/bin`) from the registry when it starts
+(`worker-env.mjs`, which `worker.ts` imports first). It runs
 the `orca` CLI that `ORCA_CLI_COMMAND` names when Orca sets it, so a development build of Orca
 answers its own plugins, and otherwise the `orca` on PATH.

@@ -5,18 +5,19 @@
 // the transcript of the Claude session that runs there.
 //
 // Plain JavaScript, so that `node worktree-facts.mjs <worktree path>` prints the panel's state
-// without loading the plugin into Orca.
-import { exec, execFile, execFileSync } from "node:child_process";
+// without loading the plugin into Orca. Under Orca, worker.ts imports worker-env.mjs first, which
+// gives the worker the environment that gh, reviewable and orca need.
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
-import { CARD, agentState, checkoutState, checksState, codeChangedSincePreflight, enrichRows, liveAgents, readJson, readProgress, readRows, reportDecisions, reportOf, rowOfWorktree, skillOf } from "../row-facts.mjs";
+import { agentState, cardOf, checkoutState, checksState, enrichRows, liveAgents, norm, panelRow, questionOf, readJson, readProgress, readRows, reportDecisions, reportOf, rowOfWorktree, skillOf } from "../row-facts.mjs";
+import { oneLine, promptText, typedPrompt } from "../transcripts.mjs";
 import { ownReview } from "../own-review.mjs";
-import { orca, typePrompt } from "../../orca-worktrees.mjs";
+import { orca, openWorktree, openInVsCode as openFolder, runSkill as runSkillIn, sendPrompt as sendPromptTo } from "../../orca-worktrees.mjs";
 
-const execP = promisify(exec);
 const execFileP = promisify(execFile);
 const home = os.homedir();
 const YT = "https://issues.bloomlibrary.org/youtrack/api";
@@ -24,57 +25,17 @@ const YT = "https://issues.bloomlibrary.org/youtrack/api";
 const SLOW_MS = 60_000;
 const OWN_REVIEW_MS = 120_000;
 const PROMPTS_SHOWN = 3;
-export const SKILLS = ["preflight", "request-peer-review", "merge-without-peer-review"];
 
-const norm = p => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-
-// Orca starts its plugin workers from its install folder with ELECTRON_RUN_AS_NODE set and without
-// the user's folders in the environment. There a command named `orca` finds Orca.exe in the
-// current folder before the orca CLI on PATH and runs it as Node, and gh cannot find its login
-// under APPDATA. Every command here runs from the home folder with this environment.
-// own-review.mjs runs gh and reviewable with this process's environment, so the fix goes on
-// process.env itself.
-const env = process.env;
-delete env.ELECTRON_RUN_AS_NODE;
-delete env.NoDefaultCurrentDirectoryInExePath;
-env.USERPROFILE ||= home;
-env.APPDATA ||= path.join(home, "AppData", "Roaming");
-env.LOCALAPPDATA ||= path.join(home, "AppData", "Local");
-// Nor does it have the variables saved in the user's environment that the tools need
-// (REVIEWABLE_URL and the token for reviewable, YOUTRACK_BOT), or every folder of the user's PATH
-// (reviewable lives in ~/.vite-plus/bin). Those are read from the registry: each user variable the
-// worker lacks is added, and the user's and the machine's PATH folders join its PATH.
-if (process.platform === "win32") {
-  try {
-    const saved = JSON.parse(execFileSync("powershell.exe", ["-NoProfile", "-Command",
-      "@{ user = [Environment]::GetEnvironmentVariables('User'); machinePath = [Environment]::GetEnvironmentVariable('Path','Machine') } | ConvertTo-Json -Depth 3"],
-      { encoding: "utf8", windowsHide: true, timeout: 15_000 }));
-    const has = name => Object.keys(env).some(k => k.toLowerCase() === name.toLowerCase());
-    for (const [name, value] of Object.entries(saved.user || {})) if (name.toLowerCase() !== "path" && !has(name)) env[name] = String(value);
-    const userPath = Object.entries(saved.user || {}).find(([k]) => k.toLowerCase() === "path")?.[1] || "";
-    const key = Object.keys(env).find(k => k.toLowerCase() === "path") || "Path";
-    const have = new Set((env[key] || "").split(";").map(p => p.toLowerCase()));
-    const more = `${userPath};${saved.machinePath || ""}`.split(";").map(p => p.replace(/%([^%]+)%/g, (m, v) => env[v] ?? m)).filter(p => p && !have.has(p.toLowerCase()));
-    if (more.length) env[key] = [env[key], ...more].filter(Boolean).join(";");
-  } catch {}
-}
-const opts = { cwd: home, env, windowsHide: true, maxBuffer: 64 << 20, encoding: "utf8" };
-
+// Every command runs from the home folder: Orca starts its plugin workers in its own install
+// folder, where a command named `orca` would find Orca.exe.
 async function run(cmd, args, more = {}) {
   try {
-    return (await execFileP(cmd, args, { ...opts, timeout: 30_000, ...more })).stdout.trim();
+    return (await execFileP(cmd, args, { cwd: home, windowsHide: true, maxBuffer: 64 << 20, encoding: "utf8", timeout: 30_000, ...more })).stdout.trim();
   } catch {
     return null;
   }
 }
 const git = (wt, ...args) => run("git", ["-C", wt, ...args]);
-
-// For a command that runs through a shell (VS Code's `code` is a .cmd file): no argument may
-// contain a quote or a % sign.
-function quote(a) {
-  if (/["%\r\n]/.test(a)) throw new Error("refusing an argument with a quote, % or newline: " + a);
-  return /^[\w.:\/@-]+$/.test(a) ? a : `"${a}"`;
-}
 
 // ---- the worktree and its sessions -----------------------------------------------------------
 
@@ -107,22 +68,19 @@ async function findWorktree({ displayName, branch, terminalIds = [], path: wt })
 function sessionsOf(w) {
   const agents = (w.agents || []).filter(a => !a.parentPaneKey);
   const ids = agents.every(a => a.providerSession?.id) ? new Map() : claudeSessionIds();
-  return agents.map(a => {
-    const state = agentState(a);
-    return {
-      paneKey: a.paneKey,
-      sessionId: a.providerSession?.id ?? ids.get(a.paneKey) ?? null,
-      transcriptPath: a.providerSession?.transcriptPath ?? null,
-      agent: a.agentType || "agent",
-      title: a.conversationName || a.displayName || a.taskTitle || "",
-      state,
-      question: state === "waiting" && a.programStatus?.kind === "question" ? String(a.programStatus.message || "").replace(/^answer:\s*/, "") : "",
-      skill: skillOf(a),
-      prompt: oneLine(promptText(a.prompt || "")),
-      updatedAt: a.updatedAt || 0,
-      lastMessage: String(a.lastAssistantMessage || "").slice(0, 600),
-    };
-  });
+  return agents.map(a => ({
+    paneKey: a.paneKey,
+    sessionId: a.providerSession?.id ?? ids.get(a.paneKey) ?? null,
+    transcriptPath: a.providerSession?.transcriptPath ?? null,
+    agent: a.agentType || "agent",
+    title: a.conversationName || a.displayName || a.taskTitle || "",
+    state: agentState(a),
+    question: questionOf(a),
+    skill: skillOf(a),
+    prompt: oneLine(promptText(a.prompt || "")),
+    updatedAt: a.updatedAt || 0,
+    lastMessage: String(a.lastAssistantMessage || "").slice(0, 600),
+  }));
 }
 
 // The pane the worktree has selected, the one the developer sees in it, as `tabId:leafId`. Orca
@@ -180,7 +138,7 @@ async function prFacts(wt) {
 
 let botToken = null;
 async function youtrackToken() {
-  botToken ??= env.YOUTRACK_BOT || (await run("powershell.exe", ["-NoProfile", "-Command", "[Environment]::GetEnvironmentVariable('YOUTRACK_BOT','User')"])) || "";
+  botToken ??= process.env.YOUTRACK_BOT || (await run("powershell.exe", ["-NoProfile", "-Command", "[Environment]::GetEnvironmentVariable('YOUTRACK_BOT','User')"])) || "";
   return botToken;
 }
 async function cardFacts(id) {
@@ -201,7 +159,7 @@ async function cardFacts(id) {
   }
 }
 
-const slow = new Map();     // worktree -> { at, card, pr }
+const slow = new Map();     // worktree -> { at, cardId, card, pr }
 async function slowFacts(wt, cardId) {
   let s = slow.get(wt);
   if (!s || s.cardId !== cardId || Date.now() - s.at > SLOW_MS) {
@@ -228,35 +186,6 @@ function ownReviewOf(prUrl) {
 }
 
 // ---- the session's transcript ----------------------------------------------------------------
-
-const oneLine = text => text.replace(/\s+/g, " ").trim();
-
-// A prompt as the developer typed it: a slash command that Claude Code expanded into
-// <command-name>/x</command-name>…<command-args>y</command-args> reads "/x y", and one that Git
-// Bash rewrote into "C:/Program Files/Git/x" reads "/x".
-export function promptText(text) {
-  const name = /<command-name>\/?([\w:.-]+)<\/command-name>/.exec(text)?.[1];
-  if (name) return `/${name} ${/<command-args>([\s\S]*?)<\/command-args>/.exec(text)?.[1] ?? ""}`.trim();
-  return text.replace(/^[A-Za-z]:\/Program Files\/Git\/([\w-]+)/, "/$1");
-}
-
-// The text of a prompt the developer typed, from a transcript line, or null. Claude Code marks
-// those with origin "human": a user message (its text, without any pasted images), or a
-// `queued_command` attachment for a message sent while Claude was working. Transcripts older than
-// that mark have no origin; there, a user message with text and none of the messages the harness
-// itself adds.
-function typedPrompt(j) {
-  if (j.isSidechain) return null;
-  const q = j.type === "attachment" && j.attachment?.type === "queued_command" ? j.attachment : null;
-  if (q) return q.origin?.kind === "human" && q.commandMode === "prompt" && typeof q.prompt === "string" ? q.prompt : null;
-  if (j.type !== "user" || j.isMeta) return null;
-  const c = j.message?.content;
-  const text = typeof c === "string" ? c
-    : Array.isArray(c) && !c.some(x => x.type === "tool_result") ? c.filter(x => x.type === "text").map(x => x.text).join("\n") : null;
-  if (!text) return null;
-  if (j.origin) return j.origin.kind === "human" ? text : null;
-  return /^(<task-notification|<local-command|<system-reminder|Caveat:|This session is being continued|\[Request interrupted)/.test(text.trim()) ? null : text;
-}
 
 // Each transcript's title and last prompts, kept until the file changes.
 const transcripts = new Map();
@@ -300,7 +229,7 @@ function projectFolder(wt) {
 // session's transcript, <id>.jsonl.
 function claudeSessionIds() {
   try {
-    const j = readJson(path.join(env.APPDATA, "orca", "agent-hooks", "last-status.json"));
+    const j = readJson(path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "orca", "agent-hooks", "last-status.json"));
     return new Map(Object.values(j.entries || {}).filter(e => e.agentPresence?.agent === "claude" && e.agentPresence.session)
       .map(e => [e.paneKey, e.agentPresence.session]));
   } catch {
@@ -344,35 +273,21 @@ export async function worktreeState({ displayName, branch, paneKey, terminalIds,
   if (!w) return { found: false, reason: `Orca lists no worktree named ${displayName || branch}.` };
   const wt = w.path;
   const b = stripRef(w.branch);
-  const branchCard = ((b.match(CARD) || wt.match(CARD) || [])[0] || "").toUpperCase() || null;
+  const branchCard = cardOf(b, wt);
   const row = rowOfWorktree(readRows(), wt, branchCard);
-  const cardId = (CARD.test(row?.card || "") ? row.card.toUpperCase() : null) ?? branchCard;
+  const cardId = cardOf(row?.card) ?? branchCard;
   const runs = readProgress();
   const run = runs.get(norm(wt));
   const [gitState, checkout, { card, pr }] = await Promise.all([gitFacts(wt), checkoutState(wt), slowFacts(wt, cardId)]);
 
-  // With no row from the dashboard session, the panel makes one from the card and the PR. A
-  // preflight run that has ended with no change to the code since then means preflight is done.
-  const preflightDone = !!(pr && run?.endedAt && checkout && !codeChangedSincePreflight(run, checkout));
-  const d = row ? { ...row } : {
-    card: cardId,
-    cardUrl: card?.url ?? null,
-    title: card?.summary || w.displayName || b,
-    who: "idle",
-    nextSkill: pr ? (preflightDone ? "request-peer-review" : "preflight") : null,
-    pr: pr?.url ?? null,
-    report: pr?.report ?? null,
-    reportDecisions: pr?.reportDecisions ?? null,
-    worktree: wt,
-  };
+  const d = panelRow({ row, cardId, card, pr, run, checkout, worktree: wt, title: w.displayName || b });
   // The card's State and the PR are read live here, where the server reads them from facts.json.
   if (card?.state) d.ytState = card.state;
-  d.worktree = wt;
   const openPr = pr && pr.state === "OPEN" ? [{ url: pr.url, isDraft: pr.isDraft, mergeable: pr.mergeable, checks: pr.checks }] : [];
   const reviewed = d.pr && d.nextSkill === "request-peer-review" ? ownReviewOf(d.pr) : null;
   enrichRows([d], { prs: openPr, cards: card ? [{ id: card.id, approvedPlan: card.approvedPlan }] : [] },
     new Map(reviewed ? [[d.pr, reviewed]] : []), runs, new Map(checkout ? [[norm(wt), checkout]] : []));
-  if (pr && pr.state !== "OPEN") d.prState = pr.state.toLowerCase();
+  if (pr && pr.state !== "OPEN" && pr.url === d.pr) d.prState = pr.state.toLowerCase();
 
   const sessions = sessionsOf(w);
   const selected = await selectedPane(wt);
@@ -394,69 +309,23 @@ export async function worktreeState({ displayName, branch, paneKey, terminalIds,
   };
 }
 
-// The terminal of the Claude session the panel shows (`paneKey`), or with none named, the first
-// agent's. A named session that is gone is an error, never another session: typing a prompt
-// into the wrong session sends it to a conversation that knows nothing of the work.
-async function agentTerminal(wt, paneKey) {
-  const terms = (await orca("terminal", "list", "--worktree", "path:" + wt)).terminals;
-  const ps = (await orca("worktree", "ps")).worktrees.find(x => norm(x.path) === norm(wt));
-  const agents = ps?.agents || [];
-  const key = t => `${t.tabId}:${t.leafId}`;
-  const hasTerminal = a => terms.some(t => key(t) === a.paneKey);
-  const agent = paneKey ? agents.find(a => a.paneKey === paneKey && hasTerminal(a)) : agents.find(hasTerminal);
-  if (paneKey && !agent) throw new Error("the Claude session the panel shows has closed; pick another");
-  return agent ? { agent, handle: terms.find(t => key(t) === agent.paneKey).handle } : null;
-}
+// ---- the panel's buttons ---------------------------------------------------------------------
+// Each acts on the Claude session the panel follows (`paneKey`); a named session that is gone is
+// an error, never another session. orca-worktrees.mjs does the work, as it does for the server.
 
-// The Code step's button: shows the worktree's Claude terminal, or starts Claude there, resuming
-// its last conversation when there is one.
-export async function openSession({ path: wt, paneKey }) {
-  const target = await agentTerminal(wt, paneKey);
-  if (target) {
-    await orca("terminal", "switch", "--terminal", target.handle);
-    return "Showing Claude's terminal.";
-  }
-  await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude --continue || claude", "--focus");
-  return "Started Claude.";
-}
-
+// The Code step's button: shows the worktree's Claude terminal, or starts Claude there.
+export const openSession = ({ path: wt, paneKey }) => openWorktree(wt, paneKey);
 // The worktree's path: opens the folder in VS Code.
-export async function openInVsCode({ path: wt }) {
-  if (!(await orca("worktree", "ps")).worktrees.some(x => norm(x.path) === norm(wt))) throw new Error("Orca has no worktree at " + wt);
-  await execP(`code ${quote(wt)}`, { ...opts, timeout: 30_000 });
-  return "Opened in VS Code.";
-}
-
-// Types /<skill> into the worktree's Claude session (the one the panel follows), or starts Claude
-// there with it when the worktree has no agent. Refuses while that session is working, as the
-// dashboard server does.
-export async function runSkill({ path: wt, skill, paneKey }) {
-  if (!SKILLS.includes(skill)) throw new Error("not a skill this panel runs: " + skill);
-  const target = await agentTerminal(wt, paneKey);
-  if (target) {
-    if (agentState(target.agent) === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
-    await typePrompt(target.handle, "/" + skill);
-    await orca("terminal", "switch", "--terminal", target.handle);
-    return `Sent /${skill} to Claude.`;
-  }
-  await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude --continue /" + skill, "--focus");
-  return `Started Claude with /${skill}.`;
-}
+export const openInVsCode = ({ path: wt }) => openFolder(wt);
+// Types /<skill> into the session, or starts Claude there with it when the worktree has no agent.
+export const runSkill = ({ path: wt, skill, paneKey }) => runSkillIn(wt, skill, paneKey);
 
 // The prompts the Checkout's links type into the session: Commit, and Commit and Push.
 export const PROMPTS = { commit: "commit", "commit-push": "commit and push" };
-
-// Types one of PROMPTS into the worktree's Claude session (the one the panel follows). Refuses
-// while that session is working, or when the worktree has no session to ask.
-export async function sendPrompt({ path: wt, prompt, paneKey }) {
+export function sendPrompt({ path: wt, prompt, paneKey }) {
   const text = PROMPTS[prompt];
   if (!text) throw new Error("not a prompt this panel sends: " + prompt);
-  const target = await agentTerminal(wt, paneKey);
-  if (!target) throw new Error("no Claude session is running in this worktree");
-  if (agentState(target.agent) === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
-  const started = await typePrompt(target.handle, text);
-  await orca("terminal", "switch", "--terminal", target.handle);
-  return started ? `Asked Claude to ${text}.` : `Typed "${text}" into Claude's session; Orca hasn't seen it start yet.`;
+  return sendPromptTo(wt, text, paneKey);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {

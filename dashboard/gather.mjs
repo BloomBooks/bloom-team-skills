@@ -9,7 +9,8 @@ import { writeFileSync } from "node:fs";
 import { developer } from "../developer.mjs";
 import { reviewedCards } from "./reviewed.mjs";
 import { bloomRepos, standupDays } from "./standup.mjs";
-import { CARD, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
+import { cardOf, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
+import { orca as orcaCli } from "../orca-worktrees.mjs";
 
 const out = process.argv[2];
 if (!out) throw new Error("usage: node gather.mjs <out.json> [board|all]");
@@ -27,10 +28,13 @@ function run(cmd, args, opts = {}) {
 function userEnv(name) {
   return process.env[name] || run("powershell.exe", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable('${name}','User')`]) || "";
 }
-function orca(...args) {
-  const text = run("orca", [...args, "--json"], { shell: true });
-  if (!text) throw new Error("orca " + args.join(" ") + " failed; is Orca running?");
-  return JSON.parse(text.slice(text.indexOf("{"))).result;
+// The server logs the line that starts "Error:" when a gather fails, so the message says what to check.
+async function orca(...args) {
+  try {
+    return await orcaCli(...args);
+  } catch (e) {
+    throw new Error(`orca ${args.join(" ")} failed; is Orca running? (${String(e.message).split("\n")[0]})`);
+  }
 }
 async function yt(token, path, params) {
   const url = new URL(YT + path);
@@ -62,13 +66,13 @@ async function currentVersionBoard(token) {
 }
 
 // Worktrees and the agents in them.
-const list = orca("worktree", "list").worktrees.filter(w => !w.isArchived);
-const ps = new Map(orca("worktree", "ps").worktrees.map(w => [w.path, w]));
+const list = (await orca("worktree", "list")).worktrees.filter(w => !w.isArchived);
+const ps = new Map((await orca("worktree", "ps")).worktrees.map(w => [w.path, w]));
 
 const worktrees = [];
 for (const w of list) {
   const branch = (w.branch || "").replace("refs/heads/", "");
-  const card = (branch.match(CARD) || w.path.match(CARD) || [])[0]?.toUpperCase() ?? null;
+  const card = cardOf(branch, w.path);
   if (!card) continue;
   const git = (...a) => run("git", ["-C", w.path, ...a]);
   const status = (git("status", "--porcelain") || "").split("\n").filter(Boolean);
@@ -139,7 +143,7 @@ for (const repo of repos) {
     "number,url,title,headRefName,baseRefName,isDraft,mergeable,reviewDecision,reviewRequests,additions,deletions,changedFiles,updatedAt,statusCheckRollup,body"]);
   for (const { statusCheckRollup, body, ...p } of JSON.parse(text || "[]")) {
     prs.push({
-      ...p, repo, card: (p.headRefName.match(CARD) || p.title.match(CARD) || [])[0]?.toUpperCase() ?? null,
+      ...p, repo, card: cardOf(p.headRefName, p.title),
       reviewRequests: p.reviewRequests.map(r => r.login), checks: checksState(statusCheckRollup),
       report: reportOf(body),
     });
@@ -160,7 +164,7 @@ const backForReview = reviewed && reviewed.filter(r => r.followUp);
 // null in the same way.
 let standup = null;
 try {
-  standup = await standupDays({ yt: (p, params) => yt(bot, p, params), githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: bloomRepos(orca), reviewed: reviewed || [] });
+  standup = await standupDays({ yt: (p, params) => yt(bot, p, params), githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: bloomRepos((await orca("repo", "list")).repos), reviewed: reviewed || [] });
 } catch (e) { console.warn("could not list the standup days: " + e.message); }
 
 const result = { gatheredAt: new Date().toISOString(), board, boardActivity, cards: kept, standup, backForReview, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };

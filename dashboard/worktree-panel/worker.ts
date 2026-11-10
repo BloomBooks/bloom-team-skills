@@ -1,7 +1,9 @@
 // The Worktree panel's worker. Orca starts it on the panel's first plugin.request and transpiles
 // this file when it loads: no build step. The work is in worktree-facts.mjs, which also runs on
-// its own under Node.
+// its own under Node. worker-env.mjs comes first: it fixes the environment that Orca gives the
+// worker before anything runs a command.
 import type { OrcaWorkerApi } from 'orca/worker'
+import './worker-env.mjs'
 import { openInVsCode, openSession, runSkill, sendPrompt, worktreeState } from './worktree-facts.mjs'
 
 export default function activate(orca: OrcaWorkerApi): void {

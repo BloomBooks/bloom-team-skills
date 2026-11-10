@@ -20,7 +20,7 @@ function withHome(fn) {
     const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
     return files.length ? JSON.parse(fs.readFileSync(path.join(dir, files[0]), "utf8")) : null;
   };
-  try { fn(run, read); } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  try { fn(run, read, home); } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
 test("end closes a run that has no end", () => withHome((run, read) => {
@@ -41,4 +41,36 @@ test("a second end leaves the first end's time alone", () => withHome((run, read
 test("end with no run recorded writes nothing", () => withHome((run, read) => {
   run("end");
   assert.equal(read(), null);
+}));
+
+test("end records the commit and the tree the run ended on", () => withHome((run, read) => {
+  run("start");
+  run("end");
+  const git = (...a) => execFileSync("git", ["-C", worktree, ...a], { encoding: "utf8" }).trim();
+  assert.equal(read().head, git("rev-parse", "HEAD"));
+  assert.equal(read().tree, git("rev-parse", "HEAD^{tree}"));
+}));
+
+test("a step records its state and note; start forgets the last run's steps", () => withHome((run, read) => {
+  run("start");
+  run("bots", "running", "round", "2", "of", "4");
+  assert.deepEqual({ state: read().steps.bots.state, note: read().steps.bots.note }, { state: "running", note: "round 2 of 4" });
+  run("start");
+  assert.deepEqual(read().steps, {});
+}));
+
+test("an unknown step or state warns, changes nothing and still exits 0", () => withHome((run, read) => {
+  run("start");
+  const before = read();
+  run("lint", "running");
+  run("discover", "finished");
+  assert.deepEqual(read(), before);
+}));
+
+test("the worktree's path is one key however it is spelled", () => withHome((run, read, home) => {
+  run("start");
+  execFileSync(process.execPath, [script, "--worktree", worktree.replace(/[\\/]$/, "").toUpperCase() + "\\", "discover", "done"],
+    { env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8" });
+  assert.equal(read().steps.discover.state, "done");
+  assert.equal(fs.readdirSync(path.join(home, ".claude", "bloom-dashboard", "progress")).length, 1);
 }));

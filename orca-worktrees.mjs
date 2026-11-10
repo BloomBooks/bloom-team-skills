@@ -1,5 +1,7 @@
-// Opens and creates Orca worktrees for YouTrack cards. dashboard/server.mjs (its Open and Create
-// buttons) and work-on-youtrack/work-on-youtrack.mjs share these.
+// Opens and creates Orca worktrees for YouTrack cards, and drives the Claude sessions in them.
+// dashboard/server.mjs (the page's buttons), the Worktree panel's worker
+// (dashboard/worktree-panel/worktree-facts.mjs) and work-on-youtrack/work-on-youtrack.mjs share
+// these.
 //
 //   import { orca, openWorktree, createWorktree, bringOrcaToFront } from "<repo>/orca-worktrees.mjs";
 //
@@ -14,7 +16,17 @@ const execFileP = promisify(execFile);
 let log = () => {};
 export function setLog(fn) { log = fn; }
 
-export const norm = p => (p || "").replace(/\\/g, "/").toLowerCase();
+// A worktree path in the one form that every map of worktrees is keyed by: forward slashes, lower
+// case, no trailing slash. Orca, git, the rows the session writes and progress.mjs each spell a
+// path their own way.
+export const norm = p => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+
+// The skills that the dashboard's and the panel's buttons run in a worktree's Claude session.
+export const DASHBOARD_SKILLS = ["preflight", "request-peer-review", "merge-without-peer-review"];
+
+// An agent's state as the dashboard counts it. Orca calls an agent "working" while a background
+// Monitor runs in it (workingMode "monitoring"), though it sits at its prompt; that counts as done.
+export const agentState = a => a.state === "working" && a.workingMode === "monitoring" ? "done" : a.state;
 
 // For a command that runs through a shell (VS Code's `code` is a .cmd file): no argument may
 // contain a quote or a % sign.
@@ -90,31 +102,97 @@ export async function knownWorktree(p) {
   return w.path;
 }
 
-// The worktree's Claude terminal, if it has one: { handle, agent }. With several agents, a waiting
-// one comes first, then a working one, so the dashboard's Status pill opens the terminal it describes.
-export async function agentTerminal(wt) {
-  const terms = (await orca("terminal", "list", "--worktree", "path:" + wt)).terminals;
-  const ps = (await orca("worktree", "ps")).worktrees.find(x => norm(x.path) === norm(wt));
+/**
+ * Picks the agent whose terminal a button acts on, from the worktree's agents (`orca worktree ps`)
+ * and its terminals (`orca terminal list`): { handle, agent }, or null when no agent has a
+ * terminal. With `paneKey` (the session the Worktree panel follows), that agent or an error: a
+ * prompt typed into another session goes to a conversation that knows nothing of the work.
+ * Without it, a waiting agent comes first, then a working one, so the dashboard's Status pill
+ * opens the terminal it describes.
+ */
+export function pickAgentTerminal(agents, terminals, paneKey = null) {
+  const terminalOf = a => terminals.find(t => `${t.tabId}:${t.leafId}` === a.paneKey);
+  if (paneKey) {
+    const a = agents.find(x => x.paneKey === paneKey && terminalOf(x));
+    if (!a) throw new Error("the Claude session the panel shows has closed; pick another");
+    return { handle: terminalOf(a).handle, agent: a };
+  }
   const rank = a => ({ waiting: 0, working: 1 })[a.state] ?? 2;
-  for (const a of [...(ps?.agents || [])].sort((x, y) => rank(x) - rank(y))) {
-    const t = terms.find(t => `${t.tabId}:${t.leafId}` === a.paneKey);
+  for (const a of [...agents].sort((x, y) => rank(x) - rank(y))) {
+    const t = terminalOf(a);
     if (t) return { handle: t.handle, agent: a };
   }
   return null;
 }
 
-// Switches Orca to the worktree's agent terminal; with no agent there, starts Claude in it,
-// resuming that worktree's last conversation when there is one.
-export async function openWorktree(p) {
+export async function agentTerminal(wt, paneKey = null) {
+  const terms = (await orca("terminal", "list", "--worktree", "path:" + wt)).terminals;
+  const ps = (await orca("worktree", "ps")).worktrees.find(x => norm(x.path) === norm(wt));
+  return pickAgentTerminal(ps?.agents || [], terms, paneKey);
+}
+
+// Starts a Claude terminal in the worktree running `command` and shows it.
+const startClaude = (wt, command) =>
+  orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", command, "--focus");
+
+// Types `text` into the agent's terminal and shows it; refused while that agent works.
+async function promptAgent(target, text) {
+  if (agentState(target.agent) === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
+  const started = await typePrompt(target.handle, text);
+  await orca("terminal", "switch", "--terminal", target.handle);
+  return started;
+}
+
+// Switches Orca to the worktree's agent terminal (the `paneKey` one when given); with no agent
+// there, starts Claude in it, resuming that worktree's last conversation when there is one.
+// Returns what it did, in a few words.
+export async function openWorktree(p, paneKey = null) {
   const wt = await knownWorktree(p);
-  const target = await agentTerminal(wt);
+  const target = await agentTerminal(wt, paneKey);
   if (target) {
     await orca("terminal", "switch", "--terminal", target.handle);
     log("switched to agent " + target.handle + " in " + wt);
-  } else {
-    await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude --continue || claude", "--focus");
-    log("started Claude in " + wt);
+    return "Showing Claude's terminal.";
   }
+  await startClaude(wt, "claude --continue || claude");
+  log("started Claude in " + wt);
+  return "Started Claude.";
+}
+
+// Runs one of DASHBOARD_SKILLS in the worktree's Claude session (the `paneKey` one when given):
+// typed into its terminal when Claude is there and idle, or in a new Claude terminal when there is
+// none. Returns what it did, in a few words.
+export async function runSkill(p, skill, paneKey = null) {
+  if (!DASHBOARD_SKILLS.includes(skill)) throw new Error("not a skill the dashboard runs: " + skill);
+  const wt = await knownWorktree(p);
+  const target = await agentTerminal(wt, paneKey);
+  if (target) {
+    const started = await promptAgent(target, "/" + skill);
+    log(`sent /${skill} to ${target.handle} in ${wt}${started ? "" : " (its turn not seen starting yet)"}`);
+    return `Sent /${skill} to Claude.`;
+  }
+  await startClaude(wt, "claude --continue /" + skill);
+  log(`started Claude with /${skill} in ${wt}`);
+  return `Started Claude with /${skill}.`;
+}
+
+// Types `text` into the worktree's Claude session (the `paneKey` one when given). Refuses while
+// that session works, or when the worktree has no session to ask.
+export async function sendPrompt(p, text, paneKey = null) {
+  const wt = await knownWorktree(p);
+  const target = await agentTerminal(wt, paneKey);
+  if (!target) throw new Error("no Claude session is running in this worktree");
+  const started = await promptAgent(target, text);
+  log(`sent "${text}" to ${target.handle} in ${wt}`);
+  return started ? `Asked Claude to ${text}.` : `Typed "${text}" into Claude's session; Orca hasn't seen it start yet.`;
+}
+
+// Opens the worktree's folder in VS Code.
+export async function openInVsCode(p) {
+  const wt = await knownWorktree(p);
+  await execP("code " + quote(wt), { cwd: os.homedir(), windowsHide: true, timeout: 30_000 });
+  log("opened " + wt + " in VS Code");
+  return "Opened in VS Code.";
 }
 
 // The first three words of a card's title, without any [tag], for a branch name.

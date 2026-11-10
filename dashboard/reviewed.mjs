@@ -68,7 +68,7 @@ export async function reviewedCards(yt, githubLogin, youtrackLogin) {
   for (let k = 0; k < prs.length; k += 25) {
     const batch = prs.slice(k, k + 25);
     const query = "{" + batch.map(([, p], n) => `p${n}: repository(owner: ${JSON.stringify(p.owner)}, name: ${JSON.stringify(p.repo)}) {
-      pullRequest(number: ${p.number}) { title headRefName merged author { login } comments(last: 100) { nodes { author { login } createdAt body } } reviews(last: 100) { nodes { author { login } submittedAt body } } commits(last: 1) { nodes { commit { committedDate } } } } }`).join("\n") + "}";
+      pullRequest(number: ${p.number}) { title headRefName merged closed author { login } comments(last: 100) { nodes { author { login } createdAt body } } reviews(last: 100) { nodes { author { login } submittedAt body } } commits(last: 1) { nodes { commit { committedDate } } } } }`).join("\n") + "}";
     const data = gh(["api", "graphql", "-f", "query=" + query]).data || {};
     batch.forEach(([url, p], n) => {
       const pr = data[`p${n}`]?.pullRequest;
@@ -90,7 +90,7 @@ export async function reviewedCards(yt, githubLogin, youtrackLogin) {
       ].sort();
       const cards = [...new Set((pr.title.match(CARDS) || pr.headRefName.match(CARDS) || []).map(c => c.toUpperCase()))];
       lines.push({
-        url, repo: p.repo, number: p.number, title: pr.title, cards, merged: !!pr.merged,
+        url, repo: p.repo, number: p.number, title: pr.title, cards, merged: !!pr.merged, closed: !!pr.closed,
         commentDates: mine.map(t => new Date(t).toISOString()),
         commentedAt: new Date(mine.at(-1)).toISOString(),
         authorAt: theirs.length ? new Date(theirs.at(-1)).toISOString() : "",
@@ -136,14 +136,16 @@ export async function reviewedCards(yt, githubLogin, youtrackLogin) {
 
 /**
  * Why a reviewed card back in Ready For Code Review needs the developer, or "" when it doesn't:
- * "merged" when the PR is merged, so the card should have moved on to Ready For Testing;
- * otherwise "responded" when the PR's author has commented, reviewed or committed since the
- * developer last commented, so the PR is back with the reviewer; "forgot" when they haven't,
- * which usually means the developer asked for changes but did not move the card to Has Comments.
+ * "merged" when the PR is merged, so the card should have moved on to Ready For Testing; "" when
+ * it was closed without merging, since nobody can review it further; otherwise "responded" when
+ * the PR's author has commented, reviewed or committed since the developer last commented, so the
+ * PR is back with the reviewer; "forgot" when they haven't, which usually means the developer
+ * asked for changes but did not move the card to Has Comments.
  */
-function followUp(state, line) {
+export function followUp(state, line) {
   if (state !== "Ready For Code Review") return "";
   if (line.merged) return "merged";
+  if (line.closed) return "";
   return line.authorAt && line.authorAt > line.commentedAt ? "responded" : "forgot";
 }
 

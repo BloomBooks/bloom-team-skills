@@ -1,25 +1,28 @@
 // Serves the dashboard page on http://127.0.0.1:<port>/ for as long as the Claude session that
 // started it is open, and does what the page's buttons ask in Orca.
 //
-// Usage: node server.mjs [--port N] [--gather-minutes M] [--no-window]   (defaults 47321 and 15)
+// Usage: node server.mjs [--port N] [--gather-minutes M] [--no-window] [--keep-sessions]
+//   (defaults 47321 and 15)
 //
 // Once listening, it opens the page in a Chrome app window (chrome --app=<url>): a window of its
 // own, with no tabs or address bar and its own taskbar button. --no-window leaves that out.
+// --keep-sessions leaves every Claude session alone (see "sessions that exist only for the
+// dashboard" below); the tests run the server with both.
 //
 // Data lives in ~/.claude/bloom-dashboard/:
 //   board.json     { "board": "Bloom 6.6" }  the Kanban Board the rows were gathered for
-//   rows/<id>.json one row per card (fields in SKILL.md, step 4); the session writes these
+//   rows/<id>.json one row per card (fields in SKILL.md, step 4); the session writes these, and
+//                  row-facts.mjs's rowProblems says what is wrong with one
 //   facts.json     the last output of gather.mjs; the session writes the first, and this server
 //                  replaces it every M minutes
 //   events.log     this server appends a line whenever an agent in a card's worktree changes
 //                  state, e.g. "BL-16775 D:/BL-16775-grade-branding-2: working -> waiting", for
-//                  each change between one facts.json and the next (see diff-facts.mjs), and for
-//                  each worktree the page's Create button makes; the session watches it with
-//                  watch-events.mjs
+//                  each change between one facts.json and the next (see diff-facts.mjs), for
+//                  each worktree the page's Create button makes, and for each problem with a row
+//                  the session wrote, e.g. "BL-16775 row: has group "nearly", ..."; the session
+//                  watches it with watch-events.mjs
 //   progress/<worktree>.json  a preflight run's phases, written by progress.mjs
-//   tasks.json     the developer's to-do items for History: [{ id, text, created, checked }],
-//                  checked an ISO time or null. Only this server writes it. It is the one file
-//                  here that nothing can work out again from git, GitHub or the transcripts.
+//   tasks.json     the developer's to-do items for History (tasks.mjs)
 //
 // A server that finds another dashboard server on its port asks that one to exit (POST
 // /api/handover with the key in handover.key), or kills it when it does not answer that request,
@@ -33,22 +36,23 @@
 // "WINDOW_CLOSED" and exits. A window that vanished without saying so stops it after IDLE_MINUTES.
 //
 // stdout: "DASHBOARD_URL <url>" once listening, "REPLACED" or "WINDOW_CLOSED" before exiting 0,
-// "PORT_TAKEN" (exit 4) when something other than a dashboard holds the port.
+// "PORT_TAKEN" (exit 4) when something other than a dashboard holds the port. The dashboard
+// session waits for these lines (SKILL.md, step 1) and server.test.mjs checks them.
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { exec, execFile, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { diffFacts } from "./diff-facts.mjs";
 import { ownReview } from "./own-review.mjs";
 import { STANDUP } from "./standup.mjs";
-import { CARD, agentState, checkoutState, enrichRows, liveAgents, readJson, readProgress, readRows, rowsDir } from "./row-facts.mjs";
-import { orca, quote, norm, setLog, bringOrcaToFront, knownWorktree, agentTerminal, openWorktree, createWorktree, typePrompt } from "../orca-worktrees.mjs";
+import { changeTask, readTasks, TASK_ACTIONS } from "./tasks.mjs";
+import { agentEventLines, agentStates, cardOf, checkoutState, dataDir, enrichRows, liveAgents, readJson, readProgress, readRowFiles, rowsDir } from "./row-facts.mjs";
+import { orca, norm, setLog, bringOrcaToFront, openWorktree, createWorktree, runSkill, openInVsCode } from "../orca-worktrees.mjs";
 
-const execP = promisify(exec);
 const execFileP = promisify(execFile);
 const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 // The Orca plugin starts this server from Orca's install folder with ELECTRON_RUN_AS_NODE set.
@@ -56,69 +60,77 @@ const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 // and runs it as Node, so every `orca` command fails with "Cannot find module ...\orca\worktree".
 process.chdir(here);
 delete process.env.ELECTRON_RUN_AS_NODE;
-const dataDir = path.join(os.homedir(), ".claude", "bloom-dashboard");
-const eventsLog = path.join(dataDir, "events.log");
-const serverLog = path.join(dataDir, "server.log");
-fs.mkdirSync(rowsDir, { recursive: true });
+const data = dataDir();
+const eventsLog = path.join(data, "events.log");
+const serverLog = path.join(data, "server.log");
+const factsFile = path.join(data, "facts.json");
+const tasksFile = path.join(data, "tasks.json");
+const developerFile = path.join(os.homedir(), ".claude", "bloom-developer.json");
+fs.mkdirSync(rowsDir(), { recursive: true });
 fs.appendFileSync(eventsLog, "");
 
-const portArg = process.argv.indexOf("--port");
-const port = portArg > 0 ? Number(process.argv[portArg + 1]) : 47321;
-const minutesArg = process.argv.indexOf("--gather-minutes");
-const gatherMinutes = minutesArg > 0 ? Number(process.argv[minutesArg + 1]) : 15;
+const arg = name => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : undefined; };
+const port = Number(arg("--port") ?? 47321);
+const gatherMinutes = Number(arg("--gather-minutes") ?? 15);
 const openWindow = !process.argv.includes("--no-window");
-const factsFile = path.join(dataDir, "facts.json");
+const manageSessions = !process.argv.includes("--keep-sessions");
 const origin = `http://127.0.0.1:${port}`;
 const token = crypto.randomBytes(16).toString("hex");
-// Chrome slows the timers of a minimized window to one run a minute, so this allows for that.
 // A key that every dashboard server of this user shares, so that one can ask another to exit and
 // a web page cannot.
-const handoverKeyFile = path.join(dataDir, "handover.key");
+const handoverKeyFile = path.join(data, "handover.key");
 if (!fs.existsSync(handoverKeyFile)) fs.writeFileSync(handoverKeyFile, crypto.randomBytes(16).toString("hex"));
 const handoverKey = fs.readFileSync(handoverKeyFile, "utf8").trim();
 
 const log = m => fs.appendFileSync(serverLog, `${new Date().toISOString()} ${m}\n`);
+const event = lines => { if (lines.length) fs.appendFileSync(eventsLog, lines.join("\n") + "\n"); };
 setLog(log);
 
+// A source that can fail for a while (Orca updating itself, YouTrack down): its error goes to
+// events.log when it starts failing and again only when the error changes, so a failure that
+// repeats every pass is one line, and `recovered` goes there once it works again.
+function outage(name, recovered) {
+  let failing = null;
+  return {
+    fail(error) {
+      if (error !== failing) event([`${name} error: ${error}`]);
+      else log(`${name} error again: ${error}`);
+      failing = error;
+    },
+    ok() {
+      if (failing) event([recovered]);
+      failing = null;
+    },
+  };
+}
+
 // ---- live agent states ----------------------------------------------------------------------
-let agents = {};          // normalized worktree path -> liveAgents() of its agents
-let lastStates = null;    // path -> "working+done" etc., for events.log
-let orcaDown = false;
+let agents = {};          // norm(worktree path) -> liveAgents() of its agents
+let lastStates = null;    // worktree path -> { card, s }, for agentEventLines
 const workingSeen = new Map();
-// normalized worktree path -> checkoutState(), for each worktree whose last preflight run has
-// ended, so the page can tell when the code changed after it.
+// norm(worktree path) -> checkoutState(), for each worktree whose last preflight run has ended, so
+// the page can tell when the code changed after it.
 let checkouts = new Map();
+const orcaOutage = outage("orca", "orca answers again");
 async function pollAgents() {
   try {
     const ps = (await orca("worktree", "ps")).worktrees;
-    const next = {};
-    const states = new Map();
     const runs = readProgress();
     const ended = ps.filter(w => runs.get(norm(w.path))?.endedAt);
     checkouts = new Map((await Promise.all(ended.map(async w => [norm(w.path), await checkoutState(w.path)]))).filter(([, c]) => c));
+    const next = {};
+    const states = new Map();
     for (const w of ps) {
-      const list = w.agents || [];
       next[norm(w.path)] = liveAgents(w, runs.get(norm(w.path)), workingSeen);
-      const card = ((w.branch || "").match(CARD) || (w.path || "").match(CARD) || [])[0]?.toUpperCase();
-      if (card) states.set(w.path, { card, s: list.map(agentState).sort().join("+") || "none" });
+      const card = cardOf(w.branch, w.path);
+      if (card) states.set(w.path, { card, s: agentStates(w.agents) });
     }
     agents = next;
-    if (lastStates) {
-      const lines = [];
-      for (const [p, { card, s }] of states) {
-        const before = lastStates.get(p)?.s ?? "none";
-        if (before !== s) lines.push(`${card} ${p}: ${before} -> ${s}`);
-      }
-      for (const [p, { card, s }] of lastStates) if (!states.has(p) && s !== "none") lines.push(`${card} ${p}: ${s} -> worktree gone`);
-      if (lines.length) fs.appendFileSync(eventsLog, lines.join("\n") + "\n");
-    }
+    if (lastStates) event(agentEventLines(lastStates, states));
     lastStates = states;
-    if (orcaDown) fs.appendFileSync(eventsLog, "orca answers again\n");
-    orcaDown = false;
+    orcaOutage.ok();
   } catch (e) {
-    // Report an outage once (Orca disappears for a while when it updates itself).
-    if (!orcaDown) fs.appendFileSync(eventsLog, "orca error: " + String(e.message).split("\n")[0] + "\n");
-    orcaDown = true;
+    orcaOutage.fail(String(e.message).split("\n")[0]);
   }
 }
 
@@ -127,9 +139,7 @@ async function pollAgents() {
 // events.log, so that card States, PR reviews, CI and pushes reach the session the same way agent
 // states do. Skipped until the session has written a first facts.json.
 const readFacts = () => { try { return readJson(factsFile); } catch { return null; } };
-// The error last logged, so a failure that repeats every pass (Orca down for an hour) is logged
-// once, with one more line when gathering works again.
-let gatherFailing = null;
+const gatherOutage = outage("gather", "gather works again");
 // The gather in progress, so that the page's Refresh during a scheduled gather waits for that one
 // instead of starting a second. Resolves to null, or to why it could not gather.
 let running = null;
@@ -147,9 +157,8 @@ async function gatherOnce() {
     // The session may have replaced facts.json while gather ran; compare with what is there now.
     const lines = diffFacts(readFacts() || prev, next);
     fs.renameSync(tmp, factsFile);
-    if (gatherFailing) lines.unshift("gather works again");
-    gatherFailing = null;
-    if (lines.length) fs.appendFileSync(eventsLog, lines.join("\n") + "\n");
+    gatherOutage.ok();
+    event(lines);
     log(`regathered: ${lines.length} changes`);
     return null;
   } catch (e) {
@@ -157,9 +166,7 @@ async function gatherOnce() {
     // error ("Error: orca worktree list failed; is Orca running?") is the one worth logging.
     const out = String(e.stderr || e.message).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const error = out.find(l => /^\w*Error\b/.test(l)) ?? out[0] ?? "no output";
-    if (error !== gatherFailing) fs.appendFileSync(eventsLog, "gather error: " + error + "\n");
-    else log("gather error again: " + error);
-    gatherFailing = error;
+    gatherOutage.fail(error);
     fs.rmSync(tmp, { force: true });
     return error;
   }
@@ -176,9 +183,9 @@ async function checkOwnReviews() {
   checkingOwnReviews = true;
   try {
     let login = "";
-    try { login = readJson(path.join(os.homedir(), ".claude", "bloom-developer.json")).github || ""; } catch {}
+    try { login = readJson(developerFile).github || ""; } catch {}
     if (!login) return;
-    const prs = new Set(readState().rows.filter(r => r.pr && r.nextSkill === "request-peer-review").map(r => r.pr));
+    const prs = new Set(readRowFiles().rows.filter(r => r.pr && r.nextSkill === "request-peer-review").map(r => r.pr));
     for (const pr of [...ownReviews.keys()]) if (!prs.has(pr)) ownReviews.delete(pr);
     for (const pr of prs) {
       try {
@@ -190,74 +197,35 @@ async function checkOwnReviews() {
 }
 
 // ---- state for the page ---------------------------------------------------------------------
-// The developer's to-do items for History. Written whole to a temporary file and renamed over
-// tasks.json, so a crash mid-write cannot leave half a list.
-const tasksFile = path.join(dataDir, "tasks.json");
-function readTasks() {
-  try { const t = readJson(tasksFile); return Array.isArray(t) ? t : []; } catch { return []; }
-}
-function changeTask(action, b) {
-  const tasks = readTasks();
-  const find = () => {
-    const t = tasks.find(x => x.id === String(b.id || ""));
-    if (!t) throw new Error("no such task");
-    return t;
-  };
-  if (action === "create") {
-    const text = String(b.text || "").trim();
-    if (!text) throw new Error("a task needs some text");
-    tasks.push({ id: crypto.randomUUID(), text, created: new Date().toISOString(), checked: null });
-  } else if (action === "check") find().checked = new Date().toISOString();
-  else if (action === "uncheck") find().checked = null;
-  else if (action === "delete") { find(); tasks.splice(tasks.findIndex(x => x.id === b.id), 1); }
-  else throw new Error("unknown task action");
-  const tmp = tasksFile + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(tasks, null, 2));
-  fs.renameSync(tmp, tasksFile);
-  return tasks;
+// The problems with the session's rows that events.log has already been told about, as
+// "<file>: <problem>". One that goes away and comes back is told again.
+let toldProblems = new Set();
+function reportRowProblems(problems) {
+  const now = new Set(problems.map(p => `${p.file}: ${p.problem}`));
+  event(problems.filter(p => !toldProblems.has(`${p.file}: ${p.problem}`)).map(p => `${p.card} row: ${p.problem} (rows/${p.file})`));
+  toldProblems = now;
 }
 function readState() {
   let board = "";
-  try { board = readJson(path.join(dataDir, "board.json")).board || ""; } catch {}
-  const rows = readRows();
+  try { board = readJson(path.join(data, "board.json")).board || ""; } catch {}
+  const { rows, problems } = readRowFiles();
+  reportRowProblems(problems);
   // The developer's first name, for the page's top bar.
   let developer = "";
-  try { developer = (readJson(path.join(os.homedir(), ".claude", "bloom-developer.json")).name || "").split(" ")[0]; } catch {}
+  try { developer = (readJson(developerFile).name || "").split(" ")[0]; } catch {}
   const facts = readFacts();
   enrichRows(rows, facts, ownReviews, readProgress(), checkouts);
-  return { serverPid: process.pid, board, developer, rows, agents, tasks: readTasks(), standup: facts?.standup || null, standupAt: STANDUP, backForReview: facts?.backForReview || null, gatheredAt: facts?.gatheredAt || "" };
-}
-
-// ---- Orca actions ---------------------------------------------------------------------------
-// Runs a skill in the worktree's Claude session: typed into its terminal when Claude is there and
-// idle, or in a new Claude terminal when there is none.
-const SKILLS = ["preflight", "request-peer-review", "merge-without-peer-review"];
-async function runSkill(p, skill) {
-  if (!SKILLS.includes(skill)) throw new Error("not a skill the dashboard runs: " + skill);
-  const wt = await knownWorktree(p);
-  const target = await agentTerminal(wt);
-  if (target) {
-    if (agentState(target.agent) === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
-    const started = await typePrompt(target.handle, "/" + skill);
-    await orca("terminal", "switch", "--terminal", target.handle);
-    log(`sent /${skill} to ${target.handle} in ${wt}${started ? "" : " (its turn not seen starting yet)"}`);
-  } else {
-    await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude --continue /" + skill, "--focus");
-    log(`started Claude with /${skill} in ${wt}`);
-  }
-}
-
-async function openInVsCode(p) {
-  const wt = await knownWorktree(p);
-  await execP("code " + quote(wt), { windowsHide: true });
-  log("opened " + wt + " in VS Code");
+  return {
+    serverPid: process.pid, board, developer, rows, problems, agents, tasks: readTasks(tasksFile),
+    standup: facts?.standup || null, standupAt: STANDUP, backForReview: facts?.backForReview || null, gatheredAt: facts?.gatheredAt || "",
+  };
 }
 
 // Makes a worktree for a card (createWorktree) and names it in events.log.
 async function createForCard({ card, title, pr }) {
   const { path: made } = await createWorktree({ card, title, pr });
   // The row has no worktree path yet, so this line names the card the row is filed under.
-  fs.appendFileSync(eventsLog, `${card} ${made}: worktree created from the dashboard\n`);
+  event([`${card} ${made}: worktree created from the dashboard`]);
 }
 
 // ---- HTTP -----------------------------------------------------------------------------------
@@ -269,18 +237,38 @@ function send(res, code, body, type = "application/json") {
   res.writeHead(code, { "content-type": type + "; charset=utf-8", "cache-control": "no-store" });
   res.end(typeof body === "string" ? body : JSON.stringify(body));
 }
+function readBody(req, limit) {
+  return new Promise(resolve => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", c => { body += c; if (body.length > limit) req.destroy(); });
+    req.on("end", () => resolve(body));
+  });
+}
+
+// The page's buttons: path -> what it does with the posted body. Each that drives Orca brings
+// Orca's window to the front afterwards (`front`).
+const ACTIONS = {
+  "/api/open": { front: true, run: b => openWorktree(String(b.path || "")) },
+  "/api/run-skill": { front: true, run: b => runSkill(String(b.path || ""), String(b.skill || "")) },
+  "/api/create": { front: true, run: b => createForCard({ card: String(b.card || ""), title: String(b.title || ""), pr: String(b.pr || "") }) },
+  "/api/vscode": { run: b => openInVsCode(String(b.path || "")) },
+  "/api/gather": { run: async () => { const error = await regather(); if (error) throw new Error(error); } },
+  ...Object.fromEntries(TASK_ACTIONS.map(a => ["/api/task/" + a, { run: b => ({ tasks: changeTask(tasksFile, a, b) }) }])),
+};
 
 // ---- sessions that exist only for the dashboard ----------------------------------------------
 // The Orca plugin's button starts `claude "Open the dashboard"`. Such a session has nothing to do
 // once its server is gone, and each one holds about 300 MB, so a server kills them: on listening,
 // every one that started before it other than its own; on exiting, its own. A /dashboard typed
-// into a working session has another command line and is never touched.
+// into a working session has another command line and is never touched. --keep-sessions turns
+// this off.
 const serverStarted = Date.now();
 const DEDICATED = /^"?[^"]*claude(\.exe)?"?\s+"?Open the dashboard"?\s*$/i;
 
 // Every process as { pid, ppid, name, cmd, created }, or [] off Windows or when the list fails.
 async function processes() {
-  if (process.platform !== "win32") return [];
+  if (process.platform !== "win32" || !manageSessions) return [];
   try {
     const ps = "Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ pid = $_.ProcessId; ppid = $_.ParentProcessId; name = $_.Name; cmd = $_.CommandLine; created = $_.CreationDate.ToUniversalTime().ToString('o') } } | ConvertTo-Json -Compress";
     const { stdout } = await execFileP("powershell.exe", ["-NoProfile", "-Command", ps], { windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
@@ -332,91 +320,86 @@ async function endOwnSession() {
   log(`ended this server's dashboard session pid ${own.pid}`);
 }
 
+// ---- stopping -------------------------------------------------------------------------------
+// The server stops once, for the first of: the window closed, no page for IDLE_MINUTES, or a newer
+// server took over. `line` goes to stdout for the session that started it.
 const IDLE_MINUTES = 5;
-async function exitWindowClosed(why) {
+let stopping = false;
+async function stop(line, why) {
+  if (stopping) return;
+  stopping = true;
   log(why + "; exiting");
-  console.log("WINDOW_CLOSED: " + why);
+  console.log(line);
   server.close();
-  await endOwnSession();
+  await endOwnSession().catch(e => log("ending own session: " + e.message));
   process.exit(0);
 }
+
 let lastPageRequest = 0;   // when a page last asked for /api/state; 0 until one has
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const pathname = req.url.split("?")[0];
-  if (req.method === "GET" && (pathname === "/" || pathname === "/index.html")) return send(res, 200, page(), "text/html");
-  // The page's styles and its code for drawing a row, which the Worktree panel in Orca loads too.
-  const shared = { "/dashboard.css": "text/css", "/row.js": "text/javascript" };
-  if (req.method === "GET" && shared[pathname]) return send(res, 200, fs.readFileSync(path.join(here, pathname.slice(1)), "utf8"), shared[pathname]);
-  if (req.method === "GET" && /^\/icons\/icon-\d+\.png$/.test(pathname) && fs.existsSync(path.join(here, pathname.slice(1)))) {
-    res.writeHead(200, { "content-type": "image/png", "cache-control": "max-age=86400" });
-    return res.end(fs.readFileSync(path.join(here, pathname.slice(1))));
+  if (req.method === "GET") {
+    if (pathname === "/" || pathname === "/index.html") return send(res, 200, page(), "text/html");
+    // The page's styles and its code for drawing a row, which the Worktree panel in Orca loads too.
+    const shared = { "/dashboard.css": "text/css", "/row.js": "text/javascript" };
+    if (shared[pathname]) return send(res, 200, fs.readFileSync(path.join(here, pathname.slice(1)), "utf8"), shared[pathname]);
+    if (/^\/icons\/icon-\d+\.png$/.test(pathname) && fs.existsSync(path.join(here, pathname.slice(1)))) {
+      res.writeHead(200, { "content-type": "image/png", "cache-control": "max-age=86400" });
+      return res.end(fs.readFileSync(path.join(here, pathname.slice(1))));
+    }
+    if (pathname === "/api/state") { lastPageRequest = Date.now(); return send(res, 200, readState()); }
+    // `page`: a dashboard page has asked for /api/state in the last 8 seconds, so a window is showing.
+    if (pathname === "/api/health") return send(res, 200, { dashboard: true, pid: process.pid, page: Date.now() - lastPageRequest < 8000 });
+    return send(res, 404, { ok: false });
   }
-  if (req.method === "GET" && req.url === "/api/state") { lastPageRequest = Date.now(); return send(res, 200, readState()); }
-  // `page`: a dashboard page has asked for /api/state in the last 8 seconds, so a window is showing.
-  if (req.method === "GET" && req.url === "/api/health") return send(res, 200, { dashboard: true, pid: process.pid, page: Date.now() - lastPageRequest < 8000 });
-  if (req.method === "POST" && req.url === "/api/handover") {
+  if (req.method !== "POST") return send(res, 404, { ok: false });
+
+  // Requests from local programs, which can read handover.key: another dashboard server, the Orca
+  // plugin's button, and a script that changed a card (work-on-youtrack).
+  const local = { "/api/handover": true, "/api/show": true, "/api/regather": true };
+  if (local[pathname]) {
     if (req.headers["x-handover-key"] !== handoverKey) return send(res, 403, { ok: false, error: "forbidden" });
-    send(res, 200, { ok: true });
-    log("handing over to a newer server");
-    console.log("REPLACED by a dashboard server that another session started");
-    server.close();
-    setTimeout(() => endOwnSession().finally(() => process.exit(0)), 200);
-    return;
-  }
-  // A local script (work-on-youtrack, after it assigns a card) asks for a gather; it answers at
-  // once and the gather runs on.
-  // The page's goodbye, sent with navigator.sendBeacon, which cannot set headers: the token is the body.
-  if (req.method === "POST" && req.url === "/api/closing") {
-    let body = "";
-    req.setEncoding("utf8");
-    req.on("data", c => { body += c; if (body.length > 200) req.destroy(); });
-    req.on("end", () => {
-      if (body !== token) return send(res, 403, { ok: false, error: "forbidden" });
-      const closingAt = Date.now();
+    if (pathname === "/api/handover") {
       send(res, 200, { ok: true });
-      setTimeout(() => { if (lastPageRequest < closingAt) exitWindowClosed("the dashboard window closed"); }, 5000);
-    });
+      setTimeout(() => stop("REPLACED by a dashboard server that another session started", "handing over to a newer server"), 200);
+    } else if (pathname === "/api/show") {
+      showWindow().then(how => { log("show: " + how); send(res, 200, { ok: true, how }); }, e => send(res, 500, { ok: false, error: e.message }));
+    } else {
+      // It answers at once and the gather runs on.
+      log("regather asked for by a local script");
+      regather().catch(e => log("regather: " + e.message));
+      send(res, 202, { ok: true });
+    }
     return;
   }
-  if (req.method === "POST" && req.url === "/api/show") {
-    if (req.headers["x-handover-key"] !== handoverKey) return send(res, 403, { ok: false, error: "forbidden" });
-    showWindow().then(how => { log("show: " + how); send(res, 200, { ok: true, how }); }, e => send(res, 500, { ok: false, error: e.message }));
+
+  // The page's goodbye, sent with navigator.sendBeacon, which cannot set headers: the token is the body.
+  if (pathname === "/api/closing") {
+    const body = await readBody(req, 200);
+    if (body !== token) return send(res, 403, { ok: false, error: "forbidden" });
+    const closingAt = Date.now();
+    send(res, 200, { ok: true });
+    setTimeout(() => { if (lastPageRequest < closingAt) stop("WINDOW_CLOSED: the dashboard window closed", "the dashboard window closed"); }, 5000);
     return;
   }
-  if (req.method === "POST" && req.url === "/api/regather") {
-    if (req.headers["x-handover-key"] !== handoverKey) return send(res, 403, { ok: false, error: "forbidden" });
-    log("regather asked for by a local script");
-    regather().catch(e => log("regather: " + e.message));
-    return send(res, 202, { ok: true });
-  }
-  if (req.method !== "POST" || !req.url.startsWith("/api/")) return send(res, 404, { ok: false });
+
   // Only this server's own page knows the token, so other web pages can't drive Orca.
   if (req.headers["x-dashboard-token"] !== token || (req.headers.origin && req.headers.origin !== origin)) return send(res, 403, { ok: false, error: "forbidden" });
-  let body = "";
-  req.setEncoding("utf8");
-  req.on("data", c => { body += c; if (body.length > 1e5) req.destroy(); });
-  req.on("end", async () => {
-    try {
-      const b = body ? JSON.parse(body) : {};
-      log("click " + req.url + " " + body);
-      if (req.url === "/api/open") await openWorktree(String(b.path || ""));
-      else if (req.url === "/api/run-skill") await runSkill(String(b.path || ""), String(b.skill || ""));
-      else if (req.url === "/api/vscode") { await openInVsCode(String(b.path || "")); return send(res, 200, { ok: true }); }
-      else if (req.url === "/api/gather") { const error = await regather(); return send(res, 200, error ? { ok: false, error } : { ok: true }); }
-      else if (req.url === "/api/create") await createForCard({ card: String(b.card || ""), title: String(b.title || ""), pr: String(b.pr || "") });
-      else if (req.url.startsWith("/api/task/")) return send(res, 200, { ok: true, tasks: changeTask(req.url.slice(10), b) });
-      else return send(res, 404, { ok: false, error: "unknown action" });
-      await bringOrcaToFront().catch(e => log("front: " + e.message));
-      send(res, 200, { ok: true });
-    } catch (e) {
-      log("error " + req.url + ": " + e.message);
-      send(res, 200, { ok: false, error: e.message });
-    }
-  });
+  const act = ACTIONS[pathname];
+  if (!act) return send(res, 404, { ok: false, error: "unknown action" });
+  const body = await readBody(req, 1e5);
+  try {
+    const b = body ? JSON.parse(body) : {};
+    log("click " + pathname + " " + body);
+    const result = await act.run(b);
+    if (act.front) await bringOrcaToFront().catch(e => log("front: " + e.message));
+    send(res, 200, { ok: true, ...(result && typeof result === "object" ? result : {}) });
+  } catch (e) {
+    log("error " + pathname + ": " + e.message);
+    send(res, 200, { ok: false, error: e.message });
+  }
 });
 
-// Opens the page in a Chrome app window. Chrome hands the request to its running instance, so this
-// returns at once.
 // Brings the dashboard window to the front when a page is open, or opens one. Returns what it did.
 async function showWindow() {
   if (Date.now() - lastPageRequest < 8000 && process.platform === "win32") {
@@ -428,6 +411,8 @@ async function showWindow() {
   openAppWindow();
   return "opened";
 }
+// Opens the page in a Chrome app window. Chrome hands the request to its running instance, so this
+// returns at once.
 function openAppWindow() {
   // A server that the Orca plugin starts gets no ProgramFiles or LOCALAPPDATA, hence the fallbacks.
   const candidates = process.platform === "win32"
@@ -469,7 +454,7 @@ async function takeOver(pid) {
     const r = await fetch(origin + "/api/handover", { method: "POST", headers: { "x-handover-key": handoverKey }, signal: AbortSignal.timeout(3000) });
     asked = r.ok;
   } catch {}
-  if (!asked) { try { process.kill(pid); } catch {} }
+  if (!asked) kill(pid);
   log(`took over from pid ${pid} (${asked ? "asked it to exit" : "killed it"})`);
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 500));
@@ -500,8 +485,12 @@ server.on("listening", async () => {
   checkOwnReviews();
   setInterval(checkOwnReviews, 60000);
   setInterval(regather, gatherMinutes * 60000);
+  // Chrome slows the timers of a minimized window to one run a minute, which IDLE_MINUTES allows for.
   setInterval(() => {
-    if (lastPageRequest && Date.now() - lastPageRequest > IDLE_MINUTES * 60000) exitWindowClosed(`no dashboard page has asked for ${IDLE_MINUTES} minutes`);
+    if (lastPageRequest && Date.now() - lastPageRequest > IDLE_MINUTES * 60000) {
+      const why = `no dashboard page has asked for ${IDLE_MINUTES} minutes`;
+      stop("WINDOW_CLOSED: " + why, why);
+    }
   }, 30000);
   log("listening on " + origin + " pid " + process.pid);
   endStaleSessions().catch(e => log("ending stale sessions: " + e.message));

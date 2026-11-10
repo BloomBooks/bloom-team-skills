@@ -70,7 +70,7 @@ const cell = (name, ...kids) => el("div", {}, el("p", { class: "cell-name" }, na
 // What the page's "Where it stands" cell holds: a preflight run's phases while one runs, or the
 // row's status, comments, question and next step.
 function standsCell(s, d) {
-  if (activeRun(d)) return preflightSteps(d.progress);
+  if (d.runShowing) return preflightSteps(d.progress);
   if (!s.hasRow && !d.question) return el("p", { class: "quiet" }, "The dashboard has no row for this card; /dashboard writes one.");
   return el("div", { class: "stands" }, d.status || "",
     d.comments ? commentsLine(d.comments) : null,

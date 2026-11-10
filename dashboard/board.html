@@ -61,18 +61,24 @@ function infoIcon(text, id) {
 }
 // The server that served this page runs the orca commands. DASHBOARD_TOKEN is written into the
 // page by server.mjs; other web pages can't read it, so they can't post to the server.
-async function post(path, body, failure = "Orca couldn't do that") {
-  showNote("");
+// Posts `body` to the server and returns its answer when it did what was asked, or null after
+// saying why not with `note` (showNote, or showTaskNote under History's Add box).
+const SERVER_GONE = "The dashboard server isn't answering. It runs only while its Claude session is open; run /dashboard to start it again.";
+async function request(path, body, failure, note) {
+  note("");
   try {
     const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json", "x-dashboard-token": window.DASHBOARD_TOKEN }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 403) showNote("The dashboard server has restarted since this page loaded. Reload the page.");
-    else if (!r.ok || !j.ok) showNote(failure + ": " + (j.error || r.status));
-    else return true;
-  } catch (e) {
-    showNote("The dashboard server isn't answering. Is its Claude session still open?");
+    if (r.status === 403) note("The dashboard server has restarted since this page loaded. Reload the page.");
+    else if (!r.ok || !j.ok) note(failure + ": " + (j.error || r.status));
+    else return j;
+  } catch {
+    note(SERVER_GONE);
   }
-  return false;
+  return null;
+}
+async function post(path, body, failure = "Orca couldn't do that") {
+  return !!(await request(path, body, failure, showNote));
 }
 
 function render(items) {
@@ -97,7 +103,7 @@ function render(items) {
       tbody.append(el("tr", d.who === "agent" ? { class: "agent-row" } : {},
         card,
         el("td", { class: "who" }, processCell(d)),
-        activeRun(d) ? el("td", {}, preflightSteps(d.progress)) : el("td", {}, d.status || "",
+        d.runShowing ? el("td", {}, preflightSteps(d.progress)) : el("td", {}, d.status || "",
           d.comments ? commentsLine(d.comments) : null,
           d.question ? el("span", { class: "question" }, el("b", {}, "Claude asks: "), d.question) : null,
           d.next ? el("span", { class: "next" }, el("b", {}, "Next: "), d.next) : null),
@@ -175,16 +181,11 @@ function taskItem(t) {
 // A failed task change says why under the Add box, where the developer is looking: the page's
 // own note is at the top, out of view when History is scrolled into view.
 async function changeTask(what, body) {
-  showTaskNote("");
-  try {
-    const r = await fetch("/api/task/" + what, { method: "POST", headers: { "content-type": "application/json", "x-dashboard-token": window.DASHBOARD_TOKEN }, body: JSON.stringify(body) });
-    const j = await r.json().catch(() => ({}));
-    if (r.status === 403) { showTaskNote("The dashboard server has restarted since this page loaded. Reload the page."); return false; }
-    if (!j.ok) { showTaskNote("Couldn't change the task: " + (j.error || r.status)); return false; }
-    lastTasks = j.tasks;
-    renderStandup(lastStandup, lastTasks);
-    return true;
-  } catch { showTaskNote("The dashboard server isn't answering. It runs only while its Claude session is open; run /dashboard to start it again."); return false; }
+  const j = await request("/api/task/" + what, body, "Couldn't change the task", showTaskNote);
+  if (!j) return false;
+  lastTasks = j.tasks;
+  renderStandup(lastStandup, lastTasks);
+  return true;
 }
 function showTaskNote(text) {
   const n = document.getElementById("task-note");
@@ -267,7 +268,7 @@ async function refresh() {
     const r = await fetch("/api/state", { cache: "no-store" });
     state = await r.json();
   } catch {
-    showNote("The dashboard server isn't answering. It runs only while its Claude session is open; run /dashboard to start it again.");
+    showNote(SERVER_GONE);
     return;
   }
   // Another session's server has taken the port; reload to get its token, or the buttons fail.
@@ -275,7 +276,11 @@ async function refresh() {
   const json = JSON.stringify(state);
   if (json === lastJson && !launched.size) return;
   lastJson = json;
-  showNote(state.rows.length ? "" : "No cards yet. Claude adds them after gathering.");
+  // A row the session wrote wrongly is named here, since it may be in no table; the server has
+  // also told the session in events.log.
+  const problems = (state.problems || []).map(p => `${p.card} ${p.problem}`);
+  showNote(problems.length ? "Claude wrote rows the dashboard can't draw right: " + problems.join("; ") + "."
+    : state.rows.length ? "" : "No cards yet. Claude adds them after gathering.");
   const version = (state.board || "").replace(/^Bloom\s+/i, "");
   document.getElementById("bar-who").textContent = (state.developer ? state.developer + "'s work" : "Your work")
     + (version ? " on version " + version + " board" : " on every board");

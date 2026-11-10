@@ -41,6 +41,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { mayHoldPrompt, promptText, typedPrompt } from "./transcripts.mjs";
 
 export const WEEKDAYS = 3;
 // The stand-up meeting's time of day, local time, Monday to Friday. board.html gets it from
@@ -57,7 +58,8 @@ const CARD_URL = id => "https://issues.bloomlibrary.org/youtrack/issue/" + id;
 // At most this many uncommitted files are looked at per checkout.
 const MAX_FILES = 300;
 // The first prompt of a session that the dashboard itself starts: opening the dashboard is not work.
-const DASHBOARD_PROMPT = /^\s*(open the dashboard\b|\/dashboard\b|<command-name>\/?dashboard<)/i;
+// It is matched against promptText(), which reads a slash command as "/dashboard".
+const DASHBOARD_PROMPT = /^\s*(open the dashboard\b|\/dashboard\b)/i;
 // What a line says for work in a repo that no commit message describes.
 const UNCOMMITTED = "Changes not committed yet";
 const PROMPTED = "Sessions with Claude Code";
@@ -88,6 +90,19 @@ export function historyStart(now = new Date()) {
   const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   for (let n = 0; n < WEEKDAYS - 1;) { d.setDate(d.getDate() - 1); if (d.getDay() % 6) n++; }
   return dayOf(d);
+}
+/**
+ * The times a PR was offered for review, from GitHub's { createdAt, isDraft, timelineItems } with
+ * its ReadyForReviewEvent and ConvertToDraftEvent nodes: each ReadyForReviewEvent, and its
+ * creation when it was opened ready, not as a draft. It was opened ready when the first of those
+ * events turned it into a draft, or, with no such event, when it is not a draft now.
+ */
+export function readyTimes(pr) {
+  const marks = [...(pr.timelineItems?.nodes || [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const times = marks.filter(m => m.__typename === "ReadyForReviewEvent").map(m => m.createdAt);
+  const openedReady = marks.length ? marks[0].__typename === "ConvertToDraftEvent" : !pr.isDraft;
+  if (openedReady) times.unshift(pr.createdAt);
+  return times;
 }
 const cardsIn = (...texts) => {
   for (const t of texts) { const m = String(t || "").match(CARDS); if (m) return [...new Set(m.map(c => c.toUpperCase()))]; }
@@ -144,10 +159,7 @@ export async function standupDays({ yt, githubLogin, youtrackLogin, gitName, wor
       prState.set(url, pr.mergedAt ? "merged" : pr.isDraft ? "draft" : "open");
       const keys = ids.length ? ids : [`${p.repo}#${p.number}`];
       const byBot = pr.headRefName.startsWith("bot/");
-      const marks = pr.timelineItems.nodes;
-      const readyAt = marks.filter(m => m.__typename === "ReadyForReviewEvent").map(m => m.createdAt);
-      // Opened ready for review: no draft history and not a draft now.
-      if (!marks.length && !pr.isDraft) readyAt.push(pr.createdAt);
+      const readyAt = readyTimes(pr);
       for (const c of pr.commits.nodes) counted.add(c.commit.oid);
       for (const id of keys) {
         for (const at of readyAt) events.push({ kind: "finished", id, pr: url, at, title: pr.title, needsOwnCard: ids.length > 0 });
@@ -227,14 +239,13 @@ export async function standupDays({ yt, githubLogin, youtrackLogin, gitName, wor
       try { text = readFileSync(file, "utf8"); } catch { continue; }
       let first = true, skipSession = false;
       for (const line of text.split("\n")) {
-        if (!line.includes('"type":"user"')) continue;
+        if (!mayHoldPrompt(line)) continue;
         let o;
         try { o = JSON.parse(line); } catch { continue; }
-        const content = o.message?.content;
-        if (o.type !== "user" || o.isMeta || typeof content !== "string") continue;
+        const content = typedPrompt(o);
         // Notices that arrive as user turns are not prompts.
-        if (/^\s*<(task-notification|system-reminder|local-command)/.test(content) || content.includes("[SYSTEM NOTIFICATION")) continue;
-        if (first) { first = false; skipSession = DASHBOARD_PROMPT.test(content); }
+        if (!content || content.includes("[SYSTEM NOTIFICATION")) continue;
+        if (first) { first = false; skipSession = DASHBOARD_PROMPT.test(promptText(content)); }
         if (skipSession || Date.parse(o.timestamp) < since) continue;
         // A folder whose path names a card is that card's, even once Orca no longer lists its
         // worktree; otherwise the checkout the folder is in.
@@ -310,11 +321,11 @@ export async function standupDays({ yt, githubLogin, youtrackLogin, gitName, wor
 }
 
 /**
- * The BloomBooks repos Orca knows, as standupDays wants them: { name, slug, path }. orca is a
- * function that runs an Orca CLI command and returns its JSON result.
+ * The BloomBooks repos among the ones Orca knows (`orca repo list`'s `repos`), as standupDays
+ * wants them: { name, slug, path }.
  */
-export function bloomRepos(orca) {
-  return (orca("repo", "list").repos || [])
+export function bloomRepos(repos) {
+  return (repos || [])
     .map(r => ({ path: r.path, key: r.gitRemoteIdentity?.canonicalKey || "" }))
     .filter(r => /^github\.com\/bloombooks\//i.test(r.key))
     .map(r => ({ path: r.path, slug: r.key.slice("github.com/".length), name: r.key.split("/").pop() }));
@@ -332,19 +343,15 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
     if (!r.ok) throw new Error(`YouTrack ${p}: ${r.status} ${await r.text()}`);
     return r.json();
   };
-  const orca = (...args) => {
-    const text = execFileSync("orca", [...args, "--json"], { encoding: "utf8", shell: true, maxBuffer: 64 << 20 });
-    return JSON.parse(text.slice(text.indexOf("{"))).result;
-  };
-  const CARD = /\bBL-\d+/i;
-  const worktrees = (orca("worktree", "list").worktrees || []).filter(w => !w.isArchived).map(w => {
-    const branch = (w.branch || "").replace("refs/heads/", "");
-    const card = (branch.match(CARD) || w.path.match(CARD) || [])[0]?.toUpperCase();
+  const { orca } = await import("../orca-worktrees.mjs");
+  const { cardOf } = await import("./row-facts.mjs");
+  const worktrees = ((await orca("worktree", "list")).worktrees || []).filter(w => !w.isArchived).map(w => {
+    const card = cardOf(w.branch, w.path);
     return card ? { card, path: w.path, base: git(w.path, "rev-parse", "--abbrev-ref", "origin/HEAD") || "origin/master" } : null;
   }).filter(Boolean);
   const dev = await developer();
   const reviewed = await reviewedCards(yt, dev.github, dev.youtrack.login);
-  for (const day of await standupDays({ yt, githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: bloomRepos(orca), reviewed })) {
+  for (const day of await standupDays({ yt, githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: bloomRepos((await orca("repo", "list")).repos), reviewed })) {
     console.log(day.date);
     for (const kind of ["finished", "worked", "reviewed"]) for (const c of day[kind]) console.log(`  ${kind.padEnd(9)} ${c.beforeStandup ? "early " : "      "}${c.id.padEnd(22)} ${c.state.padEnd(21)} ${c.summary}`);
   }

@@ -5,8 +5,9 @@
 //   BL-16777 D:/grid-calendar: pushed
 // Changes that happen all the time without meaning anything for a row (master moving on, files
 // being edited, PR line counts) are left out, and so is every change about a card that is not on
-// the developer's board: one that is not assigned to them, or that was not In Progress or Has
-// Comments before or after. A PR or worktree line counts as being about the card its branch names.
+// the developer's board: one that is neither assigned to them nor named by one of their
+// worktrees, or that was not In Progress or Has Comments before or after. A PR or worktree line
+// counts as being about the card its branch names.
 
 const ACTIVE = ["In Progress", "Has Comments"];
 const PR_FIELDS = ["isDraft", "mergeable", "reviewDecision", "checks", "baseRefName", "report", "reportDecisions"];
@@ -18,10 +19,12 @@ export function diffFacts(prev, next) {
 
   const prevCards = new Map(prev.cards.map(c => [c.id, c]));
   const nextCards = new Map(next.cards.map(c => [c.id, c]));
-  // The cards whose changes matter: assigned to the developer, and on the board before or after.
+  // The cards whose changes matter: assigned to the developer or named by one of their worktrees
+  // (the session gives such a card a row too: SKILL.md, step 3), and on the board before or after.
+  const inWorktree = new Set([...(prev.worktrees || []), ...(next.worktrees || [])].map(w => w.card));
   const onBoard = new Set([...prevCards.keys(), ...nextCards.keys()].filter(id => {
     const before = prevCards.get(id), after = nextCards.get(id);
-    return (before?.assignedToDeveloper || after?.assignedToDeveloper) && (ACTIVE.includes(before?.state) || ACTIVE.includes(after?.state));
+    return (before?.assignedToDeveloper || after?.assignedToDeveloper || inWorktree.has(id)) && (ACTIVE.includes(before?.state) || ACTIVE.includes(after?.state));
   }));
   for (const [id, c] of nextCards) {
     const p = prevCards.get(id);
