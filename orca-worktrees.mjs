@@ -213,12 +213,21 @@ export async function orcaRepoId(repo) {
   return repoId;
 }
 
-// The branch of a PR, checked to be safe to pass to git and orca.
+// The branch of a PR, checked to be safe to pass to git and orca. A PR from a fork is refused: its
+// branch is in the fork, which `origin` does not have, and Claude could not push to it.
 export async function prHeadBranch(repo, number) {
-  const { stdout } = await execFileP("gh", ["pr", "view", number, "-R", repo, "--json", "headRefName", "--jq", ".headRefName"], { windowsHide: true });
-  const head = stdout.trim();
+  const { stdout } = await execFileP("gh", ["pr", "view", String(number), "-R", repo, "--json", "headRefName,isCrossRepository,headRepositoryOwner"], { windowsHide: true });
+  const pr = JSON.parse(stdout);
+  if (pr.isCrossRepository) throw new Error(`${repo} PR ${number} comes from a fork (${pr.headRepositoryOwner?.login || "another owner"}), so its branch is not in ${repo}; make its worktree by hand`);
+  const head = String(pr.headRefName || "");
   if (!/^[\w.\/-]+$/.test(head)) throw new Error(`could not read the branch of ${repo} PR ${number}`);
   return head;
+}
+
+// Whether commit `a` is an ancestor of `b` in the checkout `wt` (or the same commit).
+async function isAncestor(wt, a, b) {
+  try { await execFileP("git", ["-C", wt, "merge-base", "--is-ancestor", a, b], { windowsHide: true }); return true; }
+  catch (e) { if (e.code === 1) return false; throw e; }
 }
 
 // The GitHub default branch of `repo`, e.g. "master".
@@ -278,7 +287,15 @@ export async function createWorktree({ card, title, pr, words, repo = "bloombook
   // A local branch named like the PR's makes "git switch" use it; otherwise it creates one tracking origin.
   await execFileP("git", ["-C", wt, "switch", head], { windowsHide: true });
   if (orcaBranch && orcaBranch !== head) await execFileP("git", ["-C", wt, "branch", "-D", orcaBranch], { windowsHide: true }).catch(e => log("could not delete " + orcaBranch + ": " + e.message));
-  if (prBase && prBase !== main) await orca("agent", "launch", "--agent", "claude", "--worktree", "path:" + wt, "--prompt", branchNotice(head, prBase, main), "--focus");
+  // A local branch that an earlier worktree left behind can be older than the PR: it moves up to
+  // the PR's head. One with commits that the PR lacks stays as it is, and Claude says so first.
+  const notices = [];
+  if (!(await isAncestor(wt, "origin/" + head, "HEAD"))) {
+    if (await isAncestor(wt, "HEAD", "origin/" + head)) await execFileP("git", ["-C", wt, "merge", "--ff-only", "origin/" + head], { windowsHide: true });
+    else notices.push(`This worktree is on the local branch ${head}, which has commits that the PR's branch on GitHub does not, and lacks some that it has. Tell the developer that in one sentence before anything else, and change neither branch until they say how to reconcile them.`);
+  }
+  if (prBase && prBase !== main) notices.push(branchNotice(head, prBase, main));
+  if (notices.length) await orca("agent", "launch", "--agent", "claude", "--worktree", "path:" + wt, "--prompt", notices.join(" "), "--focus");
   else await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude", "--focus");
   log("created " + wt + " on " + head + " for " + card);
   return { path: wt, branch: head, base: prBase || main };

@@ -159,10 +159,19 @@ export const reportOf = body => (String(body || "").match(/Preflight report:[^\n
 // the report's own wording of "nothing is waiting" varies from run to run.
 export const countDecisions = html => String(html).split(/<[^>]*>/).filter(t => /^\s*Leave as is\s*$/i.test(t)).length;
 
-// countDecisions of the report at `report`, or null when it cannot be read.
+// Where preflight publishes its reports (dev-process-artifacts.md). A PR's description is written
+// by whoever opened the PR, so the dashboard fetches a report only from here, and follows no
+// redirect: anything else in a "Preflight report:" line would have the developer's machine
+// request an address that the PR's author chose.
+export const REPORT_HOME = "https://bloombooks.github.io/dev-process-artifacts/";
+export const reportReadable = url => typeof url === "string" && url.startsWith(REPORT_HOME) && !url.includes("..");
+
+// countDecisions of the report at `report`, or null when it cannot be read or is not one of
+// preflight's (reportReadable).
 export async function reportDecisions(report) {
+  if (!reportReadable(report)) return null;
   try {
-    const r = await fetch(report, { signal: AbortSignal.timeout(15_000) });
+    const r = await fetch(report, { redirect: "error", signal: AbortSignal.timeout(15_000) });
     if (!r.ok) throw new Error(String(r.status));
     return countDecisions(await r.text());
   } catch { return null; }
@@ -338,6 +347,8 @@ export function panelRow({ row, ...facts }) {
 /**
  * Adds to each row what the page draws besides what the session wrote: the PR's state
  * (`prState`, "draft" or "open"), mergeability and CI (`prMergeable`, `prChecks`) from `facts.prs`,
+ * and its preflight report (`report`, `reportDecisions`) from there too when the facts have one (a
+ * later preflight run publishes a new report before the session's row catches up with it),
  * whether the card has the "Approved Plan" tag (`approvedPlan`) from `facts.cards`, the
  * developer's own review of the PR (`ownReview`, from `ownReviews`, PR URL -> own-review.mjs's
  * answer), the worktree's latest preflight run (`progress`), whether that run shows as going with
@@ -351,7 +362,11 @@ export function enrichRows(rows, facts, ownReviews = new Map(), runs = readProgr
   const approved = new Set((facts?.cards || []).filter(c => c.approvedPlan).map(c => c.id));
   for (const r of rows) {
     const p = prFacts.get(r.pr);
-    if (p) { r.prState = p.isDraft ? "draft" : "open"; r.prMergeable = p.mergeable; r.prChecks = p.checks; }
+    if (p) {
+      r.prState = p.isDraft ? "draft" : "open"; r.prMergeable = p.mergeable; r.prChecks = p.checks;
+      if (p.report && p.report !== r.report) { r.report = p.report; r.reportDecisions = p.reportDecisions ?? null; }
+      else if (p.report && p.reportDecisions != null) r.reportDecisions = p.reportDecisions;
+    }
     r.approvedPlan = approved.has(r.card);
     if (ownReviews.has(r.pr)) r.ownReview = ownReviews.get(r.pr);
     const key = norm(r.worktree);

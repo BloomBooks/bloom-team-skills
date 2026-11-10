@@ -141,7 +141,10 @@ const prs = [];
 for (const repo of repos) {
   const text = run("gh", ["pr", "list", "-R", repo, "--author", "@me", "--state", "open", "--limit", "100", "--json",
     "number,url,title,headRefName,baseRefName,isDraft,mergeable,reviewDecision,reviewRequests,additions,deletions,changedFiles,updatedAt,statusCheckRollup,body"]);
-  for (const { statusCheckRollup, body, ...p } of JSON.parse(text || "[]")) {
+  // A failed list is an error, never an empty one: the server would report every PR in the repo
+  // as merged or closed. Failing keeps the last facts, and the server reports the error once.
+  if (text == null) throw new Error(`gh pr list failed for ${repo}; is gh signed in and GitHub reachable?`);
+  for (const { statusCheckRollup, body, ...p } of JSON.parse(text)) {
     prs.push({
       ...p, repo, card: cardOf(p.headRefName, p.title),
       reviewRequests: p.reviewRequests.map(r => r.login), checks: checksState(statusCheckRollup),

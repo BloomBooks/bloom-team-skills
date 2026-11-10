@@ -283,7 +283,7 @@ export async function worktreeState({ displayName, branch, paneKey, terminalIds,
   const d = panelRow({ row, cardId, card, pr, run, checkout, worktree: wt, title: w.displayName || b });
   // The card's State and the PR are read live here, where the server reads them from facts.json.
   if (card?.state) d.ytState = card.state;
-  const openPr = pr && pr.state === "OPEN" ? [{ url: pr.url, isDraft: pr.isDraft, mergeable: pr.mergeable, checks: pr.checks }] : [];
+  const openPr = pr && pr.state === "OPEN" ? [{ url: pr.url, isDraft: pr.isDraft, mergeable: pr.mergeable, checks: pr.checks, report: pr.report, reportDecisions: pr.reportDecisions }] : [];
   const reviewed = d.pr && d.nextSkill === "request-peer-review" ? ownReviewOf(d.pr) : null;
   enrichRows([d], { prs: openPr, cards: card ? [{ id: card.id, approvedPlan: card.approvedPlan }] : [] },
     new Map(reviewed ? [[d.pr, reviewed]] : []), runs, new Map(checkout ? [[norm(wt), checkout]] : []));

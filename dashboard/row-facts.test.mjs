@@ -7,7 +7,8 @@ import os from "node:os";
 import path from "node:path";
 import {
   agentEventLines, agentStates, cardOf, checksState, codeChangedSincePreflight, countDecisions, enrichRows, liveAgents,
-  nextFromFacts, norm, panelRow, questionOf, readRowFiles, reportOf, rowOfWorktree, rowProblems, RUN_FRESH_MS, runShowing, skillOf,
+  nextFromFacts, norm, panelRow, questionOf, readRowFiles, REPORT_HOME as REPORT, reportDecisions, reportOf, reportReadable,
+  rowOfWorktree, rowProblems, RUN_FRESH_MS, runShowing, skillOf,
 } from "./row-facts.mjs";
 
 const NOW = Date.parse("2026-11-10T12:00:00Z");
@@ -251,6 +252,33 @@ test("enrichRows finds the run and checkout of a row whose path has a trailing s
   assert.equal(r.prState, "draft");
   assert.equal(r.approvedPlan, true);
   assert.equal(r.runShowing, false);
+});
+
+test("enrichRows takes a newer preflight report from the facts over the one in the session's row", () => {
+  const url = "https://github.com/BloomBooks/BloomDesktop/pull/7";
+  const row = extra => [{ card: "BL-7", pr: url, report: REPORT + "old.html", reportDecisions: 0, ...extra }];
+  const facts = report => ({ prs: [{ url, isDraft: false, ...report }] });
+  const [newer] = enrichRows(row(), facts({ report: REPORT + "new.html", reportDecisions: 2 }), new Map(), new Map(), new Map(), NOW);
+  assert.deepEqual([newer.report, newer.reportDecisions], [REPORT + "new.html", 2]);
+  const [same] = enrichRows(row(), facts({ report: REPORT + "old.html", reportDecisions: 1 }), new Map(), new Map(), new Map(), NOW);
+  assert.equal(same.reportDecisions, 1);
+  const [none] = enrichRows(row(), facts({ report: null }), new Map(), new Map(), new Map(), NOW);
+  assert.equal(none.report, REPORT + "old.html");
+});
+
+test("only a report that preflight published is fetched, and a redirect is not followed", async () => {
+  assert.equal(reportReadable(REPORT + "deciders/x.html"), true);
+  assert.equal(reportReadable("https://intranet.example/x"), false);
+  assert.equal(reportReadable("https://bloombooks.github.io/other/x.html"), false);
+  assert.equal(reportReadable(REPORT + "../../x"), false);
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url, opts) => { asked.push([url, opts.redirect]); return new Response("<b>Leave as is</b>"); };
+  try {
+    assert.equal(await reportDecisions("https://10.0.0.1/admin"), null);
+    assert.equal(await reportDecisions(REPORT + "deciders/x.html"), 1);
+    assert.deepEqual(asked, [[REPORT + "deciders/x.html", "error"]]);
+  } finally { globalThis.fetch = realFetch; }
 });
 
 test("enrichRows shows a fresh run with no agent, and not a stale one", () => {

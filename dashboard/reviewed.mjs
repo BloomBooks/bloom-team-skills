@@ -23,6 +23,10 @@
 import { execFileSync } from "node:child_process";
 
 const DAYS = 14;
+// How far back the search for PRs reaches. Past DAYS, a review stays on the list only when its
+// card still needs the developer (followUp "responded" or "merged"); a PR merged three weeks ago
+// is not updated since, so a search limited to DAYS would never find it.
+const FOLLOW_UP_DAYS = 60;
 const CARDS = /\bBL-\d+/gi;
 // The attribution line an agent puts at the start of what it posts as the developer.
 const AGENT_POST = /^\s*\[Claude\b[^\]]*\]/;
@@ -46,10 +50,10 @@ function gh(args) {
  */
 export async function reviewedCards(yt, githubLogin, youtrackLogin) {
   const since = Date.now() - DAYS * 864e5;
-  const day = new Date(since).toISOString().slice(0, 10);
+  const day = new Date(Date.now() - FOLLOW_UP_DAYS * 864e5).toISOString().slice(0, 10);
   const me = githubLogin.toLowerCase();
 
-  // PRs the developer reviewed or commented on that changed since then.
+  // PRs the developer reviewed or commented on that changed in the last FOLLOW_UP_DAYS.
   const found = new Map(); // url -> { owner, repo, number }
   for (const who of ["reviewed-by", "commenter"]) {
     for (let page = 1; ; page++) {
