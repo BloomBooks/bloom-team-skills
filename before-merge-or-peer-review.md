@@ -12,7 +12,12 @@ does not count as new work; it changes no content.)
 
 ## Step 1 — Verify the PR is actually clean
 
-Check all of the following. **Any failure → go no further** (see "Not clean" below).
+First, from the worktree, run `node "$HOME/.claude/skills/dashboard/progress.mjs" end` (skip it
+when that file is missing). It closes a preflight run that ended without recording its end, which
+the dashboard would otherwise show as preflight still going; a run that did record its end is
+left as it was.
+
+Then check all of the following. **Any failure → go no further** (see "Not clean" below).
 
 - **Everything committed & pushed**: `git status` clean, no unpushed commits
   (`git log --branches --not --remotes --oneline`).

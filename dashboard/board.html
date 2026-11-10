@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bloom Dashboard</title>
+<!-- An orange speedometer; the decider's served forms use a question mark. Chrome draws the app
+     window's taskbar button from these, and it scales an SVG favicon up from 16px, which blurs. -->
+<link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="icons/icon-48.png">
+<link rel="icon" type="image/png" sizes="64x64" href="icons/icon-64.png">
+<link rel="icon" type="image/png" sizes="256x256" href="icons/icon-256.png">
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+<div class="toolbar" role="banner">
+  <div class="toolbar-row">
+    <span class="toolbar-side"><img class="toolbar-mark" src="data:image/svg+xml,%3Csvg%20width%3D%2216%22%20height%3D%2214%22%20viewBox%3D%220%200%2016%2014%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20clip-path%3D%22url(%23clip0_4292_96)%22%3E%3Cpath%20d%3D%22M13.303%202.69536C11.9231%201.32364%2010.064%200.541904%208.11844%200.515232C6.17288%200.488559%204.2931%201.21904%202.87605%202.55242C1.45899%203.88579%200.615599%205.7177%200.523956%207.66128C0.432313%209.60487%201.0996%2011.508%202.3849%2012.9688L2.39052%2012.9751C2.40084%2012.986%202.41052%2012.9972%202.42177%2013.0079C2.4449%2013.0341%202.47115%2013.0638%202.50209%2013.0947C2.62341%2013.2237%202.77006%2013.3262%202.93283%2013.3959C3.09561%2013.4656%203.27102%2013.5009%203.44807%2013.4997C3.62513%2013.4984%203.80003%2013.4607%203.96182%2013.3887C4.12361%2013.3168%204.26881%2013.2122%204.38834%2013.0816C4.84823%2012.5818%205.40681%2012.1828%206.02878%2011.9099C6.65075%2011.637%207.32257%2011.4961%208.00177%2011.4961C8.68098%2011.4961%209.3528%2011.637%209.97477%2011.9099C10.5967%2012.1828%2011.1553%2012.5818%2011.6152%2013.0816C11.7356%2013.2129%2011.882%2013.3178%2012.045%2013.3896C12.2081%2013.4615%2012.3843%2013.4986%2012.5625%2013.4988C12.7406%2013.499%2012.9169%2013.4622%2013.0801%2013.3907C13.2433%2013.3192%2013.3899%2013.2146%2013.5105%2013.0835L13.6108%2012.9741L13.6165%2012.9679C14.8829%2011.5378%2015.5557%209.67833%2015.4977%207.76902C15.4396%205.8597%2014.655%204.04455%2013.304%202.69411L13.303%202.69536ZM7.4999%203.00005C7.4999%202.86744%207.55258%202.74027%207.64635%202.6465C7.74011%202.55273%207.86729%202.50005%207.9999%202.50005C8.13251%202.50005%208.25968%202.55273%208.35345%202.6465C8.44722%202.74027%208.4999%202.86744%208.4999%203.00005V4.00005C8.4999%204.13266%208.44722%204.25984%208.35345%204.3536C8.25968%204.44737%208.13251%204.50005%207.9999%204.50005C7.86729%204.50005%207.74011%204.44737%207.64635%204.3536C7.55258%204.25984%207.4999%204.13266%207.4999%204.00005V3.00005ZM3.9999%208.50005H2.9999C2.86729%208.50005%202.74011%208.44737%202.64635%208.35361C2.55258%208.25984%202.4999%208.13266%202.4999%208.00005C2.4999%207.86744%202.55258%207.74027%202.64635%207.6465C2.74011%207.55273%202.86729%207.50005%202.9999%207.50005H3.9999C4.13251%207.50005%204.25968%207.55273%204.35345%207.6465C4.44722%207.74027%204.4999%207.86744%204.4999%208.00005C4.4999%208.13266%204.44722%208.25984%204.35345%208.35361C4.25968%208.44737%204.13251%208.50005%203.9999%208.50005ZM5.5249%205.52505C5.43114%205.61875%205.30401%205.67138%205.17146%205.67138C5.03891%205.67138%204.91178%205.61875%204.81802%205.52505L4.11084%204.81818C4.01706%204.7244%203.96437%204.59721%203.96437%204.46458C3.96437%204.33196%204.01706%204.20477%204.11084%204.11099C4.20461%204.01721%204.33181%203.96453%204.46443%203.96453C4.59705%203.96453%204.72424%204.01721%204.81802%204.11099L5.5249%204.81818C5.6186%204.91193%205.67123%205.03906%205.67123%205.17161C5.67123%205.30417%205.6186%205.43129%205.5249%205.52505ZM10.1905%206.24693L8.70615%208.6063C8.64542%208.69046%208.57156%208.76432%208.4874%208.82505C8.28422%208.9668%208.03333%209.02269%207.78919%208.98061C7.54505%208.93852%207.32736%208.80185%207.18337%208.60025C7.03937%208.39866%206.98069%208.14841%207.02006%207.90382C7.05943%207.65923%207.19367%207.44003%207.39365%207.2938L9.75302%205.80943C9.80666%205.77204%209.87046%205.752%209.93584%205.752C10.0012%205.752%2010.065%205.77204%2010.1186%205.80943C10.186%205.85806%2010.2314%205.93137%2010.2448%206.01335C10.2583%206.09533%2010.2388%206.1793%2010.1905%206.24693ZM11.1818%205.52505C11.0872%205.61486%2010.9614%205.66419%2010.831%205.66252C10.7006%205.66085%2010.576%205.60832%2010.4838%205.51612C10.3916%205.42391%2010.3391%205.29934%2010.3374%205.16896C10.3358%205.03858%2010.3851%204.91271%2010.4749%204.81818L11.1818%204.11099C11.2756%204.01721%2011.4027%203.96453%2011.5354%203.96453C11.668%203.96453%2011.7952%204.01721%2011.889%204.11099C11.9827%204.20477%2012.0354%204.33196%2012.0354%204.46458C12.0354%204.59721%2011.9827%204.7244%2011.889%204.81818L11.1818%205.52505ZM12.9999%208.50005H11.9999C11.8673%208.50005%2011.7401%208.44737%2011.6463%208.35361C11.5526%208.25984%2011.4999%208.13266%2011.4999%208.00005C11.4999%207.86744%2011.5526%207.74027%2011.6463%207.6465C11.7401%207.55273%2011.8673%207.50005%2011.9999%207.50005H12.9999C13.1325%207.50005%2013.2597%207.55273%2013.3535%207.6465C13.4472%207.74027%2013.4999%207.86744%2013.4999%208.00005C13.4999%208.13266%2013.4472%208.25984%2013.3535%208.35361C13.2597%208.44737%2013.1325%208.50005%2012.9999%208.50005Z%22%20fill%3D%22%23D97757%22%2F%3E%3C%2Fg%3E%3Cdefs%3E%3CclipPath%20id%3D%22clip0_4292_96%22%3E%3Crect%20width%3D%2216%22%20height%3D%2214%22%20fill%3D%22white%22%2F%3E%3C%2FclipPath%3E%3C%2Fdefs%3E%3C%2Fsvg%3E" alt="">
+    <span class="toolbar-name">Bloom Developer Dashboard</span></span>
+    <span class="toolbar-who" id="bar-who"></span>
+    <span class="toolbar-side end"><span class="toolbar-checked" id="checked"></span>
+    <button type="button" class="refresh" id="check-now" title="Gather cards, PRs and branches from YouTrack, GitHub and git again now, instead of waiting for the next check every 15 minutes. Agents' states are always live."><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg><span id="check-label">Refresh</span></button></span>
+  </div>
+</div>
+
+<div class="wrap">
+  <header>
+    <p id="note" hidden></p>
+  </header>
+
+  <section class="group" id="back" hidden>
+    <h2>Back with you for review <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="back-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="back-tip">Other people's PRs you reviewed whose cards are in Ready For Code Review and need you: orange when the author has responded since your last comment; amber when the card is probably in the wrong State: Has Comments if the author hasn't responded, Ready For Testing if the PR is merged.</span></span></h2>
+    <ul class="lines" id="back-list"></ul>
+  </section>
+
+  <div id="groups"></div>
+
+  <section class="group" id="standup">
+    <form id="task-form" class="task-form"><input id="task-text" type="text" placeholder="Add a task" aria-label="New task" autocomplete="off"><button type="submit" class="refresh">Add</button></form>
+    <p id="task-note" class="task-note" role="alert" hidden></p>
+    <div id="standup-days"></div>
+  </section>
+</div>
+
+<script src="row.js"></script>
+<script>
+const GROUPS = [
+  { key: "near", name: "Nearly ready: re-check and promote", sub: "Small PRs with clean bot reviews; mostly a master merge and preflight away." },
+  { key: "nopr", name: "Work done, but no PR yet", sub: "Pushed branches that preflight would turn into PRs." },
+  { key: "large", name: "Large, or waiting on something else", sub: "Big diffs, or blocked on other work." },
+  { key: "cleanup", name: "Cleanup", sub: "Cards that have sat In Progress for years with nothing happening." },
+];
+// The information icon after a heading, with its text in a tooltip; the same markup as the one
+// after Finished and Reviewed.
+function infoIcon(text, id) {
+  const icon = el("span", { class: "info", tabindex: "0", role: "button", "aria-label": "About this group", "aria-describedby": id });
+  icon.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
+  icon.append(el("span", { class: "tip", role: "tooltip", id }, text));
+  return icon;
+}
+// The server that served this page runs the orca commands. DASHBOARD_TOKEN is written into the
+// page by server.mjs; other web pages can't read it, so they can't post to the server.
+async function post(path, body, failure = "Orca couldn't do that") {
+  showNote("");
+  try {
+    const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json", "x-dashboard-token": window.DASHBOARD_TOKEN }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 403) showNote("The dashboard server has restarted since this page loaded. Reload the page.");
+    else if (!r.ok || !j.ok) showNote(failure + ": " + (j.error || r.status));
+    else return true;
+  } catch (e) {
+    showNote("The dashboard server isn't answering. Is its Claude session still open?");
+  }
+  return false;
+}
+
+function render(items) {
+  const groups = document.getElementById("groups");
+  groups.replaceChildren();
+  for (const g of GROUPS) {
+    const rows = items.filter(d => d.group === g.key).sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+    if (!rows.length) continue;
+    const tbody = el("tbody");
+    for (const d of rows) {
+      // The Links column: the card's title, the card's State icon and id, then its PR and the
+      // worktree's folder, which opens in VS Code.
+      const cell = el("div", { class: "card-cell" },
+        el("span", { class: "title" }, d.title || ""),
+        el("span", { class: "meta" },
+          el("span", { class: "id" }, stateIcon(d.ytState), cardLabel(d))));
+      const card = el("td", { class: "card" }, cell);
+      const links = el("span", { class: "links" });
+      if (d.pr) links.append(prLinks(d.pr, PR_TONE[d.prState]));
+      if (d.worktree) links.append(action("orca wt", "Open this folder in VS Code", d.worktree, () => post("/api/vscode", { path: d.worktree }), "vscode:" + d.worktree));
+      if (links.childNodes.length) cell.append(links);
+      tbody.append(el("tr", d.who === "agent" ? { class: "agent-row" } : {},
+        card,
+        el("td", { class: "who" }, processCell(d)),
+        activeRun(d) ? el("td", {}, preflightSteps(d.progress)) : el("td", {}, d.status || "",
+          d.comments ? commentsLine(d.comments) : null,
+          d.question ? el("span", { class: "question" }, el("b", {}, "Claude asks: "), d.question) : null,
+          d.next ? el("span", { class: "next" }, el("b", {}, "Next: "), d.next) : null),
+        el("td", { class: "upd" }, localTime(d.updated), orcaButton(d)),
+      ));
+    }
+    const table = el("table", {},
+      el("thead", {}, el("tr", {}, el("th", {}, "Links"), el("th", {}, "Process"), el("th", {}, "Where it stands"), el("th", {}, "Updated"))),
+      tbody);
+    groups.append(el("section", { class: "group" }, el("h2", {}, g.name + " ", infoIcon(g.sub, g.key + "-tip")), el("div", { class: "table-scroll" }, table)));
+  }
+}
+
+// The label for a reviewed card that is back in Ready For Code Review (see reviewed.mjs).
+const FOLLOW_UP = {
+  responded: { text: "Author responded", title: "The author has commented or pushed since your last comment: the PR is back with you" },
+  forgot: { text: "Move to Has Comments?", title: "In Ready For Code Review, but the author hasn't responded since your last comment" },
+  merged: { text: "Move to Ready For Testing?", title: "The PR is merged, but the card is still in Ready For Code Review" },
+};
+// One line of a list: the card's title and State, its id (a PR that names no card links the PR
+// itself, a repo's line its commits), its PR at the far right, and, when given, a time.
+function lineItem(f, time, timeTitle) {
+  const isPr = f.pr && f.pr === f.url;
+  // History's lines say prState; reviewed.mjs's lines for "Back with you for review" say merged.
+  const prState = f.prState || (f.merged ? "merged" : "");
+  return el("li", f.followUp ? { class: "fu-" + f.followUp } : {},
+    f.kind ? kindIcon(f.kind) : null,
+    f.followUp ? el("span", { class: "fu", title: FOLLOW_UP[f.followUp].title }, FOLLOW_UP[f.followUp].text) : null,
+    el("span", { class: "title", title: f.summary }, f.summary),
+    el("span", { class: "id" }, stateIcon(f.state), !f.url ? f.id : isPr ? markMerged(toned(f.url, f.id, PR_TONE[prState]), prState) : toned(f.url, f.id, CARD_TONE[f.state])),
+    f.pr && !isPr ? el("span", { class: "id" }, markMerged(toned(f.pr, "PR " + f.pr.split("/").pop(), PR_TONE[prState]), prState)) : null,
+    time ? el("span", { class: "when", title: timeTitle + " " + new Date(time).toLocaleString() }, localTime(time)) : null);
+}
+function renderBack(items) {
+  const ul = document.getElementById("back-list");
+  ul.replaceChildren(...(items || []).map(f => lineItem(f, f.commentedAt, "You last commented")));
+  document.getElementById("back").hidden = !ul.childNodes.length;
+}
+// A History day's heading: "Today", the weekday within the last week ("Friday"), or the weekday
+// and date before that ("Thursday, Oct 29").
+function dayName(date) {
+  const [y, m, d] = date.split("-").map(Number);
+  const t = new Date(y, m - 1, d), today = new Date();
+  const days = Math.round((new Date(today.getFullYear(), today.getMonth(), today.getDate()) - t) / 864e5);
+  if (days === 0) return "Today";
+  return t.toLocaleDateString([], days < 7 ? { weekday: "long" } : { weekday: "long", month: "short", day: "numeric" });
+}
+const STANDUP_KINDS = [["finished", "Finished"], ["worked", "Worked on"], ["reviewed", "Reviewed"]];
+// The icon at the start of a History line, with what it means on hover: a check in a circle for
+// Finished, a short dash for Worked on (most lines, so it stays quiet), an eye for Reviewed.
+const KIND_ICONS = {
+  finished: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>',
+  worked: '<path d="M9 12h6"/>',
+  reviewed: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+};
+function kindIcon(kind) {
+  const label = STANDUP_KINDS.find(([k]) => k === kind)[1];
+  const icon = el("span", { class: "kind kind-" + kind, title: label, role: "img", "aria-label": label });
+  icon.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${KIND_ICONS[kind]}</svg>`;
+  return icon;
+}
+// A date as YYYY-MM-DD in the viewer's own time zone, the form History's days use.
+function localDate(t) {
+  const two = n => String(n).padStart(2, "0");
+  return `${t.getFullYear()}-${two(t.getMonth() + 1)}-${two(t.getDate())}`;
+}
+// One to-do item: a checkbox that checks or unchecks it, its text, and a button that deletes it.
+function taskItem(t) {
+  const box = el("input", { type: "checkbox", "aria-label": t.checked ? "Uncheck this task" : "Check off this task" });
+  box.checked = !!t.checked;
+  box.addEventListener("change", () => changeTask(t.checked ? "uncheck" : "check", { id: t.id }));
+  const del = action("task-delete", "Delete this task", "×", () => changeTask("delete", { id: t.id }), "task-delete:" + t.id);
+  return el("li", { class: "task" + (t.checked ? " checked" : "") }, el("label", {}, box, el("span", { class: "title" }, t.text)), del);
+}
+// A failed task change says why under the Add box, where the developer is looking: the page's
+// own note is at the top, out of view when History is scrolled into view.
+async function changeTask(what, body) {
+  showTaskNote("");
+  try {
+    const r = await fetch("/api/task/" + what, { method: "POST", headers: { "content-type": "application/json", "x-dashboard-token": window.DASHBOARD_TOKEN }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 403) { showTaskNote("The dashboard server has restarted since this page loaded. Reload the page."); return false; }
+    if (!j.ok) { showTaskNote("Couldn't change the task: " + (j.error || r.status)); return false; }
+    lastTasks = j.tasks;
+    renderStandup(lastStandup, lastTasks);
+    return true;
+  } catch { showTaskNote("The dashboard server isn't answering. It runs only while its Claude session is open; run /dashboard to start it again."); return false; }
+}
+function showTaskNote(text) {
+  const n = document.getElementById("task-note");
+  n.textContent = text || "";
+  n.hidden = !text;
+}
+// History: today and the two weekdays (Monday to Friday) before it, newest first, each shown even
+// with nothing on it, plus a Saturday or Sunday in between that has any activity. Open tasks show
+// under today; a checked task shows under the day it was checked, which counts as activity on
+// that day. standup.mjs's historyStart() works out the same first day.
+//
+// Each day's work is one list, newest first, each line labelled Finished, Worked on or Reviewed.
+// On a weekday whose stand-up has passed, a line marks the meeting, and the work before it (which
+// was reported there) is dimmed below it. standup.mjs marks those lines beforeStandup.
+let lastStandup = null, lastTasks = [], standupAt = { hour: 8, minute: 45 };
+function renderStandup(days, tasks) {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (let n = 0; n < 2;) { first.setDate(first.getDate() - 1); if (first.getDay() % 6) n++; }
+  const byDate = new Map();
+  for (const d = new Date(first); d <= now; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() % 6) byDate.set(localDate(d), { date: localDate(d), tasks: [] });
+  }
+  const today = localDate(now), start = localDate(first);
+  const dayOf = date => { if (!byDate.has(date)) byDate.set(date, { date, tasks: [] }); return byDate.get(date); };
+  dayOf(today);
+  for (const d of days || []) if (d.date >= start && d.date <= today) Object.assign(dayOf(d.date), d);
+  for (const t of tasks || []) {
+    const date = t.checked ? localDate(new Date(t.checked)) : today;
+    if (date >= start) dayOf(date).tasks.push(t);
+  }
+  const shown = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+  // Open tasks first, then the ones checked off that day, each in the order they were made.
+  const order = (a, b) => (!!a.checked - !!b.checked) || a.created.localeCompare(b.created);
+  const meeting = new Date(now.getFullYear(), now.getMonth(), now.getDate(), standupAt.hour, standupAt.minute);
+  const early = t => { const d = new Date(t); return d.getDay() % 6 !== 0 && d.getHours() * 60 + d.getMinutes() < standupAt.hour * 60 + standupAt.minute; };
+  // A day's tasks and work lines, either the ones before its stand-up or the ones after.
+  const part = (day, before) => {
+    const out = [];
+    const dayTasks = day.tasks.filter(t => !!t.checked && early(t.checked) === before);
+    if (!before) dayTasks.push(...day.tasks.filter(t => !t.checked));
+    if (dayTasks.length) out.push(el("ul", { class: "lines tasks" }, ...dayTasks.sort(order).map(taskItem)));
+    const work = STANDUP_KINDS.flatMap(([kind]) => (day[kind] || []).filter(f => !!f.beforeStandup === before).map(f => ({ ...f, kind })))
+      .sort((a, b) => b.at.localeCompare(a.at));
+    if (work.length) out.push(el("ul", { class: "lines" }, ...work.map(f => lineItem(f))));
+    return out;
+  };
+  const meetingLabel = "stand-up " + meeting.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const box = document.getElementById("standup-days");
+  box.replaceChildren(...shown.map(day => {
+    // Today's stand-up has not happened yet: everything so far goes in the report.
+    const met = day.date !== today || now >= meeting;
+    const after = met ? part(day, false) : [...part(day, false), ...part(day, true)];
+    const before = met ? part(day, true) : [];
+    return el("div", { class: "day" },
+      el("h3", {}, dayName(day.date)),
+      !after.length && !before.length ? el("p", { class: "nothing" }, "Nothing recorded.") : null,
+      ...after,
+      before.length ? el("div", { class: "standup-line" }, el("span", {}, meetingLabel)) : null,
+      before.length ? el("div", { class: "before-standup", title: "Done before this day's stand-up, so already reported there" }, ...before) : null);
+  }));
+}
+document.getElementById("task-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const input = document.getElementById("task-text");
+  if (!input.value.trim()) return;
+  if (await changeTask("create", { text: input.value })) input.value = "";
+});
+
+function showNote(text) {
+  const n = document.getElementById("note");
+  n.textContent = text || "";
+  n.hidden = !text;
+}
+
+let lastJson = "";
+async function refresh() {
+  let state;
+  try {
+    const r = await fetch("/api/state", { cache: "no-store" });
+    state = await r.json();
+  } catch {
+    showNote("The dashboard server isn't answering. It runs only while its Claude session is open; run /dashboard to start it again.");
+    return;
+  }
+  // Another session's server has taken the port; reload to get its token, or the buttons fail.
+  if (state.serverPid && window.DASHBOARD_PID && state.serverPid !== window.DASHBOARD_PID) { location.reload(); return; }
+  const json = JSON.stringify(state);
+  if (json === lastJson && !launched.size) return;
+  lastJson = json;
+  showNote(state.rows.length ? "" : "No cards yet. Claude adds them after gathering.");
+  const version = (state.board || "").replace(/^Bloom\s+/i, "");
+  document.getElementById("bar-who").textContent = (state.developer ? state.developer + "'s work" : "Your work")
+    + (version ? " on version " + version + " board" : " on every board");
+  gatheredAt = state.gatheredAt ? new Date(state.gatheredAt) : null;
+  showChecked();
+  render(withLiveAgents(state.rows, state.agents));
+  renderBack(state.backForReview);
+  lastStandup = state.standup;
+  lastTasks = state.tasks || [];
+  if (state.standupAt) standupAt = state.standupAt;
+  renderStandup(lastStandup, lastTasks);
+}
+// When the server last gathered YouTrack, GitHub and git facts (every 15 minutes, or on Refresh),
+// shown as "Checked 5 minutes ago". Agents' states come every few seconds and are not part of it.
+let gatheredAt = null;
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+function showChecked() {
+  const el = document.getElementById("checked");
+  if (!gatheredAt) { el.textContent = ""; el.title = ""; return; }
+  const minutes = Math.round((Date.now() - gatheredAt) / 60000);
+  el.textContent = "Checked " + (minutes < 1 ? "just now" : minutes < 60 ? relative.format(-minutes, "minute") : relative.format(-Math.round(minutes / 60), "hour"));
+  el.title = "Cards, PRs and branches checked at " + gatheredAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+// Refresh: the server gathers again (about 20 s) and the page shows the result.
+document.getElementById("check-now").addEventListener("click", async e => {
+  const b = e.currentTarget, label = document.getElementById("check-label");
+  b.disabled = true;
+  label.textContent = "Refreshing…";
+  await post("/api/gather", {}, "Couldn't refresh");
+  b.disabled = false;
+  label.textContent = "Refresh";
+  refresh();
+});
+refresh();
+setInterval(refresh, 3000);
+// Closing the window stops the server; it waits a few seconds first, so a reload does not.
+addEventListener("pagehide", () => navigator.sendBeacon("/api/closing", window.DASHBOARD_TOKEN));
+setInterval(showChecked, 30000);
+setInterval(() => { for (const e of document.querySelectorAll(".elapsed[data-since]")) e.textContent = elapsedText(Number(e.dataset.since)); }, 15000);
+</script>
+</body>
+</html>
