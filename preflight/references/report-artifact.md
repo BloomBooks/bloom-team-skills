@@ -36,7 +36,9 @@ chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   #
    visible, no prose set in monospace, no text running under or past a neighbour.
 4. **The copy-back actually serializes.** Read `#payload`, then flip a couple of controls and read
    it again — confirm a selection changes the text, a `Leave comment` tick adds its line, an
-   untouched `Leave comment` adds nothing, and `Other:` picks up its typed value.
+   untouched `Leave comment` adds nothing, and `Other:` picks up its typed value. On the page
+   served by `claude-decider.mjs`, Send to Claude shows; on the file opened directly, it does
+   not.
 5. **Only then publish.** If you find a defect after publishing, fix and republish to the *same*
    path so the card's link stays valid.
 
@@ -134,12 +136,12 @@ one click from there". The sample screenshot (`preflight-report-sample.png`) sho
 chips after "Board". The render check and the pre-publish grep both look for this link.
 
 The state chip may additionally wrap its label in an `<a>` to the same PR URL (an anchor inside
-the span keeps the markers' shape and survives `pr-ready-for-human`'s patch, which only swaps the
+the span keeps the markers' shape and survives the patch that `request-peer-review` and `merge-without-peer-review` apply, which only swaps the
 attribute and the label text) — but that is optional; the links row is what is checked.
 
 **The PR-state chip is read live, never assumed.** This report outlives the run: it sits at a
-stable URL linked on the tracker card, and afterwards `pr-ready-for-human` — or the human author
-by hand — un-drafts the PR. A chip that still says "Draft PR" then misleads everyone who opens
+stable URL linked on the tracker card, and afterwards `request-peer-review` — or the human author
+by hand — un-drafts the PR, or `merge-without-peer-review` merges it. A chip that still says "Draft PR" then misleads everyone who opens
 that link. Two rules keep it honest:
 
 - **Read the state at the moment you write the page** (`gh pr view <n> --json isDraft,state`) and
@@ -151,9 +153,9 @@ that link. Two rules keep it honest:
   <!-- pr-state:begin --><span class="chip" data-pr-state="draft">Draft PR</span><!-- pr-state:end -->
   ```
 
-  `data-pr-state` is `draft` or `ready`; the label is `Draft PR` or `Ready for review`. Keep the
+  `data-pr-state` is `draft`, `ready` or `merged`; the label is `Draft PR`, `Ready for review` or `Merged`. Keep the
   markers and the chip on **one line**, in exactly this shape (your own class names are fine) —
-  `pr-ready-for-human` rewrites what sits between the markers, and drifting from this shape is
+  `patch-report-chip.mjs` rewrites what sits between the markers, and drifting from this shape is
   what leaves a stale "draft" chip on a promoted PR. Emit the markers on every run, including the
   ordinary one where the PR really is a draft.
 
@@ -170,7 +172,9 @@ gate, in the left column, as its own card.
 Give the card sub-headings so it can be skimmed — **Problem**, **Cause** (omit the heading
 entirely when there is no separate cause to state), **What the PR does**; or, for a feature or an
 improvement, **Purpose** and **What the PR does**. Prose and short
-bullets, in behavior terms, not a commit log and not a file list.
+bullets, in behavior terms, not a commit log and not a file list. For a PR that fixes several
+separate problems, give each problem its own heading with its Problem, Cause and Fix under it, the
+way the PR description does (SKILL.md, "The PR description — one problem at a time").
 
 This card is the reason someone can open the report cold — a reviewer, or the developer's
 colleague picking up the card next week — and answer the decisions sensibly. It is **never**
@@ -258,6 +262,20 @@ The decision items and the copy-back card follow the **`decider` skill's spec ex
 `Other:`, the fix-complexity footnotes, the `Leave comment` checkbox, a notes box on every item,
 a closing "next step" question), its `data-q` / `data-instruction` serialization, and its
 copy-back card with the clipboard ladder. Read that skill; do not restate it here.
+
+**The copy-back has a Send to Claude button beside Copy**, as the decider's form does, so the
+developer can answer without pasting anything:
+
+- The button posts the copy-back text as plain text to `window.DECIDER_ENDPOINT`, and hides
+  itself when the page has none. Copy the code for it from the decider's `form.html` (its "Send
+  to Claude" button and the `endpoint` branch of its click handler), so the two behave alike.
+- When the report has open decisions, also serve it on this machine with the decider's
+  `claude-decider.mjs <report.html>` (its "Where it goes"), started in the background from the
+  worktree, and end the turn. The server opens the page in the developer's browser with the
+  endpoint set; Send to Claude prints the answers and wakes this session. Open this local page
+  instead of the public URL (Publishing, "open the report ... exactly once").
+- The public copy, on GitHub Pages, has no endpoint, so there the button hides and Copy is the
+  way back.
 
 Two things are specific to the preflight report:
 

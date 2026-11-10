@@ -8,12 +8,14 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { developer } from "../developer.mjs";
 import { callService } from "../bloom-services/sources.mjs";
+import { reviewedCards } from "./reviewed.mjs";
+import { bloomRepos, standupDays } from "./standup.mjs";
+import { cardOf, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
+import { orca as orcaCli } from "../orca-worktrees.mjs";
 
 const out = process.argv[2];
 if (!out) throw new Error("usage: node gather.mjs <out.json> [board|all]");
 const boardArg = process.argv[3]?.trim() || null;
-
-const CARD = /\bBL-\d+/i;
 
 function run(cmd, args, opts = {}) {
   try {
@@ -22,10 +24,13 @@ function run(cmd, args, opts = {}) {
     return null;
   }
 }
-function orca(...args) {
-  const text = run("orca", [...args, "--json"], { shell: true });
-  if (!text) throw new Error("orca " + args.join(" ") + " failed; is Orca running?");
-  return JSON.parse(text.slice(text.indexOf("{"))).result;
+// The server logs the line that starts "Error:" when a gather fails, so the message says what to check.
+async function orca(...args) {
+  try {
+    return await orcaCli(...args);
+  } catch (e) {
+    throw new Error(`orca ${args.join(" ")} failed; is Orca running? (${String(e.message).split("\n")[0]})`);
+  }
 }
 // YouTrack, through the team's tool server (bloom-services), as the Bot account.
 async function yt(path, params) {
@@ -53,25 +58,14 @@ async function currentVersionBoard() {
   return { board, activity };
 }
 
-// One word for a PR's CI checks: FAILURE if any failed, PENDING if any have not finished,
-// SUCCESS when all passed, "" when it has none. Reviewable's status (code-review/reviewable) is
-// left out: it stays PENDING until reviewers have seen every file, which says nothing about CI.
-function checksState(rollup) {
-  const results = (rollup || []).filter(c => c.context !== "code-review/reviewable").map(c => c.__typename === "StatusContext" ? c.state : (c.status === "COMPLETED" ? c.conclusion : "PENDING"));
-  if (!results.length) return "";
-  if (results.some(r => ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(r))) return "FAILURE";
-  if (results.some(r => ["PENDING", "EXPECTED", "QUEUED", "IN_PROGRESS"].includes(r))) return "PENDING";
-  return "SUCCESS";
-}
-
 // Worktrees and the agents in them.
-const list = orca("worktree", "list").worktrees.filter(w => !w.isArchived);
-const ps = new Map(orca("worktree", "ps").worktrees.map(w => [w.path, w]));
+const list = (await orca("worktree", "list")).worktrees.filter(w => !w.isArchived);
+const ps = new Map((await orca("worktree", "ps")).worktrees.map(w => [w.path, w]));
 
 const worktrees = [];
 for (const w of list) {
   const branch = (w.branch || "").replace("refs/heads/", "");
-  const card = (branch.match(CARD) || w.path.match(CARD) || [])[0]?.toUpperCase() ?? null;
+  const card = cardOf(branch, w.path);
   if (!card) continue;
   const git = (...a) => run("git", ["-C", w.path, ...a]);
   const status = (git("status", "--porcelain") || "").split("\n").filter(Boolean);
@@ -106,7 +100,7 @@ const dev = await developer();
 let board = null, boardActivity = null;
 if (!boardArg) ({ board, activity: boardActivity } = await currentVersionBoard());
 else if (boardArg.toLowerCase() !== "all") board = /^\d/.test(boardArg) ? "Bloom " + boardArg : boardArg;
-const FIELDS = "idReadable,summary,updated,customFields(name,value(name))";
+const FIELDS = "idReadable,summary,updated,customFields(name,value(name)),tags(name)";
 // Searching by assignee needs the Bot's global "Read User Basic Role".
 const assigned = await yt("/issues", { query: `Assignee: {${dev.youtrack.login}} #Unresolved`, fields: FIELDS, $top: "500" });
 const ids = new Set([...assigned.map(i => i.idReadable), ...worktrees.map(w => w.card)]);
@@ -121,6 +115,8 @@ for (const id of ids) {
     state: field(i, "State"),
     board: field(i, "Kanban Board"),
     assignedToDeveloper: assigned.some(a => a.idReadable === id),
+    // A card tagged "Approved Plan" may be merged without peer review (merge-without-peer-review).
+    approvedPlan: (i.tags || []).some(t => t.name === "Approved Plan"),
     updated: new Date(i.updated).toISOString().slice(0, 10),
   });
 }
@@ -137,30 +133,36 @@ const prs = [];
 for (const repo of repos) {
   const text = run("gh", ["pr", "list", "-R", repo, "--author", "@me", "--state", "open", "--limit", "100", "--json",
     "number,url,title,headRefName,baseRefName,isDraft,mergeable,reviewDecision,reviewRequests,additions,deletions,changedFiles,updatedAt,statusCheckRollup,body"]);
-  for (const { statusCheckRollup, body, ...p } of JSON.parse(text || "[]")) {
+  // A failed list is an error, never an empty one: the server would report every PR in the repo
+  // as merged or closed. Failing keeps the last facts, and the server reports the error once.
+  if (text == null) throw new Error(`gh pr list failed for ${repo}; is gh signed in and GitHub reachable?`);
+  for (const { statusCheckRollup, body, ...p } of JSON.parse(text)) {
     prs.push({
-      ...p, repo, card: (p.headRefName.match(CARD) || p.title.match(CARD) || [])[0]?.toUpperCase() ?? null,
+      ...p, repo, card: cardOf(p.headRefName, p.title),
       reviewRequests: p.reviewRequests.map(r => r.login), checks: checksState(statusCheckRollup),
-      // preflight puts "Preflight report: <url>" in the PR description.
-      report: (String(body || "").match(/Preflight report:[^\n]*?(https:\/\/[^\s)\]>]+)/) || [])[1] ?? null,
+      report: reportOf(body),
     });
   }
 }
-// The number of decision items in the preflight report. Each item's options end with a
-// "Leave as is" option (preflight's references/report-artifact.md), so this counts those labels;
-// the report's own wording of "nothing is waiting" varies from run to run. null when the report
-// cannot be read.
-await Promise.all(prs.filter(p => p.report).map(async p => {
-  try {
-    const r = await fetch(p.report);
-    if (!r.ok) throw new Error(String(r.status));
-    p.reportDecisions = (await r.text()).split(/<[^>]*>/).filter(t => /^\s*Leave as is\s*$/i.test(t)).length;
-  } catch { p.reportDecisions = null; }
-}));
+await Promise.all(prs.filter(p => p.report).map(async p => { p.reportDecisions = await reportDecisions(p.report); }));
 
 // board is null when every board was kept; boardActivity is set only when the board was chosen
 // by currentVersionBoard.
-const result = { gatheredAt: new Date().toISOString(), board, boardActivity, cards: kept, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };
+// The cards whose PRs the developer reviewed lately, from every board (reviewed.mjs). The ones
+// with a followUp are back with the developer: backForReview. null when GitHub or YouTrack would
+// not give them, so the page keeps no stale list and the rest of the gather still counts.
+let reviewed = null;
+try { reviewed = await reviewedCards(yt, dev.github, dev.youtrack.login); }
+catch (e) { console.warn("could not list reviewed cards: " + e.message); }
+const backForReview = reviewed && reviewed.filter(r => r.followUp);
+// What the developer did on their most recent working days, from every board (standup.mjs);
+// null in the same way.
+let standup = null;
+try {
+  standup = await standupDays({ yt, githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: bloomRepos((await orca("repo", "list")).repos), reviewed: reviewed || [] });
+} catch (e) { console.warn("could not list the standup days: " + e.message); }
+
+const result = { gatheredAt: new Date().toISOString(), board, boardActivity, cards: kept, standup, backForReview, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };
 writeFileSync(out, JSON.stringify(result, null, 2));
 if (boardActivity) console.log(`chose ${board}, the board with the most cards updated in the last 14 days: ${Object.entries(boardActivity).map(([b, n]) => `${b} ${n}`).join(", ")}`);
 console.log(`wrote ${out}${board ? ` for ${board}` : " for every board"}:${result.cards.length} cards, ${result.worktrees.length} worktrees, ${result.prs.length} PRs`);

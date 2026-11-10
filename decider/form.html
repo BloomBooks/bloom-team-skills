@@ -35,6 +35,9 @@ button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--ac
 button.secondary{background:var(--card);color:var(--accent-strong)}
 button.primary{background:var(--accent-strong);color:#fff}
 button:disabled{opacity:.5;cursor:default}
+button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px}
+button.done svg{margin-right:6px}
+#copy:not(.done){padding:8px 10px}
 #out{width:100%;min-height:200px;margin-top:10px;font:13px ui-monospace,Consolas,monospace}
 </style>
 <!-- build-form.mjs puts the form's JSON here; see SKILL.md, "The form's JSON". -->
@@ -47,7 +50,7 @@ button:disabled{opacity:.5;cursor:default}
 <div class="count" id="count"></div>
 <div class="bar">
 <div class="status" id="status"></div>
-<button class="secondary" id="copy" type="button">Copy answers</button>
+<button class="secondary" id="copy" type="button" title="Copy answers" aria-label="Copy answers"></button>
 <button class="primary" id="send" type="button" disabled>Send to Claude</button>
 </div>
 <textarea id="out" readonly hidden></textarea>
@@ -58,6 +61,9 @@ button:disabled{opacity:.5;cursor:default}
 const FORM = JSON.parse(document.getElementById("decider-form").textContent);
 const Q = FORM.questions;
 let sending = false;
+let sent = false;   // the answers as they stand went to Claude; any change to them clears it
+const CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+const COPY = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>';
 const host = document.getElementById("questions");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -122,10 +128,28 @@ const sendBtn = document.getElementById("send");
 function refresh() {
   const left = Q.filter((_, qi) => !answered(qi)).length;
   countEl.textContent = left ? `${left} unanswered` : "";
-  sendBtn.disabled = sending || Q.every((_, qi) => chosen(qi) === null);
+  sendBtn.disabled = sending || (!sent && Q.every((_, qi) => chosen(qi) === null));
   document.querySelectorAll("label.opt").forEach(l => l.classList.toggle("chosen", l.querySelector("input").checked));
 }
+// After a copy or a send, the buttons say so ("Copied", an outlined "Sent") until the answers
+// change, when they go back to copying and sending the new answers.
+const copyBtn = document.getElementById("copy");
+function showCopy(done) {
+  copyBtn.classList.toggle("done", done);
+  copyBtn.innerHTML = done ? CHECK + "Copied" : COPY;
+}
+function showSent(done) {
+  sent = done;
+  sendBtn.className = done ? "secondary done" : "primary";
+  sendBtn.innerHTML = done ? CHECK + "Sent" : "Send to Claude";
+}
+function answersChanged() {
+  showCopy(false);
+  if (sent) showSent(false);
+}
+showCopy(false);
 document.addEventListener("change", e => {
+  answersChanged();
   const t = e.target;
   if (t.type !== "radio") { refresh(); return; }
   const ta = document.querySelector(`textarea[data-q="${t.dataset.q}"]`);
@@ -133,7 +157,7 @@ document.addEventListener("change", e => {
   if (t.value === "other") ta.focus();
   refresh();
 });
-document.addEventListener("input", refresh);
+document.addEventListener("input", e => { if (e.target.id !== "out") answersChanged(); refresh(); });
 
 document.getElementById("copy").addEventListener("click", async () => {
   try {
@@ -141,9 +165,9 @@ document.getElementById("copy").addEventListener("click", async () => {
     out.value = serialize();
     out.hidden = false;
     out.select();
-    try { await navigator.clipboard.writeText(out.value); statusEl.textContent = "Copied ✓"; return; } catch {}
+    try { await navigator.clipboard.writeText(out.value); statusEl.textContent = ""; showCopy(true); return; } catch {}
     out.select();
-    if (document.execCommand("copy")) { statusEl.textContent = "Copied ✓"; return; }
+    if (document.execCommand("copy")) { statusEl.textContent = ""; showCopy(true); return; }
     statusEl.textContent = "Couldn't copy automatically — the text is selected below; press Ctrl+C (⌘C on Mac).";
   } catch {
     statusEl.textContent = "Couldn't copy automatically — select the text below and copy it.";
@@ -168,6 +192,7 @@ const UNAVAILABLE = {
 };
 
 sendBtn.addEventListener("click", async () => {
+  if (sent) return;
   const text = serialize();
   sending = true;
   sendBtn.disabled = true;
@@ -177,22 +202,24 @@ sendBtn.addEventListener("click", async () => {
     if (endpoint) {
       const r = await fetch(endpoint, { method: "POST", headers: { "content-type": "text/plain; charset=utf-8" }, body: text });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      statusEl.textContent = "Sent to Claude ✓";
+      statusEl.textContent = "";
+      showSent(true);
     } else {
       const bytes = new TextEncoder().encode(text).length;
-      if (bytes > 4096) { statusEl.textContent = `The answers are ${bytes} bytes, over the 4096 a comment holds. Shorten your notes, or use Copy answers.`; return; }
+      if (bytes > 4096) { statusEl.textContent = `The answers are ${bytes} bytes, over the 4096 a comment holds. Shorten your notes, or use the copy button.`; return; }
       const state = await comments.canSendToClaude();
-      if (state !== "available") { statusEl.textContent = `${UNAVAILABLE[state] || "Can't send: " + state + "."} Use Copy answers.`; return; }
+      if (state !== "available") { statusEl.textContent = `${UNAVAILABLE[state] || "Can't send: " + state + "."} Use the copy button.`; return; }
       const anchor = await comments.anchorFor(document.getElementById("copyback"));
       await comments.sendToClaude({ anchor, text });
-      statusEl.textContent = "Sent to Claude ✓ Claude's reply will appear in the comment on this section.";
+      statusEl.textContent = "Claude's reply will appear in the comment on this section.";
+      showSent(true);
     }
   } catch (e) {
     if (e && e.code === "forbidden") sendBtn.hidden = true;
-    statusEl.textContent = `${(e && COMMENT_ERRORS[e.code]) || "Couldn't send (" + ((e && (e.code || e.message)) || e) + ")."} Use Copy answers.`;
+    statusEl.textContent = `${(e && COMMENT_ERRORS[e.code]) || "Couldn't send (" + ((e && (e.code || e.message)) || e) + ")."} Use the copy button.`;
   } finally {
     sending = false;
-    sendBtn.textContent = "Send to Claude";
+    if (!sent) showSent(false);
     refresh();
   }
 });

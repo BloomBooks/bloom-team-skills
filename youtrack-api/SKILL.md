@@ -1,6 +1,6 @@
 ---
 name: youtrack-api
-description: How to talk to the Bloom YouTrack tracker over REST — access, base URL, and common operations (read an issue, find an issue id, list/post/edit comments, a card's guide to a stack of PRs, set an issue's State, assign an issue, attachments). Bloom's implementation of the "tracker skill" that preflight and pr-ready-for-human ask for, and the shared low-level building block the other youtrack-* skills rely on.
+description: How to talk to the Bloom YouTrack tracker over REST — access, base URL, and common operations (read an issue, find an issue id, list/post/edit comments, a card's guide to a stack of PRs, set an issue's State, assign an issue, attachments). Bloom's implementation of the "tracker skill" that preflight, request-peer-review and merge-without-peer-review ask for, and the shared low-level building block the other youtrack-* skills rely on.
 ---
 
 # Using the Bloom YouTrack REST API
@@ -30,7 +30,9 @@ that implementation for Bloom repos — the mapping is:
 | List a card's comments | §3 "List an issue's comments" |
 | Post or update a comment | §3 "Post a comment" |
 | Read a card's title and description (the problem statement) | §3 "Read an issue" — the `summary` and `description` fields |
-| Move a card to "ready for peer review" (`pr-ready-for-human` only) | §3 "Set an issue's State" — for Bloom that state is **`Ready For Code Review`** |
+| Move a card to "ready for peer review" (`request-peer-review` only) | §3 "Set an issue's State" — for Bloom that state is **`Ready For Code Review`** |
+| Move a card to "ready for testing" (`merge-without-peer-review` only) | §3 "Set an issue's State" — for Bloom that state is **`Ready For Testing`** |
+| Read a card's tags (`merge-without-peer-review` checks for "Approved Plan") | §3 "Read an issue" — the `tags(name)` field |
 
 Auth is this skill's business alone; callers must not reason about tokens. A team adopting
 `preflight` for a different tracker writes their own skill covering those five operations, however

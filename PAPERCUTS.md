@@ -2,6 +2,18 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-11-09 — dev-process-artifacts.md's contents-API snippet reads the wrong arguments
+
+- **Cut:** The "Republishing one file" snippet builds the request body with `node -e '...const [,,html,msg,sha]=process.argv...' <file> <msg> <sha>`. Under `node -e` the first argument is `process.argv[1]`, not `[2]`, so it opens the commit message as the HTML file and dies with ENOENT. The snippet also has a `#` comment inside the JavaScript, which is a syntax error there. A script file using `process.argv.slice(2)` worked.
+- **Idea:** Replace the inline snippet with a small `.mjs` (or `[,html,msg,sha]` and a `//` comment), in line with TEAM-AGENTS.md's advice against multi-line `node -e`.
+- **Context:** publishing the BL-16859 preflight report, Claude Opus 5.5 from Hatton's machine during preflight.
+
+## 2026-11-07 — Orca's plugin check, types and scenario shots fail on this install
+
+- **Cut:** On Orca 1.4.248, `orca plugin types` and `orca plugin create --template worker-panel` fail with ENOENT for `resources/plugins/declarative/orca.d.ts`, so the plugin has no typings and `tsc` cannot run. `orca plugin check` and `orca plugin shot --scenario` fail with `orca-testing.mjs: cannot import "./orca-runtime.mjs": no such file in the plugin`, so no panel test or scenario check runs. The workaround was to transpile with esbuild for syntax only, and to screenshot the live panel with `orca plugin shot <key> --panel <id>` after focusing a worktree.
+- **Idea:** Retry after the pending Orca update (1.4.253); if it still fails, report it to Orca. Until then, say in the dashboard's plugin docs that `orca plugin check` cannot verify the panels.
+- **Context:** building `dashboard/worktree-panel`, Claude Opus 5.5 following a prompt from Hatton.
+
 ## 2026-10-22 — wrangler run inside a repo rewrites that repo
 
 - **Cut:** wrangler 4.152, run in a folder that has no `wrangler.jsonc`, configures the project it finds there for Workers. `wrangler pages project create` does this too, because it now hands Pages over to Workers. Run in a lameta checkout, it added `wrangler` to `package.json`, changed `pnpm-lock.yaml` and `vite.config.ts`, and ran `pnpm install`, which removed 128 packages. The command then failed with `ERR_PNPM_IGNORED_BUILDS`, and the only hint about the changes was in its log file.
@@ -35,15 +47,6 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Cut:** In a BloomLibrary2 git worktree, `pnpm install`'s postinstall (`shx rm -rf .git/hooks && shx ln -s ../.husky .git/hooks`) fails because `.git` is a file there. pnpm's verify-deps-before-run then re-runs that failing install on every `pnpm exec`, including the husky pre-commit hook's `pnpm exec pretty-quick` / `lint-staged`, so `git commit` fails. `husky install` also rewrites `.husky/.gitignore` each time.
 - **Idea:** Make the postinstall skip the hooks symlink when `.git` is not a directory (or drop it; `prepare: husky install` already exists), or document `export npm_config_verify_deps_before_run=false pnpm_config_verify_deps_before_run=false` (both are needed with pnpm 11; hooks still run) plus calling `node_modules/.bin/*` directly.
 - **Context:** BL-17000-relogin worktree, PR BloomBooks/BloomLibrary2#625, Claude Opus 5.5 during preflight.
-
-## 2026-10-06 — `pr-ready-for-human`'s chip patch is a multi-line `node -e`, which does nothing
-
-- **Cut:** Stage 4 step 2 patches the published report's PR-state chip with a multi-line
-  `node -e '...'` in Bash. On Windows it printed nothing and left the file unchanged (the known
-  multi-line `node -e` trap), so the commit that followed would have pushed nothing. The same
-  code from a script file printed "patched" and worked.
-- **Idea:** ship the patch as a `.mjs` file beside the skill and call `node <file> "$F"`.
-- **Context:** promoting PR 8346 (BL-16859) for Hatton.
 
 ## 2026-10-05 — `reviewable-replies` cannot start a new thread, and its Bash recipe hangs
 

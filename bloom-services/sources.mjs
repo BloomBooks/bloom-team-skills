@@ -1,6 +1,6 @@
-// The commands that read and write the team's web services: YouTrack, Sentry, Slack history,
-// Notion, Cloudflare, Mixpanel, Bloom Library books, the community forum, TeamCity and the status
-// pages. tools.mjs beside this file runs them for a developer's Claude; the Bloom bot's
+// The commands that read and write the team's web services: YouTrack, Sentry, Slack, Zulip,
+// Notion, Cloudflare, Mixpanel, Contentful, Bloom Library's books and Parse server, the community
+// forum, TeamCity and the status pages. tools.mjs beside this file runs them for a developer's Claude; the Bloom bot's
 // bot-tools.mjs (in the private BloomBooks/bloom-bot repo) runs the same ones for the bot. Each
 // command takes its arguments and the text of its @<file> body, and returns the text to print.
 //
@@ -9,17 +9,35 @@
 // in the bot (by its own token) and any member of the BloomBooks GitHub organization (by their
 // `gh auth token`), and passes each request on as it is, with the token added (bloom-bot's
 // worker/src/services.js). Public services (the forum, Bloom Library, TeamCity as a guest, the
-// status pages) are called directly.
+// status pages, Contentful's read-only APIs) are called directly. Zulip is the exception: the
+// bot's Zulip account is in ~/.zuliprc on its own machine, so zulip-history reads it there and
+// calls Zulip directly; elsewhere it says there is no Zulip access.
 //
 //   youtrack [GET|POST|DELETE] <api path> [@<file>]     YouTrack's REST API as the Bot account
-//   attachment <issue id> <name>                         saves the attachment to ./.card/<name>
+//   attachment <issue id> <name> [<path>]                saves the attachment to ./.card/<name>, or to
+//                                                        <path> inside the working directory, such
+//                                                        as a file a test in a checkout reads
 //   youtrack-upload <issue id> <file> [<file>...]        attaches files (pictures, videos) to a card
+//   attach <issue id> <file> [comment id]                uploads a file from the working directory to
+//                                                        the card, or to one of its comments
 //   sentry <api path>                                    a GET on Sentry's API
 //   sentry-status                                        what https://status.sentry.io/ reports now
 //   sentry-write <PUT|POST|DELETE> <api path> [@<file>]  changes Sentry (the bot only)
 //   slack-history <channel id> [days] [words...]         a Slack channel's messages over the last days
 //                                                        (30 by default), only those with every word
 //   slack-thread <channel id> <message ts>               one Slack thread
+//   slack-post <channel id> [thread ts] [--as <name>] [--icon <image URL>] [--file <image>]... @<file>
+//                                                        posts the file's Markdown to a Slack channel as
+//                                                        the bot, or as a reply in that thread; --as and
+//                                                        --icon show that name and picture instead, and
+//                                                        each --file image shows inside the message
+//   slack-upload <channel id> <file> [thread ts]         puts a file from the working directory in a
+//                                                        Slack channel, or in that thread, as the bot
+//   slack-delete <channel id> <message ts>               deletes one of the bot's own Slack messages
+//   zulip-history <channel> [topic]                      a Zulip channel's topics and messages, with
+//                                                        sender, date and reactions; saves the text to
+//                                                        ./.zulip/<channel>/messages.md and each
+//                                                        message's uploaded files beside it
 //   book <Bloom Library link or book id>                 saves a public book's files under ./.book/<title>/
 //   community <path>                                     a GET on the community forum's JSON
 //                                                        (https://community.software.sil.org), e.g.
@@ -33,9 +51,19 @@
 //   cloudflare-status                                    what https://www.cloudflarestatus.com/ reports now
 //   mixpanel-projects                                    the Mixpanel projects the service account can read
 //   mixpanel <project id> <api path>                     a GET on Mixpanel's Query API for one project
+//   parse <api path>                                     a GET on Bloom Library's Parse server with its
+//                                                        public application id (/classes/books?...)
+//   contentful <api path>                                a GET on Contentful's Delivery API (published
+//                                                        content) in Bloom Library's space, master
+//   contentful-preview <api path>                        the same on the Preview API: drafts as well
+//   contentful-management <api path>                     a GET on the Content Management API, the path
+//                                                        under /spaces/<Bloom Library's space>
+//   contentful-model [content type id]                   the content types with their fields,
+//                                                        validations and editors' help text
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 // Where the tool server runs: the Worker on Cloudflare (bloom-bot's docs/cloudflare-tools/PLAN.md),
@@ -45,6 +73,12 @@ const DEFAULT_WORKER_URL = "https://bloom-bot-tools.sil-language-technology.work
 
 const YOUTRACK = "https://issues.bloomlibrary.org/youtrack";
 const SLACK_MAX_MESSAGES = 1000;
+// The most text that one Slack markdown block takes.
+const SLACK_MARKDOWN_MAX_CHARS = 12_000;
+// The files that a Slack image block shows.
+const SLACK_IMAGE_TYPES = [".png", ".jpg", ".jpeg", ".gif"];
+const ZULIP_MAX_MESSAGES = 5000;
+const ZULIP_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 const BOOK_MAX_BYTES = 300 * 1024 * 1024;
 const MAX_PRINT_CHARS = 40_000;
 const PARSE = "https://server.bloomlibrary.org/parse";
@@ -52,6 +86,11 @@ const PARSE = "https://server.bloomlibrary.org/parse";
 // ParseConnectionConfig.ts). It reads only what anyone may read.
 const PARSE_APP_ID = "R6qNTeumQXjJCMutAJYAwPtip1qBulkFyLefkCE5";
 const TEAMCITY_URL = "https://build.palaso.org";
+// Bloom Library's Contentful space and the two read-only keys that its website sends
+// (BloomLibrary2's src/ContentfulContext.tsx): one reads published content, the other drafts too.
+const CONTENTFUL_SPACE = "72i7e2mqidxz";
+const CONTENTFUL_DELIVERY_KEY = "XPudkny5JX74w0dxrwqS_WY3GUBA5xO_AzFR7fwO2aE";
+const CONTENTFUL_PREVIEW_KEY = "2WiMEBo1hKnLwRjXTzGSX5Zid-UfUcIfJd_JaR43Irs";
 
 /** How callService reaches the services; set by configure(). */
 let settings = {};
@@ -113,7 +152,7 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = 120_000) {
 }
 
 /** Sends a request to one of the tool server's services ("youtrack", "sentry", "slack", "notion",
- * "cloudflare", "mixpanel") and returns the checked Response. Scripts in the team skills and the
+ * "cloudflare", "contentful", "mixpanel") and returns the checked Response. Scripts in the team skills and the
  * bot's jobs call it too, for the services they use themselves. */
 export async function callService(service, apiPath, { method = "GET", body, bodyBytes, contentType } = {}) {
     // The tool server passes the request on as it is, so the body goes as text or as bytes, such as
@@ -191,7 +230,25 @@ const json = (data) => {
 function sendableFile(name) {
     const file = fs.realpathSync(path.resolve(name));
     const root = fs.realpathSync(process.cwd());
-    if (settings.filesInCwdOnly && !file.startsWith(root + path.sep)) throw new Error(`the file must be inside ${root}, not ${file}`);
+    if (settings.filesInCwdOnly) {
+        if (!file.startsWith(root + path.sep)) throw new Error(`the file must be inside ${root}, not ${file}`);
+        if (file.slice(root.length).split(path.sep).includes(".git")) throw new Error("files inside a .git folder can't be sent");
+    }
+    return file;
+}
+
+/** Resolves a path that a command will write, refusing one outside the working directory or inside
+ * a .git folder. The bot's run may Edit only its own folder, and a command must not reach further. */
+export function pathInWorkingDirectory(p, cwd = process.cwd()) {
+    const root = fs.realpathSync(cwd);
+    let file = path.resolve(root, p);
+    // A link inside the folder could point out of it, so check the real path of the deepest part
+    // that already exists.
+    let existing = file;
+    while (!fs.existsSync(existing)) existing = path.dirname(existing);
+    file = path.join(fs.realpathSync(existing), path.relative(existing, file));
+    if (!file.startsWith(root + path.sep)) throw new Error(`the path must be inside ${root}, not ${file}`);
+    if (file.slice(root.length).split(path.sep).includes(".git")) throw new Error("can't write inside a .git folder");
     return file;
 }
 
@@ -209,7 +266,7 @@ const UPLOAD_TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "imag
     ".zip": "application/zip", ".json": "application/json", ".html": "text/html" };
 
 // The commands that take an "@<file>" request body, always as their last argument.
-const TAKES_BODY = ["youtrack", "notion", "sentry-write"];
+const TAKES_BODY = ["youtrack", "notion", "sentry-write", "slack-post"];
 
 /** Splits a command's arguments from its "@<file>" body, which it reads; returns [args, body]. */
 export function splitBody(command, args) {
@@ -224,7 +281,120 @@ export async function slack(method, params) {
     return data;
 }
 
-/** Renders Slack messages as "time | who | text" lines, naming each person once looked up. */
+/** Returns the channel id, or throws when it isn't one. */
+function slackChannelId(channel) {
+    if (!/^[CG][A-Z0-9]+$/.test(channel ?? "")) throw new Error(`expected a Slack channel id such as C0CE75BEJTU, got ${channel}`);
+    return channel;
+}
+
+/** Returns the thread's ts, or throws when it isn't one. Undefined stays undefined. */
+function slackThreadTs(ts) {
+    if (ts !== undefined && !/^\d+\.\d+$/.test(ts)) throw new Error(`expected a message ts such as 1762700000.123456, got ${ts}`);
+    return ts;
+}
+
+/** Uploads a file to Slack as the bot and returns its id. With `share` (channel_id and maybe
+ * thread_ts), Slack also posts it there, as the bot's message; without, it is shared nowhere until a
+ * message's image block shows it. Slack takes a file in three steps: it gives a one-time upload
+ * address, the bytes go there (that address needs no token), and then the upload is completed. */
+async function uploadToSlack(file, share = {}) {
+    const bytes = fs.readFileSync(file);
+    const name = path.basename(file);
+    const target = await slack("files.getUploadURLExternal", { filename: name, length: String(bytes.length) });
+    await check(await fetchWithTimeout(target.upload_url, { method: "POST", body: bytes }), target.upload_url.split("?")[0]);
+    await slack("files.completeUploadExternal", { files: JSON.stringify([{ id: target.file_id, title: name }]), ...share });
+    return target.file_id;
+}
+
+/** Posts a message. When it shows files that were just uploaded, Slack may refuse it with
+ * invalid_blocks until it has finished processing them, so this tries again a few times, waiting
+ * longer each time, before giving up with Slack's error. */
+async function postWhenFilesAreReady(message, hasFiles) {
+    const waits = hasFiles ? [1, 2, 4, 8, 16] : [];
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await slack("chat.postMessage", message);
+        } catch (error) {
+            if (attempt >= waits.length || !/invalid_blocks/.test(error.message)) throw error;
+            await new Promise((resolve) => setTimeout(resolve, waits[attempt] * 1000));
+        }
+    }
+}
+
+/** The bot's Zulip account from ~/.zuliprc: its site and the header that signs in as it. */
+function zulipAccount() {
+    const rc = path.join(os.homedir(), ".zuliprc");
+    if (!fs.existsSync(rc)) throw new Error("there is no ~/.zuliprc here, so there is no Zulip access. Only the bot's machine has one.");
+    const values = {};
+    for (const line of fs.readFileSync(rc, "utf8").split(/\r?\n/)) {
+        const match = line.match(/^\s*(\w+)\s*=\s*(.*?)\s*$/);
+        if (match) values[match[1]] = match[2];
+    }
+    return {
+        site: values.site.replace(/\/$/, ""),
+        authorization: `Basic ${Buffer.from(`${values.email}:${values.key}`).toString("base64")}`,
+    };
+}
+
+/** A GET on Zulip's API as the bot; throws when Zulip says the request failed. */
+async function zulipGet(zulip, apiPathAndQuery) {
+    const url = `${zulip.site}${apiPathAndQuery}`;
+    const response = await check(await fetchWithTimeout(url, { headers: { Authorization: zulip.authorization } }), url);
+    const data = await response.json();
+    if (data.result !== "success") throw new Error(`Zulip ${apiPathAndQuery.split("?")[0]}: ${data.msg}`);
+    return data;
+}
+
+/** Every message in a Zulip channel, or in one of its topics, oldest first, as raw Markdown. */
+async function zulipMessages(zulip, channel, topic) {
+    const narrow = [{ operator: "channel", operand: channel }];
+    if (topic !== undefined) narrow.push({ operator: "topic", operand: topic });
+    const messages = [];
+    let anchor = "oldest";
+    for (;;) {
+        const query = new URLSearchParams({
+            anchor, include_anchor: String(anchor === "oldest"), num_before: "0", num_after: "1000",
+            // client_gravatar off, so every sender's avatar_url is filled in, Gravatar ones too.
+            apply_markdown: "false", client_gravatar: "false", narrow: JSON.stringify(narrow),
+        });
+        const page = await zulipGet(zulip, `/api/v1/messages?${query}`);
+        messages.push(...page.messages);
+        if (page.found_newest || page.messages.length === 0) return messages;
+        if (messages.length >= ZULIP_MAX_MESSAGES) throw new Error(`#${channel} has more than ${ZULIP_MAX_MESSAGES} messages; read it a topic at a time`);
+        anchor = String(messages[messages.length - 1].id);
+    }
+}
+
+/** Saves one Zulip upload (a /user_uploads/... path from a message) as `<number>-<its name>` in
+ * `folder`, and returns where. The number keeps two uploads with one name (pasted screenshots are
+ * all image.png) from overwriting each other. Zulip hands the bot a short-lived link to the file,
+ * which loads without signing in. */
+async function saveZulipUpload(zulip, uploadPath, folder, number) {
+    const { url } = await zulipGet(zulip, `/api/v1${uploadPath}`);
+    const link = new URL(url, zulip.site).href;
+    const response = await check(await fetchWithTimeout(link), link.split("?")[0]);
+    const size = Number(response.headers.get("content-length") ?? 0);
+    if (size > ZULIP_UPLOAD_MAX_BYTES) return `not saved: ${uploadPath} is ${Math.round(size / 1024 / 1024)} MB`;
+    const file = pathInWorkingDirectory(path.join(folder, `${number}-${decodeURIComponent(path.basename(uploadPath))}`));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+    return path.relative(process.cwd(), file);
+}
+
+/** Files as a multipart/form-data body, the way YouTrack takes attachments: [bytes, its Content-Type
+ * with the boundary]. YouTrack shows an image inline only when the upload says it is one. */
+async function multipartFiles(files) {
+    const form = new FormData();
+    for (const file of files) {
+        const type = UPLOAD_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream";
+        form.append("file", new Blob([fs.readFileSync(file)], { type }), path.basename(file));
+    }
+    // Response serializes the form as multipart/form-data and names its boundary in the type.
+    const multipart = new Response(form);
+    return [new Uint8Array(await multipart.arrayBuffer()), multipart.headers.get("Content-Type")];
+}
+
+/** Renders Slack messages as "time | ts | who | text" lines, naming each person once looked up. */
 async function slackLines(messages) {
     const names = new Map();
     const lines = [];
@@ -238,7 +408,7 @@ async function slackLines(messages) {
             who = names.get(m.user);
         }
         const replies = m.reply_count ? ` [thread ts ${m.ts}, ${m.reply_count} replies]` : "";
-        lines.push(`${new Date(Number(m.ts) * 1000).toISOString()} | ${who} | ${(m.text || "").replace(/\n/g, " ")}${replies}`);
+        lines.push(`${new Date(Number(m.ts) * 1000).toISOString()} | ts ${m.ts} | ${who} | ${(m.text || "").replace(/\n/g, " ")}${replies}`);
     }
     return lines.join("\n") || "no messages";
 }
@@ -342,13 +512,14 @@ export const sourceCommands = {
         return text ? JSON.stringify(JSON.parse(text), null, 1) : `${method} ${p}: HTTP ${response.status}`;
     },
     async attachment(args) {
-        const [issueId, name] = args;
+        const [issueId, name, destination] = args;
         const list = await serviceJson("youtrack", `/issues/${encodeURIComponent(issueId)}/attachments?fields=name,url,size&$top=200`);
         const attachment = list.find((a) => a.name === name);
         if (!attachment) throw new Error(`${issueId} has no attachment named ${name}`);
-        const dir = path.join(process.cwd(), ".card");
-        fs.mkdirSync(dir, { recursive: true });
-        const file = path.join(dir, path.basename(name));
+        const file = destination === undefined
+            ? path.join(process.cwd(), ".card", path.basename(name))
+            : pathInWorkingDirectory(destination);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
         // attachment.url starts with /youtrack/api/files/ and carries a signature that lets it load
         // without a login. With YOUTRACK in front, the doubled /youtrack would return YouTrack's web
         // app page as HTML, still with status 200.
@@ -360,22 +531,23 @@ export const sourceCommands = {
     async "youtrack-upload"(args) {
         const [issueId, ...names] = args;
         if (!/^[A-Z]+-\d+$/.test(issueId ?? "") || names.length === 0) throw new Error("usage: youtrack-upload <issue id> <file> [<file>...]");
-        const form = new FormData();
-        for (const name of names) {
-            const file = sendableFile(name);
-            const type = UPLOAD_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream";
-            form.append("file", new Blob([fs.readFileSync(file)], { type }), path.basename(file));
-        }
-        // Response serializes the form as multipart/form-data and names its boundary in the type.
-        const multipart = new Response(form);
-        await callService("youtrack", `/issues/${issueId}/attachments?fields=id`, {
-            method: "POST", bodyBytes: new Uint8Array(await multipart.arrayBuffer()), contentType: multipart.headers.get("Content-Type"),
-        });
+        const [bodyBytes, contentType] = await multipartFiles(names.map(sendableFile));
+        await callService("youtrack", `/issues/${issueId}/attachments?fields=id`, { method: "POST", bodyBytes, contentType });
         // YouTrack's reply names only one of several files, so list what the card now has.
         const list = await serviceJson("youtrack", `/issues/${issueId}/attachments?fields=name,size&$top=200`);
         const wanted = new Set(names.map((n) => path.basename(n)));
         return list.filter((a) => wanted.has(a.name)).map((a) => `${issueId} has ${a.name} (${a.size} bytes)`).join("\n")
             || `uploaded, but ${issueId} lists none of ${[...wanted].join(", ")}`;
+    },
+    async attach(args) {
+        const [issueId, fileArg, commentId] = args;
+        if (!/^[A-Z]+-\d+$/.test(issueId ?? "")) throw new Error(`expected a card id such as BL-1234, got ${issueId}`);
+        if (!fileArg) throw new Error("usage: attach <issue id> <file> [comment id]");
+        if (commentId !== undefined && !/^[\w.-]+$/.test(commentId)) throw new Error(`expected a comment id such as 4-12345, got ${commentId}`);
+        const [bodyBytes, contentType] = await multipartFiles([sendableFile(fileArg)]);
+        const target = `/issues/${encodeURIComponent(issueId)}${commentId ? `/comments/${encodeURIComponent(commentId)}` : ""}/attachments?fields=id,name,url`;
+        const added = await serviceJson("youtrack", target, { method: "POST", bodyBytes, contentType });
+        return (Array.isArray(added) ? added : [added]).map((a) => `attached ${a.name} (id ${a.id}) to ${issueId}${commentId ? ` comment ${commentId}` : ""}`).join("\n");
     },
     async sentry(args) {
         const data = await serviceJson("sentry", apiPath(args[0]));
@@ -437,6 +609,107 @@ export const sourceCommands = {
         } while (cursor && messages.length < SLACK_MAX_MESSAGES);
         return json(await slackLines(messages));
     },
+    async "slack-post"(args, body) {
+        const usage = "usage: slack-post <channel id> [thread ts] [--as <name>] [--icon <image URL>] [--file <image>]... @<file>, with the message's Markdown in the file";
+        const positional = [];
+        const options = { "--file": [] };
+        for (let i = 0; i < args.length; i++) {
+            if (["--as", "--icon", "--file"].includes(args[i])) {
+                if (args[i + 1] === undefined) throw new Error(usage);
+                if (args[i] === "--file") options["--file"].push(args[++i]);
+                else options[args[i]] = args[++i];
+            } else positional.push(args[i]);
+        }
+        const channel = slackChannelId(positional[0]);
+        const threadTs = slackThreadTs(positional[1]);
+        const images = options["--file"].map(sendableFile);
+        if (!body?.trim() && images.length === 0) throw new Error(usage);
+        if ((body ?? "").length > SLACK_MARKDOWN_MAX_CHARS) throw new Error(`the message is ${body.length} characters; Slack takes ${SLACK_MARKDOWN_MAX_CHARS} at most`);
+        if (options["--icon"] !== undefined && !/^https:\/\/\S+$/.test(options["--icon"])) throw new Error(`--icon takes an https URL of an image, got ${options["--icon"]}`);
+        for (const image of images) {
+            if (!SLACK_IMAGE_TYPES.includes(path.extname(image).toLowerCase())) {
+                throw new Error(`--file takes images (${SLACK_IMAGE_TYPES.join(", ")}), which show inside the message; put ${path.basename(image)} in with slack-upload`);
+            }
+        }
+        // Uploaded but not shared anywhere, so each one shows only where the image block below puts it.
+        const imageBlocks = [];
+        for (const image of images) {
+            const name = path.basename(image);
+            imageBlocks.push({ type: "image", slack_file: { id: await uploadToSlack(image) }, alt_text: name });
+        }
+        const text = body?.trim() ? body : images.map((image) => path.basename(image)).join(", ");
+        // A markdown block renders ordinary Markdown; `text` is what a notification shows. `username`
+        // and `icon_url` show another name and picture in place of the bot's (the app's
+        // chat:write.customize scope); Slack still labels the message as an app's.
+        const message = {
+            channel, text, blocks: JSON.stringify([...(body?.trim() ? [{ type: "markdown", text: body }] : []), ...imageBlocks]),
+            unfurl_links: "false", unfurl_media: "false", ...(threadTs ? { thread_ts: threadTs } : {}),
+            ...(options["--as"] ? { username: options["--as"] } : {}),
+            ...(options["--icon"] ? { icon_url: options["--icon"] } : {}),
+        };
+        const { ts } = await postWhenFilesAreReady(message, imageBlocks.length > 0);
+        const { permalink } = await slack("chat.getPermalink", { channel, message_ts: ts });
+        return `posted ts ${ts} ${permalink}`;
+    },
+    async "slack-upload"(args) {
+        const [channelArg, fileArg, threadArg] = args;
+        const channel = slackChannelId(channelArg);
+        const threadTs = slackThreadTs(threadArg);
+        if (!fileArg) throw new Error("usage: slack-upload <channel id> <file> [thread ts]");
+        const file = sendableFile(fileArg);
+        await uploadToSlack(file, { channel_id: channel, ...(threadTs ? { thread_ts: threadTs } : {}) });
+        return `uploaded ${path.basename(file)} to ${channel}${threadTs ? ` in thread ${threadTs}` : ""}`;
+    },
+    async "slack-delete"(args) {
+        const [channelArg, tsArg] = args;
+        const channel = slackChannelId(channelArg);
+        const ts = slackThreadTs(tsArg);
+        if (!ts) throw new Error("usage: slack-delete <channel id> <message ts>");
+        await slack("chat.delete", { channel, ts });
+        return `deleted ts ${ts} in ${channel}`;
+    },
+    async "zulip-history"(args) {
+        const [channel, topic] = args;
+        if (!channel) throw new Error("usage: zulip-history <channel> [topic]");
+        const zulip = zulipAccount();
+        const messages = await zulipMessages(zulip, channel, topic);
+        const { members } = await zulipGet(zulip, "/api/v1/users");
+        const names = new Map(members.map((u) => [u.user_id, u.full_name]));
+        const folder = path.join(".zulip", channel.replace(/[^\w.-]+/g, "-"));
+
+        const topics = new Map();
+        for (const m of messages) {
+            if (!topics.has(m.subject)) topics.set(m.subject, []);
+            topics.get(m.subject).push(m);
+        }
+        const lines = [];
+        let saved = 0;
+        for (const [name, inTopic] of topics) {
+            lines.push(`## ${name} (${inTopic.length} message${inTopic.length === 1 ? "" : "s"})`, "");
+            for (const m of inTopic) {
+                const avatar = m.avatar_url ? new URL(m.avatar_url, zulip.site).href : "none";
+                lines.push(`--- ${new Date(m.timestamp * 1000).toISOString()} | ${m.sender_full_name} | message ${m.id} | avatar ${avatar}`, m.content);
+                const byEmoji = new Map();
+                for (const r of m.reactions ?? []) {
+                    const who = r.user?.full_name ?? names.get(r.user_id) ?? `user ${r.user_id}`;
+                    byEmoji.set(r.emoji_name, [...(byEmoji.get(r.emoji_name) ?? []), who]);
+                }
+                if (byEmoji.size) lines.push(`reactions: ${[...byEmoji].map(([emoji, who]) => `:${emoji}: ${who.join(", ")}`).join("; ")}`);
+                const uploads = [...new Set([...m.content.matchAll(/\/user_uploads\/[^\s)\]"'>]+/g)].map((match) => match[0]))];
+                for (const [index, upload] of uploads.entries()) {
+                    const where = await saveZulipUpload(zulip, upload, path.join(folder, String(m.id)), index + 1);
+                    if (!where.startsWith("not saved")) saved++;
+                    lines.push(`file ${upload}: ${where}`);
+                }
+                lines.push("");
+            }
+        }
+        const transcript = pathInWorkingDirectory(path.join(folder, "messages.md"));
+        fs.mkdirSync(path.dirname(transcript), { recursive: true });
+        fs.writeFileSync(transcript, lines.join("\n"));
+        const summary = `#${channel}${topic === undefined ? "" : ` > ${topic}`}: ${topics.size} topics, ${messages.length} messages, ${saved} files saved. The full text is in ${path.relative(process.cwd(), transcript)}.`;
+        return `${summary}\n\n${json(lines.join("\n"))}`;
+    },
     async book(args) {
         return downloadBook(args[0]);
     },
@@ -482,4 +755,49 @@ export const sourceCommands = {
         const projects = Object.entries(me.results?.projects ?? {});
         return projects.map(([id, p]) => `${id} | ${p.name} | ${p.domain ?? ""}`).join("\n") || "the service account sees no projects";
     },
+    async parse(args) {
+        return json(await publicJson(`${PARSE}${apiPath(args[0])}`, { "X-Parse-Application-Id": PARSE_APP_ID }));
+    },
+    async contentful(args) {
+        return json(await contentfulPublic("cdn.contentful.com", CONTENTFUL_DELIVERY_KEY, args[0]));
+    },
+    async "contentful-preview"(args) {
+        return json(await contentfulPublic("preview.contentful.com", CONTENTFUL_PREVIEW_KEY, args[0]));
+    },
+    async "contentful-management"(args) {
+        return json(await serviceJson("contentful", apiPath(args[0])));
+    },
+    async "contentful-model"(args) {
+        return contentfulModel(args[0]);
+    },
 };
+
+/** A GET on one of Contentful's read-only APIs (Delivery or Preview) in Bloom Library's space and
+ * its master environment. */
+async function contentfulPublic(host, key, p) {
+    return publicJson(`https://${host}/spaces/${CONTENTFUL_SPACE}/environments/master${apiPath(p)}`, { Authorization: `Bearer ${key}` });
+}
+
+/** Describes Bloom Library's content types, or the one named: each field's id, name, type, whether
+ * it is required, its validations, and the help text that editors see beside it. The help text is
+ * only in the Content Management API, in the content type's editor interface. */
+async function contentfulModel(only) {
+    const env = "/environments/master";
+    const types = (await serviceJson("contentful", `${env}/content_types?limit=1000`)).items
+        .filter((t) => only === undefined || t.sys.id === only);
+    if (!types.length) throw new Error(`Bloom Library's Contentful space has no content type ${only}`);
+    const lines = [];
+    for (const t of types) {
+        const editor = await serviceJson("contentful", `${env}/content_types/${t.sys.id}/editor_interface`);
+        const help = Object.fromEntries((editor.controls ?? []).map((c) => [c.fieldId, c.settings?.helpText]));
+        lines.push(`${t.sys.id} | ${t.name}${t.sys.publishedVersion ? "" : " | not published"}${t.description ? ` | ${t.description}` : ""}`);
+        for (const f of t.fields) {
+            const type = f.type === "Array" ? `Array of ${f.items.linkType ?? f.items.type}` : f.type === "Link" ? `Link to ${f.linkType}` : f.type;
+            const flags = [type, f.required && "required", f.localized && "localized", f.disabled && "hidden from editors", f.omitted && "left out of the Delivery API"].filter(Boolean);
+            const validations = [...(f.validations ?? []), ...(f.items?.validations ?? [])];
+            lines.push(`  ${f.id} "${f.name}" (${flags.join(", ")})${help[f.id] ? `: ${help[f.id]}` : ""}`);
+            if (validations.length) lines.push(`    validations: ${JSON.stringify(validations)}`);
+        }
+    }
+    return json(lines.join("\n"));
+}

@@ -26,8 +26,15 @@ GitHub. That gathering-and-mirroring job is what this skill is.
 **No finding disappears silently.** Every current (current-commit, non-Informational) Bug and
 Investigate flag ends up as a PR review thread with a **documented outcome**, one of:
 - **fixed** — Devin marks it Resolved; we reply and resolve the thread (step 6);
-- **not an issue / false positive** — we assessed it during the run; reply with the reasoning,
-  then resolve (step 6);
+- **not an issue / false positive** — we checked, and Devin is wrong about what the code does;
+  reply with the reasoning, then resolve (step 6);
+- **already decided by the developer** — Devin is right, and the developer has already agreed to
+  leave this behavior as it is, understanding it the way Devin describes it. Reply quoting or
+  linking where they decided it, then resolve; there is no need to ask them again. A limitation
+  that only an agent wrote down (in the test ideas, a code comment, an earlier thread reply) does
+  not count, however settled it reads: the known limitations listed in a card's test ideas are
+  often an agent's own call. When Devin is right and you cannot point to such a decision, ask the
+  developer (next outcome) rather than dismissing it, even when it seems minor or rare;
 - **decided by the developer** — it went to the developer (e.g. via `preflight`'s decision
   report); the thread stays **open** until the decision comes back, then it gets a reply
   recording the decision and is resolved (see "Recording a developer decision" below).
@@ -55,7 +62,7 @@ in the bloom-team-skills repo README, **"Making the review skills actually auton
 ## When To Use
 
 - When a new PR is created or a new commit pushed, as part of the bot-wait phase before human review.
-- Invoked by `preflight` during its bot gauntlet; consulted by `pr-ready-for-human` for its "has Devin run?" verification.
+- Invoked by `preflight` during its bot gauntlet; consulted by `request-peer-review` and `merge-without-peer-review` for their "has Devin run?" verification.
 - When the user explicitly wants a Devin review run and reported.
 
 This skill is the **single source of truth for operating Devin** (devinreview.com /

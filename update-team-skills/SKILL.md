@@ -36,9 +36,21 @@ overwrites an existing link or touches skills that aren't part of this repo.
 4. **Tidy broken links (optional).** If a link in `~/.claude/skills` points *into this repo* but its
    target no longer exists (a skill was renamed/removed upstream), remove that dangling link. Never
    remove links that point outside this repo — those are the developer's own / other skills.
-5. **Report.** Summarise: pull result, which links were newly created, which already existed, any
-   removed. If any link was newly created, tell the user to **restart Claude Code (or start a new
-   session)** for the newly linked skills to be discovered — skills are loaded at session start.
+5. **Install the daily auto-update.** Run `node <repo>/update-team-skills/auto-update.mjs --install`.
+   It adds a SessionStart hook to `~/.claude/settings.json` (or reports it is already there). From
+   then on, the first Claude Code session each day starts a background `git pull --ff-only` and links
+   new skill folders, without delaying the session. It pulls only when the clone is on `main` with no
+   uncommitted changes to tracked files. Results go to `~/.claude/bloom-team-skills-update.log`.
+6. **Check the Bloom Dashboard button.** When `orca` is installed, run `orca plugin list`. If it
+   does not list `local.bloom-dashboard` as `running` (missing, or waiting for approval after a
+   pull changed its access or its button), say so in the report: the `dashboard` skill has an Orca
+   plugin in `dashboard/orca-plugin/` that puts a Bloom Dashboard button in Orca's status bar, and
+   `/dashboard` offers to load it. Load it here only if the developer asks; approving it is theirs
+   to do, since the plugin runs code under their account (`dashboard/SKILL.md`, step 0, has the
+   steps).
+7. **Report.** Summarise: pull result, which links were newly created, which already existed, any
+   removed, whether the hook was installed, and the Bloom Dashboard button's state from step 6. A running session notices changed and newly linked
+   skills within a few seconds, so no restart is needed.
 
 ## Commands
 

@@ -7,7 +7,7 @@
 //   raw/branches-<repo>.txt  remote branch names, optional
 //   analysis/*.json          arrays of per-card analysis objects, merged by id, optional
 //   config.json              destinations and title, optional
-//   decisions.json           written by this server: { "<id>": { choice, note, at } }
+//   decisions.json           written by this server: { "<id>": { column, note, tags: { add, remove }, at } }
 //
 // The server serves the page and the data, saves decisions, and tells the page to reload
 // (Server-Sent Events) when the app's files or the data change. It talks to YouTrack only when John
@@ -18,7 +18,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { attachmentUrl, pull, push } from "./youtrack.mjs";
+import { attachmentUrl, pull, push, tagOf, visibleTags } from "./youtrack.mjs";
 
 const appDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "app");
 const dataDir = path.resolve(process.argv[2] ?? "");
@@ -42,8 +42,9 @@ const defaultConfig = {
     title: "Card Sorter",
     agileId: "89-5",
     // Synchronize pulls unresolved cards in these states: new ones only from sourceBoards, and ones
-    // the sorter already has from any board a column names.
-    pull: { sourceBoards: ["Bloom 6.6"], states: ["Open", "Ready For Work"] },
+    // the sorter already has from any board a column names. It also pulls every unresolved card of
+    // `project` in the state of an `anyBoard` column, whatever its board, and cards with no board.
+    pull: { sourceBoards: ["Bloom 6.6"], states: ["Open", "Ready For Work"], project: "BL" },
     closeState: "Closed",
     attribution: `[Claude Opus 5.5 from ${developerName()}'s machine during card-sorter]`,
     trackerUrl: "https://issues.bloomlibrary.org/youtrack/issue/",
@@ -51,7 +52,10 @@ const defaultConfig = {
     // State. A column without a state keeps the card's current state.
     // An "asFound" column holds cards nobody has sorted yet; every card starts in one. A column
     // with the same board and state but no asFound flag holds the cards chosen to stay there.
+    // An "anyBoard" column holds the cards in its state on every board, and the cards with no
+    // board. Its cards keep their board until the developer moves them to another column.
     columns: [
+        { key: "incoming|found", label: "Incoming (any board)", board: null, state: "Incoming", anyBoard: true, asFound: true },
         { key: "6.6|Open|found", label: "6.6 Open (as found)", board: "Bloom 6.6", state: "Open", asFound: true },
         { key: "6.6|Ready For Work|found", label: "6.6 Ready For Work (as found)", board: "Bloom 6.6", state: "Ready For Work", asFound: true },
         // Not a board: a parking place for cards John can't decide yet. Applying leaves them as they are.
@@ -128,7 +132,7 @@ function buildData() {
         type: field(c, "Type"),
         assignee: field(c, "Assignee"),
         board: field(c, "Kanban Board"),
-        tags: c.tags.map((t) => t.name),
+        tags: c.tags.map(tagOf),
         created: c.created,
         updated: c.updated,
         votes: c.votes,
@@ -150,6 +154,7 @@ function buildData() {
     };
 }
 
+let tagList = null;
 const clients = new Set();
 /** Tells every open page to reload; `what` is "app" (reload the page) or "data" (refetch). */
 function broadcast(what) {
@@ -217,6 +222,10 @@ http.createServer((req, res) => {
         res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
         return res.end(JSON.stringify(buildData()));
     }
+    if (url.pathname === "/api/tags") {
+        // Read again after each Synchronize, so a tag made or shared in YouTrack shows then.
+        return respond(res, async () => (tagList ??= await visibleTags()));
+    }
     if (url.pathname === "/api/decisions" && req.method === "POST") {
         // The page sends the whole decisions map; it is small, and this keeps the file consistent.
         return readBody(req, (body) => {
@@ -228,6 +237,7 @@ http.createServer((req, res) => {
         return respond(res, async () => {
             const config = buildData().config;
             lastOwnWrite = Date.now();
+            tagList = null;
             const result = await pull(dataDir, config);
             pruneDecisions();
             return result;
@@ -240,10 +250,12 @@ http.createServer((req, res) => {
             const log = await push(config, plan);
             // A card that moved or closed now sits where its decision put it, so the decision is
             // done, except for cards chosen to stay in a column that also has an as-found twin.
-            const done = new Set(log.filter((l) => l.ok && l.id).map((l) => l.id));
+            // Tag changes that all went through are done too.
+            const done = new Set(log.filter((l) => l.ok && l.id && !l.tagsDone).map((l) => l.id));
             const decisions = readJson(decisionsFile, {});
             for (const id of done) if (!plan.keep.includes(id)) delete decisions[id]?.column;
-            for (const [id, d] of Object.entries(decisions)) if (d.column == null && !d.note) delete decisions[id];
+            for (const l of log) if (l.tagsDone) delete decisions[l.id]?.tags;
+            for (const [id, d] of Object.entries(decisions)) if (d.column == null && !d.note && !d.tags) delete decisions[id];
             writeDecisions(decisions);
             lastOwnWrite = Date.now();
             const pulled = await pull(dataDir, config);

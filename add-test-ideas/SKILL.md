@@ -262,9 +262,11 @@ code/PR to be sure, or phrase it as a question for the tester ("confirm whether 
 
 ## Known, deliberate limits — write them down so they aren't filed as bugs
 
-When a decision has been made to *not* fix something — a rough edge left alone because it wasn't
+When the developer has decided to *not* fix something — a rough edge left alone because it wasn't
 worth the complexity, a case declared out of scope, a message that stays imperfect — the test
-notes are one of the right places for that to live. A tester who meets it with no warning files
+notes are one of the right places for that to live. Only the developer's decisions go here: a
+limitation that an agent chose on its own is a bug a tester should find, and once it is written
+here a later agent will cite it as decided. A tester who meets it with no warning files
 it as a new bug, and someone spends an hour rediscovering a decision that was already made.
 
 So include a short **"known and deliberate"** note (a couple of bullets, near the bottom, before

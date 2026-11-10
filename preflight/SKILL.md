@@ -1,6 +1,6 @@
 ---
 name: preflight
-description: Run the automated pre-review checklist on the current branch — the work before the "flight" of human review. Local quality gate, commit & push, draft PR, then trigger and WAIT for every async reviewer (Devin, other review bots, CI) to actually finish — auto-fixing and auto-replying to bots — refresh the QA test-ideas comment on the tracker card, and finish with a report that leads with why the PR exists (the problem it solves, or what it adds or improves) and what the whole PR changes, plus the decisions that genuinely need the user. Local review level -- light single-sub-agent pass by default; "thorough review"/"expensive review" = full /code-review + fix loop; "without review" = skip it. Never marks the PR ready-for-review and never requests a teammate's review (that's pr-ready-for-human).
+description: Run the automated pre-review checklist on the current branch — the work before the "flight" of human review. Local quality gate, commit & push, draft PR, then trigger and WAIT for every async reviewer (Devin, other review bots, CI) to actually finish — auto-fixing and auto-replying to bots — refresh the QA test-ideas comment on the tracker card, and finish with a report that leads with why the PR exists (the problem it solves, or what it adds or improves) and what the whole PR changes, plus the decisions that genuinely need the user. Local review level -- light single-sub-agent pass by default; "thorough review"/"expensive review" = full /code-review + fix loop; "without review" = skip it. Never marks the PR ready-for-review and never requests a teammate's review (that's request-peer-review, or merge-without-peer-review for a card tagged "Approved Plan").
 argument-hint: "optional: PR number or branch name — defaults to the current branch/worktree. Review level: 'thorough review' or 'without review'."
 ---
 # Preflight
@@ -57,8 +57,16 @@ bullets, one per coherent *group* of changes — "the path is now normalized at 
 every caller passes through", not "edited ProjectContext.cs". A PR that is both (a feature that
 also fixes a bug it ran into) leads with its main purpose and mentions the fix as one bullet.
 
+**A PR that fixes several separate problems** (or adds several separate things, each with its own
+purpose) tells each one's story in full before starting the next: that problem, its cause, its fix.
+It does not gather all the problems into one Problem section and all the causes into one Cause
+section, which leaves the reader matching the third Cause bullet to the third Problem bullet. "The
+PR description — one problem at a time" below gives the layout. The problems count as separate when
+each could have been its own ticket: different symptoms with different causes. One problem with
+several symptoms, or a fix that took several changes, is still one problem.
+
 **Keep it short, and keep it in behavior terms.** The parts together should fit on one screen —
-roughly 150–250 words. Someone who knows nothing about the branch should finish it knowing what
+roughly 150–250 words, or about 100–150 words per problem when there are several. Someone who knows nothing about the branch should finish it knowing what
 the PR is for and what it does. Say "opening a collection whose name ends in a period", not
 "`GetRealSettingsPath` now calls `GetPathAsOnDisk`". Name symbols only where a reviewer needs
 them to find the code.
@@ -91,7 +99,9 @@ on a PR without committing them, is in `screenshots.md` at the root of the bloom
 The PR description is written for the **reviewer**, not the tester. After the narrative it carries
 these sections, in this order, each under its own `##` heading. Every one is present on every PR;
 when a section has nothing to say, it says so in one line ("No significant risks.", "None.") so the
-reviewer can see it was considered rather than forgotten.
+reviewer can see it was considered rather than forgotten. A PR that fixes several separate problems
+splits Risk Evaluation, Automated Tests and E2E Coverage up by problem instead (see "The PR
+description — one problem at a time").
 
 1. **Screenshots** — only when the change involves UI (see "Show the UI" above). A few shots of
    what a user now sees, each with a one-line caption. Omit the heading for a PR with no UI.
@@ -105,6 +115,24 @@ reviewer can see it was considered rather than forgotten.
    versions of the app opening the same files, other repos and services, new or changed
    dependencies, localization (new strings, and whether they reach translators). Say which of
    these were checked and which were not.
+   In BloomDesktop, always consider the **harvester**, which makes Bloom Library's downloads by
+   running `Bloom.exe createArtifacts` (`src/BloomExe/CLI/CreateArtifactsCommand.cs`) on every
+   uploaded book: it loads the book, then makes the BloomPUB (`BloomPubMaker`, image
+   compression), the ePUB (`EpubMaker`), thumbnails, the `.bloomSource` and the JSON texts. Its
+   Bloom comes from this repo's `harvester-development` and `harvester-production` branches,
+   which are updated by hand, so a fix there reaches it only when someone remembers to. End the
+   section with one of these lines, exactly: `Harvester: affected — <what it now does
+   differently>` or `Harvester: not affected — <the path you traced, and why the change is not
+   on it>`. Affected means the change alters what `createArtifacts` does: a fix for a failure
+   or wrong output the harvester would also hit, or a change to what it produces.
+   Content counts, not just code. Anything the diff adds or changes under `src/content`
+   (brandings, xmatter, templates, appearance themes) or in other files Bloom reads at run time
+   reaches the harvester too, because making the BloomPUB brings a copy of the book up to date
+   with the harvester's own, hand-updated Bloom. Say what that Bloom does with a book that needs
+   the new content but lacks it: a branding it doesn't have falls back to Default's presets
+   (`BrandingSettings.GetSettingsOrNull`), so a new branding's BloomPUBs get Default's back cover
+   until `harvester-production` carries it. Trace the path before writing the line; "it's only
+   content" is the reasoning that missed this on BL-17088.
 4. **Automated Tests** — the unit, component and end-to-end tests this PR adds or changes, each in
    a few words, then one line that records the test decision (see "The test decision"):
    `Test of the change: <which test(s)>`, `Test of the change: none — test-only change: <which
@@ -122,13 +150,71 @@ reviewer can see it was considered rather than forgotten.
    inventory, each with its Test Case ID, title, URL and Automation state, or "None." Read the
    inventory to answer this; don't guess from memory of the session.
 
+## The PR description — one problem at a time
+
+When the PR fixes several separate problems (see "The PR narrative"), the reviewer sections that
+belong to one problem go with that problem, so a reviewer reads everything about one bug together
+and then moves on. Give each problem its own `##` heading: its number and the count in parentheses,
+then a few words naming what a user hit, e.g. `## (1/4) Backspace at the start of a block deleted
+the picture`. Order the problems the way a reviewer would read the code. Under it, each part starts with a bold label on its own
+line, in this order, and a part with nothing to say is left out:
+
+```markdown
+## (1/4) Backspace at the start of a block deleted the picture
+
+**Problem**
+
+Backspace at the very start of a block's text deleted the picture, and a second press emptied the
+whole block.
+
+**Cause**
+
+…
+
+**Fix**
+
+…
+
+**Risk**
+
+The guard runs on every keystroke in every text field, and now runs before CKEditor. …
+
+**Automated Tests**
+
+- `bloomFieldSpec.ts`: …
+
+**E2E Coverage**
+
+- `inline-images-keys-at-text-edges.spec.ts`: …
+```
+
+Leave a blank line after each label. Without it, GitHub joins the label and the text after it into
+one paragraph.
+
+Screenshots of a problem's UI go in that problem's **Fix**. A Risk part that would say "No
+significant risks" is still written, so the reviewer can see it was considered; Cause is left out
+under the same rule as in "The PR narrative".
+
+After the last problem come the sections that cover the whole PR, under their usual `##` headings
+and with their usual rules: **Ecosystem Impact** (with its `Harvester:` line), **Automated Tests**
+holding the `Test of the change:` line and any test that covers more than one problem, **E2E
+Coverage** holding the live checks and any spec that covers more than one problem, and **Notion
+Test Suite**. A whole-PR section with nothing left in it after the per-problem parts says so in one
+line ("Each problem lists its own tests above.").
+
+Open the description with one or two sentences saying where the problems came from and how many
+there are (for example, "Testing of the merged inline images found four bugs"), before the first
+problem's heading.
+
 **Don't list the checks.** Which gates passed, which suites ran, and what a tester should try are
 not reviewer material. The gates' state goes in the report; the testing steps go in the QA
 test-ideas comment on the card.
 
 All of these sit **inside** the narrative markers (Phase 3), because they describe the PR as it
 now stands and a later run has to be able to refresh them. The **report** opens with the narrative
-alone (problem, cause, fix; or purpose, what the PR does), not these sections.
+alone (problem, cause, fix; or purpose, what the PR does), not these sections. For a PR with
+several problems, the report keeps each problem's Problem, Cause and Fix together under that
+problem's heading, as the description does, and leaves out the rest.
 
 ## What the report is for — and what does not belong in it
 
@@ -199,12 +285,21 @@ everything else) when it is any of:
 - a **large or architecturally-significant** change, or one touching **many files**;
 - a **semantic** merge conflict (resolve only trivial ones — lockfile, imports, formatting);
 - **disagreeing with a human comment** (always report; never auto-dismiss a human);
+- **not fixing a finding that is right about what the code does**, from a bot or a human: calling
+  a real bug, however small or rare, "by design", "deliberate", "a known limitation", "out of
+  scope" or "not worth the cost" is a product decision, and it is the developer's. A behavior
+  counts as decided only when you can point to where the developer decided it (their words in a
+  conversation, a decision-report answer, their reply on a thread); a limitation that an agent
+  wrote into the test ideas, a code comment or an earlier thread reply is not that, and is no
+  reason to dismiss a finding;
 - **changing what an existing test asserts or expects** (including a snapshot or visual
   baseline), or skipping or deleting it, unless the developer already approved that change (see
   "Changing an existing test needs the developer's approval" in `TEAM-AGENTS.md`). Leave the
   suite red and say in the report that it waits on this decision.
 
-Disagreeing with a **bot** does *not* need the user — post a reply and move on. **Agreeing** with
+Disagreeing with a **bot** does *not* need the user when the bot is wrong about what the code
+does — post a reply and move on. A bot that is right about the behavior is not mistaken, however
+little you think the behavior matters: fix it, or put it in the decision report. **Agreeing** with
 a human is fine to act on too: if their point is a clearly-correct, in-scope fix, make the fix,
 post a brief thanks noting what you changed, and resolve the thread. The report is only for
 *disagreement* with a human (or anything else that crosses the lines above) — not for the simple
@@ -293,7 +388,7 @@ point at a longer file. Each check states:
 
 That heading is the only place to look. With no heading the project has no checks, and the report
 says nothing about them. Read the checks in Phase 0. Run each check whose condition the final diff
-meets **once, on settled code, in Phase 4 step 4**, alongside the full suites, unless the check
+meets **once, on settled code, in Phase 4 step 4**, alongside the related tests, unless the check
 names another phase: checks are often slow, and a fix-push cycle would make an earlier run stale.
 A failing check is handled like a failing suite: fix what is within the autonomy line and run it
 again; anything else goes to the decision report. So does a check that needs something this
@@ -325,7 +420,7 @@ settled, by looking for added or changed tests, in any stack, in `git diff origi
 When the PR description is human-written (no preflight markers), the `Test of the change:` line
 goes in a PR comment instead, starting with the attribution tag. A trunk-only review slice (see below) has no test decision: its code is already merged.
 
-`pr-ready-for-human` will not promote a PR whose decision is still `awaiting` or missing.
+`request-peer-review` and `merge-without-peer-review` will not go on with a PR whose decision is still `awaiting` or missing.
 
 ## When the code is already on the trunk (no branch, no PR)
 
@@ -335,7 +430,34 @@ into PRs of a few thousand lines; and never run the gate or apply fixes on a sli
 old tree). `references/trunk-only-repos.md` has the procedure and the mechanics for a repo with
 no CI.
 
+## Progress for the dashboard
+
+The developer's dashboard shows which phase of a run is happening, read from a file that
+`dashboard/progress.mjs` in the bloom-team-skills clone writes. Each phase below opens with a
+**Progress** line naming its commands; `progress <args>` there means this, run from the worktree:
+
+```
+node "$HOME/.claude/skills/dashboard/progress.mjs" <args>
+```
+
+Run each one as the change happens and go on at once: it is quick and never fails the run.
+
+- `progress start` forgets the last run; `progress end` closes this one. A run that stops early
+  still runs `progress end` before its last message: a run left without an end shows on the
+  dashboard as preflight still going.
+- `progress <step> <state> [short note]`: `<state>` is `running` when the step starts, then
+  `done`, `failed` (it needs the developer) or `skipped`. Every step ends in one of those three
+  before `end`, including a step that this run had nothing to do for (`skipped`, with the reason
+  as its note), so that the dashboard never shows a step as not yet started on a finished run.
+- The note is a few words that a glance at the dashboard needs: `bots running "round 2 of 4"`,
+  `tests failed "2 C# tests fail"`, `ci running "3 of 5 checks"`.
+
+When the script is not there (`$HOME/.claude/skills/dashboard` missing), skip these commands.
+
 ## Phase 0 — Discover
+
+**Progress:** `progress start` and `progress discover running` first, before anything else;
+`progress discover done` when the phase ends.
 
 - Identify branch, base (default `master`/`main` — confirm via remote HEAD), and `owner/repo`
 from `git remote get-url origin`.
@@ -362,12 +484,15 @@ use it for all later board moves. If none, skip board steps silently.
 
 ## Phase 1 — Local quality gate (loop until clean)
 
+**Progress:** `progress local running` now; `progress local done` (or `failed`) when the gate is
+clean or capped.
+
 **The fast gate — run at every level, and before every push:** repeat until **typecheck**,
 then **lint**, then **fast tests** (only changed/related tests, non-watch) all pass. Fix
 what's safely fixable; report the rest. A failure waiting on approval to change an existing test
 (see "Autonomy line") does not block the gate: note it and go on. If a commit hook rejects the
-commit because of it, stop and report; never bypass the hook. (The FULL test suite deliberately runs later, once,
-overlapped with the bot wait — see Phase 4.)
+commit because of it, stop and report; never bypass the hook. (The rest of the tests related to the change run later, once,
+overlapped with the bot wait — see Phase 4 step 4. No stack's whole suite runs; the nightly does that.)
 
 ⚠️ **Never read a gate's pass/fail through a pipe.** `tsc --noEmit … | tail -20; echo $?` reports
 `tail`'s status, not the tool's. Capture the status directly (`cmd > out.txt; st=$?`), use
@@ -410,6 +535,9 @@ Cap the loop at **4 cycles** to avoid churn; note in the report if capped.
 
 ## Phase 2 — Integrate the base (before publishing)
 
+**Progress:** `progress merge running` now; when the merge settles, `progress merge done`, or
+`progress merge skipped "already up to date"`, or `progress merge failed "semantic conflict"`.
+
 Fold `origin/<base>` in **before the push**, so the PR's first pushed state is already the
 integrated, mergeable one — never a snapshot that gets superseded a moment later — and so the
 gate has run against the code as it will actually merge. Base may break the branch with **no git
@@ -434,6 +562,9 @@ commit trailer, identifying which model you are. Let the hooks run.
 
 ## Phase 3 — Publish (push, draft PR, link)
 
+**Progress:** `progress publish running` now; `progress publish done` once the PR is open and
+linked.
+
 Everything is already committed in Phase 2; this phase only pushes and opens the PR.
 
 - Push, setting upstream if needed.
@@ -450,7 +581,7 @@ Everything is already committed in Phase 2; this phase only pushes and opens the
   - Either way the PR state changed under you, so the report must render its PR-state chip from a
   fresh `gh pr view <n> --json isDraft` at report time rather than from what happened here — see
   `references/report-artifact.md`, "Header — the run summary and the status chips".
-  - (Do NOT do the promote-to-human ceremony — that's `pr-ready-for-human`.)
+  - (Do NOT un-draft or merge the PR — that's `request-peer-review` or `merge-without-peer-review`.)
 - **Number the PRs in a stack.** A PR is stacked when its base is another PR's head branch, or
   when another PR's base is its head branch. Every PR in a stack gets the title
   `<TICKET> (<n>/<total> in stack) <summary>`, where 1 is the PR that targets the real base branch
@@ -501,13 +632,19 @@ project's **tracker skill**: list the card's comments, check a PR link isn't alr
 (`grep -i "github.com.*pull"`), and only if none post a comment `PR: <PR URL>`
 (prefixed with an identifier of which model you are). This is idempotent — never post a second
 PR link. If the branch carries no ticket id, or the tracker isn't reachable, skip the step and
-note it in the report. (`pr-ready-for-human` performs the same dedup-checked step later, so a link
+note it in the report. (`request-peer-review` and `merge-without-peer-review` perform the same dedup-checked step later, so a link
 posted here means that step finds it already present and does nothing.)
 
 ## Phase 4 — Bot gauntlet
 
 The gauntlet runs every reviewer (see "The reviewers") to a terminal state. The local review
 already ran in Phase 1; its captured outcome joins the results here.
+
+**Progress:** this phase has four parts, which overlap: `devin`, `ci`, `bots` (fixing and
+answering review comments) and `tests` (step 4's related tests and repo checks). Run
+`progress <part> running` as each starts (`devin` and `ci` at step 1, `bots` at step 2's first
+comment, `tests` at step 4) and its `done`, `failed` or `skipped` as each reaches its terminal
+state in step 5. Every push in step 3 sets `devin`, `ci` and `tests` back to `running`.
 
 1. **Trigger Devin** for the current HEAD via the `devin-review` skill (on BloomDesktop the
  push already triggered it via CI; elsewhere the skill loads the review URL — either way it
@@ -526,8 +663,10 @@ already ran in Phase 1; its captured outcome joins the results here.
   outcome and resolve the thread** (prefix the body with an identifier of which model you
   are): "Fixed in `<sha>`: …", and for a **human** a brief thanks for the catch. A
   documented, resolved thread is the record a later human reviewer sees.
-  - **Bot** is mistaken → **post a reply** explaining why **and resolve the thread** — refuting
-  a bot needs no user sign-off.
+  - **Bot** is mistaken about what the code does → **post a reply** explaining why **and resolve
+  the thread** — refuting a bot needs no user sign-off. If the bot describes the behavior
+  correctly and you would rather not change it, it is not mistaken: that is the autonomy line's
+  "not fixing a finding that is right" case, so it goes to the decision report.
   - Crosses the autonomy line, **or you disagree with a human** → **decision report**, with the
   thread left **open** (never auto-dismiss a human; it gets closed when the decision comes
   back — see "Processing the user's decisions"). Only clear-cut, acted-on items get closed
@@ -535,32 +674,36 @@ already ran in Phase 1; its captured outcome joins the results here.
 3. If any fixes were made → re-run the fast gate, commit, push. A new commit **restarts** every
  async reviewer, so re-trigger Devin and **reset the wait clock**. Cap the overall
  fix-push-rewait cycle at **4**; note in the report if capped.
-4. **Run the FULL test suite for every stack the change can reach — once, here, overlapped
- with the wait.** While waiting in step 5, run each **in-scope** stack's full non-watch suite
- against the settled code. If it already passed on an identical tree this run, don't re-run it.
- Failures → fix if safely fixable (that's a new commit → back to step 3), else decision report
- + (via the board skill) a "needs response" state. Phase 5 requires every in-scope suite green
- at the final HEAD. Run the repo checks whose condition the diff meets here too (see "Repo
- checks"), under the same rules.
+4. **Run the tests related to the change — once, here, overlapped with the wait.** While
+ waiting in step 5, run, against the settled code, the non-watch tests of each stack that the
+ final diff reaches: the tests in the diff, and the tests that import or exercise the code the
+ diff changes (Vitest's `vitest related <changed files>`, or for .NET the test classes that
+ cover the changed classes, run with `dotnet test --filter`). Skip what the fast gate already
+ ran on an identical tree. **Preflight never runs a stack's whole suite**: the nightly runs every
+ suite in full, so a failure in a test that the change does not reach is the nightly's to
+ report. Failures → fix if safely fixable (that's a new commit → back to step 3), else decision
+ report + (via the board skill) a "needs response" state. Phase 5 requires the related tests
+ green at the final HEAD. Run the repo checks whose condition the diff meets here too (see
+ "Repo checks"), under the same rules.
 
- **In scope = the final diff can plausibly reach it** — decide per stack from the diff, not
- from what the repo happens to contain. A stack is in scope when the diff touches its own
- sources or tests, **or** anything it consumes: a shared schema or API contract its tests
- assert on, generated or content files they read, build/dependency/CI config. A stack is out
- of scope only when you can *say why* nothing in the diff can reach it — "a TypeScript-only
- diff, and the .NET suite neither reads nor builds any of it" is a reason; "it's slow" is not.
- **When in doubt, run it.**
+ **Related = the final diff can plausibly reach it.** A test is related when it is in the diff,
+ or it imports, builds or reads something the diff changes: changed source, a shared schema or
+ API contract it asserts on, generated or content files it reads. When the diff changes
+ something every test consumes (build, dependency or CI config, a test setup file), run the
+ fast-gate tests of each affected stack and say in the report that the rest waits for the
+ nightly.
 
- Running an untouched stack's suite is not free caution. It costs many minutes, and a
- **pre-existing** failure there then arrives as a red row and a decision item that spends the
- user's attention on something this branch did not cause and will not fix.
+ **Preflight never runs the whole end-to-end suite.** A suite that drives the running app
+ (Bloom's `src/BloomE2E`, for example) is not one of the suites above, however much of the diff
+ it can reach: the nightly runs it in full. Preflight runs only the e2e specs that a repo's
+ Preflight checks name (see "Repo checks"), and with no such check it runs none.
 
- **Never skip silently.** An out-of-scope stack still gets its row in the report and the final
- summary, reading e.g. "not run — no C# in the diff", so a reader can tell a deliberate
- exemption from an oversight.
+ **Never skip silently.** A stack whose tests did not run still gets its row in the report and
+ the final summary, reading e.g. "not run — no C# in the diff", so a reader can tell a
+ deliberate exemption from an oversight.
 5. **Wait for every async reviewer to reach a terminal state** (the terminal-state rule).
  Skipping this wait is exactly what produces "pending" rows. Keep it **non-blocking**: do
- remaining work between polls (step 4's full suite, report drafting) and never block-sleep
+ remaining work between polls (step 4's related tests, report drafting) and never block-sleep
  the whole interval; poll roughly every 2–3 min. Shared cap: **~30 min from the latest push**
  (a re-triggering push resets it, bounded by step 3's cycle cap). Per reviewer:
   - **Devin:** run the `devin-review` skill through to its terminal result — it waits
@@ -596,7 +739,7 @@ already ran in Phase 1; its captured outcome joins the results here.
   its diff against the base is well under 100 files. Post the bypass yourself, as a PR comment
   with the attribution tag followed by `@greptile-apps review`, then wait for its review like any
   other bot's and fold in its findings. If it declines again, record "declined (over file cap)
-  even after the bypass". Otherwise a squash in `pr-ready-for-human` brings the count under the
+  even after the bypass". Otherwise a squash in `request-peer-review` brings the count under the
   cap, and the review lands after the PR is already with a human.
   - **CI:** complete when every required check is terminal (success/failure), not
   queued/in-progress. Failures → treat like any finding (fix if safe; else decision report).
@@ -611,11 +754,14 @@ already ran in Phase 1; its captured outcome joins the results here.
   substituted <model> sub-agent review", never as "bots quiet": a PR that no third-party reviewer
   ever looked at is a fact the human reviewer needs.
 6. New findings fixed → re-cycle from step 3 (bounded; note if capped). Otherwise, with every
- reviewer terminal and every in-scope suite green, proceed to Phase 5.
+ reviewer terminal and the related tests green, proceed to Phase 5.
 
 ## Phase 5 — Converge, land, report
 
-Enter when: fast gate clean, **every in-scope test suite green at HEAD** (apart from failures
+**Progress:** `progress report running` on entering; `progress report done` once the report is
+published, then `progress end` just before the final summary.
+
+Enter when: fast gate clean, **the related tests green at HEAD** (apart from failures
 waiting on a decision to change an existing test), every reviewer terminal
 (complete or recorded timeout — the terminal-state rule), all **bot** comments resolved (fixed
 or replied), branch mergeable, and only human-decision items (if any) remain.
@@ -677,7 +823,7 @@ reads, on every run.
 Then: the branch, and the **PR URL as a bare plain-text URL on its own line** (never a markdown
 link — the terminal hides the address, and the user's most common next move from either the
 summary or the report is to open the PR) with its PR state (read it live — `gh pr view <n> --json
-isDraft` — never assumed from what this run did to it); fast-gate and full-suite results; **one line** on what this
+isDraft` — never assumed from what this run did to it); fast-gate and related-test results; **one line** on what this
 run changed; reviewer outcomes — one line per reviewer per "The reviewers" (the local review
 included, each remote one terminal: complete or "timed out after N min", how long we waited);
 mergeability; whether the QA test-ideas comment was posted/updated, whether the PR description's
@@ -697,13 +843,14 @@ defines the publish target and steps (including the single URL to open in the br
 printing a bare URL), the visual style, the content blocks — including the **header links row,
 led by a link to the PR's own page**, which the render check and a pre-publish grep both verify —
 the decision-item controls (`Leave as is` / `Leave comment` / `Other:` conventions), and the
-copy-back button.
+copy-back with its Copy and Send to Claude buttons.
 
 ## Processing the user's decisions (after the run)
 
-When the user answers the decision report — usually by pasting the artifact's copy-back block,
-sometimes informally in chat — that answer carries the same authorization as the original
-`/preflight` invocation for the writes below. For each decided item:
+When the user answers the decision report — usually with its Send to Claude button, which wakes
+this session with the answers, sometimes by pasting the copy-back block or informally in chat —
+that answer carries the same authorization as the original `/preflight` invocation for the
+writes below. For each decided item:
 
 - **A fix option was chosen** → implement it (then re-run preflight's gauntlet as usual — it's
 a new commit).
@@ -753,8 +900,8 @@ not recited in the report ("What the report is for").
 - Never mark the PR ready-for-review (leave it draft). Never request a teammate's review. Clean &
 quiet → the user's own final-review state (via their board skill).
 - Never run a watch-mode test command.
-- Run a stack's full suite only when the change can reach it (Phase 4 step 4), and always say
-in the report when you didn't, and why.
+- Never run a stack's whole test suite; run the tests related to the change (Phase 4 step 4),
+and always say in the report which stacks' tests did not run, and why.
 - Any text posted to GitHub under the user's account is prefixed with an identifier of which
 model you are (per the user's identity conventions) — do not hardcode a model name.
 - A **human** comment that's clearly right and in scope → fix it, reply with a brief thanks and
@@ -762,8 +909,8 @@ what you changed, and resolve. **Disagreeing** with a human → report, never au
 auto-dismiss. A **bot** → auto-reply is always fine (documenting a fix, or refuting a mistake).
 - Include the repo/user's required commit trailer on commits.
 - Defer local board moves to the user's private board skill; Devin mechanics to the
-`devin-review` skill; and the tracker link and "ready for human" promotion to the
-`pr-ready-for-human` skill (which the developer runs after their own review).
+`devin-review` skill; and the tracker link, un-drafting and merging to
+`request-peer-review` or `merge-without-peer-review` (which the developer runs after their own review).
 - Idempotent & re-entrant: safe to re-run; it re-cycles from wherever the branch currently is
 (new commits restart the bot gauntlet).
 - Degrade gracefully: if a board skill / `gh` / a bot / the Devin trigger is unavailable, note it

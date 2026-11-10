@@ -1,6 +1,6 @@
 ---
 name: bloom-services
-description: Reach the Bloom team's services with no token of your own, through the team's tool server, signed in by your GitHub login. Use to read YouTrack cards (and comment or change them as the Bot), Sentry issues, Slack channel history, Notion (the roadmap, the docs site's pages, the manual test cases in Test Case Runs), Cloudflare, Mixpanel, the community forum, TeamCity builds or a Bloom Library book; and before changing Azure, Supabase or Sentry settings with your own account.
+description: Reach the Bloom team's services with no token of your own, through the team's tool server, signed in by your GitHub login. Use to read YouTrack cards (and comment or change them as the Bot), Sentry issues, Slack channel history, Notion (the roadmap, the docs site's pages, the manual test cases in Test Case Runs), Cloudflare, Mixpanel, Bloom Library's Contentful content and Parse server, the community forum, TeamCity builds or a Bloom Library book; and before changing Azure, Supabase or Sentry settings with your own account.
 ---
 
 # The team's services
@@ -39,25 +39,26 @@ gh api repos/BloomBooks/bloom-bot/contents/ARCHITECTURE.md -H "Accept: applicati
 
 The tool server holds each service's token and adds it. It lets in any member of the BloomBooks
 GitHub organization, signed in with `gh auth token`, so `gh auth login` is the only setup. It
-records each call with your GitHub login.
+records each call with your GitHub login. It passes a request on as it is: it doesn't check what
+you ask for, so the rules below are yours to keep.
 
 - **Reads** go through here, except Sentry events and other Sentry data about users (their email
   and IP addresses, feedback, replays, attachments). For those, use your own Sentry login.
 - **YouTrack writes** go through here, as the shared Bot account: `youtrack POST <api path>
-  @<file>`. Start every comment and card description with the attribution line (TEAM-AGENTS.md);
-  the tool server refuses a comment or card without one.
+  @<file>`. Start every comment and card description with the attribution line (TEAM-AGENTS.md),
+  which is the only thing on YouTrack that says who asked for it.
 - **Notion writes** are made as yourself, through Notion's own MCP server: [notion.md](notion.md).
 - **Changing Azure, Supabase or Sentry** (settings, functions, resources, resolving Sentry issues)
   is done with your own account in that service: [own-logins.md](own-logins.md).
-- **Slack posts** are made only by the bot.
-
-When the tool server refuses a call, its message says which of these applies.
+- **Slack posts** (`slack-post`, `slack-upload`, `slack-delete`) are for the bot. Don't post as the
+  bot from your own session, and never open Slack's Socket Mode connection (`slack-connect`): a
+  second connection takes some of the bot's messages away from it.
+- **Contentful** changes are made in Contentful's own web app; `contentful-management` only reads.
 
 ## When a command fails
 
-- "isn't on Cloudflare yet": the tool server has no public address. Until it has one, set
-  `BLOOM_BOT_WORKER_URL` to the address of one that is running, or wait; there is no token to
-  fall back on.
+- "the tool server ... is down": it runs at the address in `DEFAULT_WORKER_URL` in `sources.mjs`;
+  `BLOOM_BOT_WORKER_URL` points elsewhere when set.
 - "GitHub doesn't accept that token" or "not a member of BloomBooks": run `gh auth login`, or ask
   to be added to the BloomBooks organization.
 - "<NAME> is not among the bot's service tokens yet": the tool server doesn't hold that service's
