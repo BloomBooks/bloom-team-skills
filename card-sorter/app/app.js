@@ -1,13 +1,16 @@
-// Card Sorter page: a board of columns (each a board + state a card can end up in). Cards start in
-// the column they are in now; moving a card to another column records the decision. Decisions are
-// saved to the server (decisions.json) on every change.
+// Card Sorter page: a board of columns (each a board + state a card can end up in). Each card sits in
+// the column of its board and state in YouTrack. Moving a card, changing its tags, adding a comment
+// or closing it changes YouTrack at once, and the card is redrawn as YouTrack then has it. Only
+// "Come back later" and an unsent comment live in the sorter alone (decisions.json).
 
 const $ = (sel) => document.querySelector(sel);
 const boardEl = $("#board");
 const detailEl = $("#detail");
 
 let data = null;            // { config, cards, decisions, extractedAt }
-let decisions = {};         // id -> { column?, note?, tags?: { add: [name], remove: [name] }, at }
+let decisions = {};         // id -> { later?: true, draft?: text, at }
+const startedIn = new Map(); // id -> the key of the column the card was in when this page first saw it
+const busy = new Set();     // ids of cards with a change on its way to YouTrack
 let allTags = null;         // every tag the Bot can see, [{ id, name, background, foreground }], from /api/tags
 let tagError = null;        // why the tag list could not be read
 let columns = [];           // config.columns
@@ -42,19 +45,36 @@ function scoreOf(a) {
 
 // ---------- where cards are ----------
 
-/** The column a card is in on the tracker now. */
+/** The column of the card's board and state in YouTrack; a closed card is in the Close column. */
 function originalColumn(c) {
-    const fits = (col) => (col.anyBoard || col.board === c.board) && (col.state == null || col.state === c.state);
-    let i = columns.findIndex((col) => col.asFound && fits(col));
+    if (c.resolved) {
+        const i = columns.findIndex((col) => col.close);
+        if (i >= 0) return i;
+    }
+    // A column of the card's own board comes before an anyBoard column, so a card that has been put
+    // on a board shows there even while its State still matches the anyBoard column (Incoming).
+    const fits = (col) => !col.close && !col.later && (col.anyBoard || col.board === c.board) && (col.state == null || col.state === c.state);
+    let i = columns.findIndex((col) => !col.anyBoard && col.asFound && fits(col));
+    if (i < 0) i = columns.findIndex((col) => !col.anyBoard && fits(col));
     if (i < 0) i = columns.findIndex(fits);
     return i < 0 ? 0 : i;
 }
-/** The column a card is in on this board: its decision, else where it started. */
+/**
+ * The column a card shows in: where it is going while a change runs or a Ctrl+arrow run holds it,
+ * Come back later when it is parked there, else its YouTrack column.
+ */
 function columnOf(c) {
-    const key = decisions[c.id]?.column;
-    if (key == null) return c.originalCol;
-    const i = columns.findIndex((col) => col.key === key);
-    return i < 0 ? c.originalCol : i;
+    if (preview.has(c.id)) return preview.get(c.id);
+    if (decisions[c.id]?.later) {
+        const i = columns.findIndex((col) => col.later);
+        if (i >= 0) return i;
+    }
+    return c.originalCol;
+}
+/** The index of the column the card was in when this page first saw it. */
+function startColumn(c) {
+    const i = columns.findIndex((col) => col.key === startedIn.get(c.id));
+    return i < 0 ? columnOf(c) : i;
 }
 /** The column the analysis proposes, or -1 when the proposal has no column (e.g. "future"). */
 function proposedColumn(c) {
@@ -86,7 +106,7 @@ const groupings = {
     roadmap: { label: "Roadmap feature", key: (c) => c.analysis?.roadmap ?? "Not on the roadmap" },
     assignee: { label: "Assignee", key: (c) => c.assignee ?? "Unassigned" },
     board: { label: "Board", key: (c) => c.board ?? "No board" },
-    origin: { label: "Where it started", key: (c) => columns[c.originalCol].label },
+    origin: { label: "Where it started", key: (c) => columns[startColumn(c)].label },
 };
 const sorts = {
     score: { label: "Score", cmp: (a, b) => (scoreOf(b.analysis) ?? -1) - (scoreOf(a.analysis) ?? -1) },
@@ -140,13 +160,25 @@ function cardHtml(c, i) {
     // elsewhere a card that is not where the analysis proposed is flagged.
     const unsorted = columns[i].asFound || columns[i].later;
     const differs = a && pc !== i && !unsorted;
-    const classes = ["card", selection.has(c.id) && "sel", c.id === cursorId && "cursor", i !== c.originalCol && "moved"].filter(Boolean).join(" ");
+    const from = startColumn(c);
+    const classes = ["card", selection.has(c.id) && "sel", c.id === cursorId && "cursor", i !== from && "moved", busy.has(c.id) && "busy"].filter(Boolean).join(" ");
     const propText = !a ? "" : pc === i ? "✓ proposed" : `→ ${esc(proposalShort[a.proposal] ?? a.proposal)}`;
     return `<div class="${classes}" data-id="${c.id}" draggable="true">
         <div class="top"><span class="score">${scoreOf(a) ?? "–"}</span><span class="id">${c.id}</span><span class="prop${differs ? " differs" : ""}">${propText}</span></div>
         <div class="plain">${esc(a?.plain ?? c.title)}</div>
-        <div class="meta">${i !== c.originalCol ? `<span class="from">from ${esc(columns[c.originalCol].label)}</span>` : ""}<span>${esc([a?.area, a ? `B${benefitOf(a)} R${a.risk}` : null, a ? fmtLines(a.sizeLines) : null].filter(Boolean).join(" · "))}</span></div>
+        <div class="meta">${i !== from ? `<span class="from">from ${esc(columns[from].label)}</span>` : ""}<span>${esc([a?.area, a ? `B${benefitOf(a)} R${a.risk}` : null, a ? fmtLines(a.sizeLines) : null].filter(Boolean).join(" · "))}</span></div>
+        ${cardTagsHtml(c)}
     </div>`;
+}
+
+/** The card's tags, in YouTrack's colours. */
+function cardTagsHtml(c) {
+    if (!c.tags.length) return "";
+    return `<div class="card-tags">${c.tags.map((tag) => `<span class="chip"${tagColors(tag)}>${esc(tag.name)}</span>`).join("")}</div>`;
+}
+
+function tagColors(tag) {
+    return tag.background ? ` style="background:${esc(tag.background)};color:${esc(tag.foreground ?? "inherit")}"` : "";
 }
 
 function renderBoard() {
@@ -240,13 +272,14 @@ function renderDetail() {
         ${selection.size > 1 ? `<div class="multi"><b>${selection.size} cards selected.</b> Press 1–${columns.length} to move them all, Enter to move each to its proposal, Esc to clear.</div>` : ""}
         <div class="d-head">
             <a href="${data.config.trackerUrl}${c.id}" target="_blank">${c.id} ↗</a>
+            ${c.reporter ? `<span class="reporter"${c.reporterEmail && c.reporterEmail !== c.reporter ? ` title="${esc(c.reporterEmail)}"` : ""}>${esc(c.reporter)}</span>` : ""}
             <span class="state">${esc(c.board ?? "No board")} / ${esc(c.state)} · ${esc(c.type)} · ${age} days old${c.assignee ? ` · ${esc(c.assignee)}` : ""}</span>
         </div>
         <div class="d-title">${esc(c.title)}</div>
         <p class="d-plain">${esc(a?.plain ?? "Not analyzed yet.")}</p>
-        <div class="d-where">Now in <b>${esc(columns[here].label)}</b>${here !== c.originalCol ? ` (started in ${esc(columns[c.originalCol].label)})` : ""}</div>
+        <div class="d-where">Now in <b>${esc(columns[here].label)}</b>${here !== startColumn(c) ? ` (started in ${esc(columns[startColumn(c)].label)})` : ""}</div>
         ${a ? `<div class="proposal-why">Proposed: <b>${esc(proposalLabel(c))}</b>. ${esc(a.proposalWhy)}</div>` : ""}
-        <textarea class="note" placeholder="Note (n)">${esc(dec.note ?? "")}</textarea>
+        ${newCommentHtml(dec, c)}
         ${tagsHtml(c)}
 
         ${a?.status ? `<div class="status">${esc(a.status)}</div>` : ""}
@@ -273,29 +306,91 @@ function renderDetail() {
     </div>`;
 }
 
-// ---------- tags ----------
+// ---------- changes to YouTrack ----------
 
-/** The card's tags as they will be after pushing, each marked "add" or "remove" while that change waits for the push. */
-function tagRows(c) {
-    const t = decisions[c.id]?.tags ?? { add: [], remove: [] };
-    const rows = c.tags.map((tag) => ({ tag, pending: t.remove.includes(tag.name) ? "remove" : null }));
-    for (const name of t.add) rows.push({ tag: allTags?.find((x) => x.name === name) ?? { name }, pending: "add" });
-    return rows;
+/**
+ * Makes one change to one card in YouTrack (`change` is { kind, ... } as /api/change takes it),
+ * dims the card while it runs, then puts the card back as YouTrack has it. Returns true when the
+ * change went through; a failure is shown in the toast.
+ */
+async function change(c, body) {
+    busy.add(c.id);
+    renderBoard();
+    try {
+        const r = await fetch("/api/change", { method: "POST", body: JSON.stringify({ id: c.id, ...body }) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error);
+        replaceCard(j.card);
+        if (j.error) throw new Error(j.error);
+        return true;
+    } catch (e) {
+        toast(`${c.id}: ${e.message}`, true);
+        return false;
+    } finally {
+        busy.delete(c.id);
+        render();
+    }
 }
 
+/** Puts a card fresh from YouTrack in place of the page's copy. */
+function replaceCard(fresh) {
+    const i = data.cards.findIndex((x) => x.id === fresh.id);
+    if (i >= 0) data.cards[i] = fresh;
+    else data.cards.push(fresh);
+    fresh.originalCol = originalColumn(fresh);
+    byId.set(fresh.id, fresh);
+}
+
+let toastTimer = null;
+/** A short message at the bottom of the page; a failure stays until it is clicked. */
+function toast(text, bad = false) {
+    const el = $("#toast");
+    el.textContent = text;
+    el.classList.toggle("bad", bad);
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    if (!bad) toastTimer = setTimeout(() => (el.hidden = true), 3000);
+}
+$("#toast").addEventListener("click", () => ($("#toast").hidden = true));
+
+// ---------- new comments ----------
+
+/** The box for a new comment. Add posts it on the card in YouTrack at once. */
+function newCommentHtml(dec, c) {
+    return `<div class="new-comment">
+        <textarea class="draft" placeholder="New Comment (n)">${esc(dec.draft ?? "")}</textarea>
+        <button class="tag-btn" data-act="add-comment" title="Ctrl+Enter"${busy.has(c.id) ? " disabled" : ""}>${busy.has(c.id) ? "Adding…" : "Add"}</button>
+    </div>`;
+}
+
+/** Posts the typed comment on the card; the box empties once YouTrack has it. */
+async function addComment(c) {
+    const text = decisions[c.id]?.draft?.trim();
+    if (!text || busy.has(c.id)) return;
+    if (await change(c, { kind: "comment", text })) {
+        setDraft(c.id, "");
+        toast(`Comment added to ${c.id}.`);
+        renderDetail();
+    }
+}
+
+/** Keeps the unsent comment for a card, or drops it when empty. */
+function setDraft(id, text) {
+    const d = (decisions[id] ??= {});
+    if (text) d.draft = text;
+    else delete d.draft;
+    if (isEmptyDecision(d)) delete decisions[id];
+    save();
+}
+
+// ---------- tags ----------
+
 function tagsHtml(c) {
-    const rows = tagRows(c);
-    const shown = new Set(rows.map((r) => r.tag.name));
-    const chip = ({ tag, pending }) => {
-        const colors = tag.background ? ` style="background:${esc(tag.background)};color:${esc(tag.foreground ?? "inherit")}"` : "";
-        const title = pending === "add" ? "Will be added when you push. Click × to drop it."
-            : pending === "remove" ? "Will be removed when you push. Click ↺ to keep it."
-            : "Click × to remove it when you push.";
-        return `<span class="chip tag${pending ? ` ${pending}` : ""}"${colors} title="${title}">${esc(tag.name)}<button class="tag-x" data-tag="${esc(tag.name)}" aria-label="${pending === "remove" ? "Keep" : "Remove"} ${esc(tag.name)}">${pending === "remove" ? "↺" : "×"}</button></span>`;
-    };
+    const shown = new Set(c.tags.map((t) => t.name));
+    const chip = (tag) => `<span class="chip tag"${tagColors(tag)} title="Click × to take it off the card">${esc(tag.name)}<button class="tag-x" data-tag="${esc(tag.name)}" aria-label="Remove ${esc(tag.name)}"${busy.has(c.id) ? " disabled" : ""}>×</button></span>`;
     return `<div class="tags">
-        ${rows.map(chip).join("")}
-        <span class="tag-add"><input class="tag-input" list="tag-names" placeholder="Add a tag (t)" autocomplete="off"><button class="tag-btn" data-act="add-tag">Add</button></span>
+        ${c.tags.map(chip).join("")}
+        <span class="tag-add"><input class="tag-input" list="tag-names" placeholder="Add a tag (t)" autocomplete="off"><button class="tag-btn" data-act="add-tag"${busy.has(c.id) ? " disabled" : ""}>Add</button></span>
         <datalist id="tag-names">${(allTags ?? []).filter((t) => !shown.has(t.name)).map((t) => `<option value="${esc(t.name)}"></option>`).join("")}</datalist>
         <div class="tag-msg">${esc(tagError ? `Could not read YouTrack's tags: ${tagError}` : "")}</div>
     </div>`;
@@ -316,54 +411,39 @@ async function loadTags() {
     return allTags;
 }
 
-/** Changes the card's waiting tag changes with `fn(t)`, then saves and redraws. */
-function changeTags(c, fn) {
-    const d = (decisions[c.id] ??= {});
-    const t = d.tags ?? { add: [], remove: [] };
-    fn(t);
-    if (t.add.length || t.remove.length) d.tags = t;
-    else delete d.tags;
-    d.at = new Date().toISOString();
-    if (isEmptyDecision(d)) delete decisions[c.id];
-    save();
-    renderBoard();
-    renderDetail();
+/** Puts a tag on the card or takes it off, in YouTrack, as one undo step. */
+async function setTag(c, tag, on) {
+    if (await change(c, { kind: "tag", tag: { id: tag.id, name: tag.name }, on })) {
+        undoStack.push([{ id: c.id, undo: () => change(byId.get(c.id), { kind: "tag", tag, on: !on }) }]);
+    }
 }
 
-/** The × or ↺ on a chip: drops a waiting add, undoes a waiting remove, or removes a tag the card has. */
-function toggleTag(c, name) {
-    changeTags(c, (t) => {
-        if (t.add.includes(name)) t.add = t.add.filter((n) => n !== name);
-        else if (t.remove.includes(name)) t.remove = t.remove.filter((n) => n !== name);
-        else t.remove.push(name);
-    });
+/** The × on a chip takes that tag off the card. */
+function removeTag(c, name) {
+    const tag = c.tags.find((t) => t.name === name);
+    if (tag && !busy.has(c.id)) setTag(c, tag, false);
 }
 
 /** Adds the tag typed in the box, or says why it can't. */
 function addTypedTag(c) {
     const input = detailEl.querySelector(".tag-input");
     const typed = input.value.trim();
-    if (!typed) return;
+    if (!typed || busy.has(c.id)) return;
     const say = (msg) => (detailEl.querySelector(".tag-msg").textContent = msg);
     if (!allTags) return say(tagError ? `Could not read YouTrack's tags: ${tagError}` : "Still reading YouTrack's tags; try again in a moment.");
     const tag = allTags.find((t) => t.name.toLowerCase() === typed.toLowerCase());
     if (!tag) return say(`YouTrack has no tag named "${typed}".`);
-    const pending = decisions[c.id]?.tags;
-    const onCard = c.tags.some((t) => t.name === tag.name);
-    if ((onCard && !pending?.remove.includes(tag.name)) || pending?.add.includes(tag.name)) return say(`${c.id} already has "${tag.name}".`);
-    changeTags(c, (t) => {
-        if (onCard) t.remove = t.remove.filter((n) => n !== tag.name);
-        else t.add.push(tag.name);
-    });
-    detailEl.querySelector(".tag-input")?.focus();
+    if (c.tags.some((t) => t.id === tag.id)) return say(`${c.id} already has "${tag.name}".`);
+    setTag(c, tag, true);
 }
 
 function renderProgress() {
-    const isSorted = (c) => !columns[columnOf(c)].asFound && !columns[columnOf(c)].later;
-    const sorted = data.cards.filter(isSorted).length;
     const later = data.cards.filter((c) => columns[columnOf(c)].later).length;
-    const differs = data.cards.filter((c) => c.analysis && isSorted(c) && proposedColumn(c) !== columnOf(c)).length;
-    $("#progress").textContent = `${sorted} of ${data.cards.length} sorted · ${later} to come back to · ${differs} sorted somewhere other than proposed`;
+    const differs = data.cards.filter((c) => {
+        const col = columns[columnOf(c)];
+        return c.analysis && !col.asFound && !col.later && proposedColumn(c) !== columnOf(c);
+    }).length;
+    $("#progress").textContent = `${data.cards.length} cards · ${later} to come back to · ${differs} not where the analysis proposed`;
 }
 
 function render() {
@@ -422,20 +502,19 @@ function save() {
     saveTimer = setTimeout(() => fetch("/api/decisions", { method: "POST", body: JSON.stringify(decisions) }), 150);
 }
 
-/** Puts a card in a column, recording or clearing its decision; returns what it was before, for undo. */
-function place(c, colIndex) {
-    const before = decisions[c.id] ? { ...decisions[c.id] } : null;
-    const d = (decisions[c.id] ??= {});
-    if (colIndex === c.originalCol) delete d.column;
-    else d.column = columns[colIndex].key;
-    d.at = new Date().toISOString();
-    if (isEmptyDecision(d)) delete decisions[c.id];
-    return { id: c.id, before };
-}
-
 /** True when a decision records nothing, so it can be dropped. */
 function isEmptyDecision(d) {
-    return d.column == null && !d.note && !d.tags;
+    return !d.later && !d.draft;
+}
+
+/** Parks a card in Come back later, or takes it out; this lives in the sorter only. */
+function setLater(id, on) {
+    const d = (decisions[id] ??= {});
+    if (on) d.later = true;
+    else delete d.later;
+    d.at = new Date().toISOString();
+    if (isEmptyDecision(d)) delete decisions[id];
+    save();
 }
 
 /** The cards an action applies to: the selection, or the card under the cursor. */
@@ -446,32 +525,74 @@ function targets() {
 }
 
 /**
- * Moves cards (each to `colFor(card)`), keeps the cursor in the column it was in, on the card
- * after the moved ones, and records one undo step.
+ * Moves cards, each to `colFor(card)`: the cursor stays in the column it was in, on the card after
+ * the moved ones. A move to the Close column asks first; every other move changes YouTrack at once.
+ * The moves that went through make one undo step.
  */
-function moveCards(cards, colFor) {
-    if (!cards.length) return;
+async function moveCards(cards, colFor) {
+    const moves = cards.map((c) => ({ c, to: colFor(c) })).filter(({ c, to }) => to >= 0 && to !== columnOf(c));
+    if (!moves.length) return;
     const list = colCards[cursorCol];
-    const moving = new Set(cards.map((c) => c.id));
+    const moving = new Set(moves.map(({ c }) => c.id));
     const cursorIdx = list.findIndex((c) => c.id === cursorId);
     const after = list.slice(cursorIdx + 1).find((c) => !moving.has(c.id)) ?? list.slice(0, cursorIdx).reverse().find((c) => !moving.has(c.id));
-    const changes = cards.map((c) => (colFor(c) >= 0 ? place(c, colFor(c)) : null)).filter(Boolean);
-    if (!changes.length) return;
-    undoStack.push(changes);
-    save();
     selection.clear();
     cursorId = moving.has(cursorId) ? after?.id ?? null : cursorId;
     anchorId = cursorId;
     descExpanded = false;
+    const closing = moves.filter(({ to }) => columns[to].close).map(({ c }) => c);
+    if (closing.length) askToClose(closing);
+    const steps = (await Promise.all(moves.filter(({ to }) => !columns[to].close).map(({ c, to }) => placeCard(c, to)))).filter(Boolean);
+    if (steps.length) undoStack.push(steps);
     render();
 }
 
-// While Ctrl is held, Ctrl+arrow moves keep hold of the same cards, so pressing the arrow again
-// moves them another column. Letting go of Ctrl puts the cursor back in the column the cards came
-// from, on the card after them.
-let ctrlMove = null;        // { fromCol, nextId, ids } while Ctrl is held after a Ctrl+arrow move
+/** What a card's board and state become in YouTrack when it goes to `col`. */
+function fieldsFor(col) {
+    if (col.anyBoard) return { state: col.state };
+    const state = col.state ?? col.newState;
+    return state ? { board: col.board, state } : { board: col.board };
+}
 
-/** Moves the selection (or the card under the cursor) one column left or right of where each card is. */
+/**
+ * Puts one card in column `to`. Come back later is kept in the sorter; any other column changes the
+ * card's board and state in YouTrack, and the card shows there while that runs. Returns the undo
+ * step, or null when nothing changed.
+ */
+async function placeCard(c, to) {
+    const col = columns[to];
+    const wasLater = !!decisions[c.id]?.later;
+    if (col.later) {
+        setLater(c.id, true);
+        return { id: c.id, undo: async () => setLater(c.id, false) };
+    }
+    if (wasLater) setLater(c.id, false);
+    if (to === c.originalCol) return wasLater ? { id: c.id, undo: async () => setLater(c.id, true) } : null;
+    const before = { board: c.board, state: c.state };
+    preview.set(c.id, to);
+    const ok = await change(c, { kind: "move", ...fieldsFor(col) });
+    preview.delete(c.id);
+    if (!ok) {
+        if (wasLater) setLater(c.id, true);
+        return null;
+    }
+    return {
+        id: c.id,
+        undo: async () => {
+            await change(byId.get(c.id), { kind: "move", ...before });
+            if (wasLater) setLater(c.id, true);
+        },
+    };
+}
+
+// While Ctrl is held, Ctrl+arrow moves keep hold of the same cards, so pressing the arrow again
+// moves them another column. The cards move on the page only; letting go of Ctrl makes the one
+// change in YouTrack, to the column they ended in, and puts the cursor back in the column the
+// cards came from, on the card after them.
+let ctrlMove = null;        // { fromCol, nextId, ids } while Ctrl is held after a Ctrl+arrow move
+const preview = new Map();  // id -> column index a card shows in before YouTrack has the change
+
+/** Moves the selection (or the card under the cursor) one column left or right of where each card shows. */
 function shiftCards(delta) {
     if (!ctrlMove) {
         const cards = targets();
@@ -483,14 +604,15 @@ function shiftCards(delta) {
         const next = list.slice(i + 1).find((c) => !moving.has(c.id)) ?? list.slice(0, Math.max(0, i)).reverse().find((c) => !moving.has(c.id));
         ctrlMove = { fromCol: cursorCol, nextId: next?.id ?? null, ids };
     }
-    const cards = ctrlMove.ids.map((id) => byId.get(id));
-    const changes = cards.map((c) => {
-        const to = columnOf(c) + delta;
-        return to >= 0 && to < columns.length ? place(c, to) : null;
-    }).filter(Boolean);
-    if (!changes.length) return;
-    undoStack.push(changes);
-    save();
+    let moved = false;
+    for (const id of ctrlMove.ids) {
+        const to = columnOf(byId.get(id)) + delta;
+        if (to >= 0 && to < columns.length) {
+            preview.set(id, to);
+            moved = true;
+        }
+    }
+    if (!moved) return;
     selection.clear();
     for (const id of ctrlMove.ids) selection.add(id);
     cursorId = ctrlMove.ids.includes(cursorId) ? cursorId : ctrlMove.ids[0];
@@ -498,33 +620,78 @@ function shiftCards(delta) {
     render();
 }
 
-/** Ends a run of Ctrl+arrow moves: the moved cards are let go and the cursor returns to where they came from. */
+/** Ends a run of Ctrl+arrow moves: the cards go to YouTrack where they ended, and the cursor returns to where they came from. */
 function endCtrlMove() {
     if (!ctrlMove) return;
-    const { fromCol, nextId } = ctrlMove;
+    const { fromCol, nextId, ids } = ctrlMove;
     ctrlMove = null;
+    const targetsOf = new Map(ids.map((id) => [id, preview.get(id)]));
+    for (const id of ids) preview.delete(id);
     selection.clear();
     cursorCol = fromCol;
     cursorId = nextId && columnOf(byId.get(nextId)) === fromCol ? nextId : colCards[fromCol]?.[0]?.id ?? null;
     anchorId = cursorId;
-    render();
+    const cards = ids.map((id) => byId.get(id)).filter((c) => targetsOf.get(c.id) != null);
+    if (cards.length) moveCards(cards, (c) => targetsOf.get(c.id));
+    else render();
 }
 document.addEventListener("keyup", (e) => {
     if (e.key === "Control" || e.key === "Meta") endCtrlMove();
 });
 window.addEventListener("blur", endCtrlMove);
 
-function undo() {
-    const changes = undoStack.pop();
-    if (!changes) return;
-    for (const { id, before } of changes) {
-        if (before) decisions[id] = before;
-        else delete decisions[id];
-    }
-    save();
+/** Reverses the last step: moves the cards back, reopens closed ones, or puts a tag back as it was. */
+async function undo() {
+    const steps = undoStack.pop();
+    if (!steps) return toast("Nothing to undo.");
     selection.clear();
-    for (const { id } of changes) selection.add(id);
-    cursorId = changes[0].id;
+    for (const { id } of steps) selection.add(id);
+    cursorId = steps[0].id;
+    render();
+    await Promise.all(steps.map((s) => s.undo()));
+    render();
+}
+
+// ---------- closing ----------
+
+let closingIds = [];
+
+/** The comment a card closes with unless John changes it: his unsent comment, else the analysis's reason. */
+function defaultCloseText(c) {
+    return decisions[c.id]?.draft?.trim() || c.analysis?.proposalWhy || "Closed while sorting the board.";
+}
+
+/** Asks before closing: each card's comment can be edited, and nothing happens until Close is pressed. */
+function askToClose(cards) {
+    closingIds = cards.map((c) => c.id);
+    showSync(`<h2>Close ${cards.length} card${cards.length === 1 ? "" : "s"}?</h2>
+        <p>Each card gets its comment in YouTrack and then closes. Its watchers hear about both.</p>
+        ${cards.map((c) => `<h3>${c.id} ${esc(c.title)}</h3><textarea class="close-text" data-id="${c.id}">${esc(defaultCloseText(c))}</textarea>`).join("")}
+        <div class="actions"><button class="btn" data-sync="close">Cancel</button><button class="btn primary" data-sync="do-close">Close ${cards.length === 1 ? "it" : `all ${cards.length}`}</button></div>`);
+}
+
+async function closeCards() {
+    const texts = [...syncBox.querySelectorAll(".close-text")].map((t) => [t.dataset.id, t.value.trim()]);
+    syncEl.hidden = true;
+    const closeCol = columns.findIndex((col) => col.close);
+    const steps = await Promise.all(texts.map(async ([id, text]) => {
+        const c = byId.get(id);
+        const before = { board: c.board, state: c.state };
+        const wasLater = !!decisions[id]?.later;
+        preview.set(id, closeCol);
+        const ok = await change(c, { kind: "close", text: text || "Closed while sorting the board." });
+        preview.delete(id);
+        if (!ok) return null;
+        setDraft(id, "");
+        if (wasLater) setLater(id, false);
+        return { id, undo: async () => change(byId.get(id), { kind: "move", state: before.state }) };
+    }));
+    const done = steps.filter(Boolean);
+    if (done.length) {
+        undoStack.push(done);
+        toast(`Closed ${done.map((s) => s.id).join(", ")}.`);
+    }
+    closingIds = [];
     render();
 }
 
@@ -583,10 +750,10 @@ const keyHelp = [
     ["1 – 9", "move the selection (or the card) to that column"],
     ["Ctrl + ← / →", "move the selection (or the card) one column left / right"],
     ["Enter", "move each selected card to its proposed column"],
-    ["u", "undo the last move"],
+    ["u", "undo the last move, close or tag change (in YouTrack too)"],
     ["] / [", "next / previous group"],
-    ["n", "write a note (Esc to leave it)"],
-    ["t", "add a tag (Enter adds it; the tags change in YouTrack when you push)"],
+    ["n", "write a new comment (Add or Ctrl+Enter posts it in YouTrack; Esc to leave the box)"],
+    ["t", "add a tag (Enter puts it on the card in YouTrack)"],
     ["d", "show the whole description and the comments"],
     ["o", "open the card in YouTrack"],
     ["g / G", "next / previous grouping"],
@@ -606,7 +773,7 @@ function cycle(obj, current, delta) {
 
 document.addEventListener("keydown", (e) => {
     if (!syncEl.hidden) {
-        if (e.key === "Escape" && !syncBusy) syncEl.hidden = true;
+        if (e.key === "Escape" && !syncBusy) closeOverlay();
         return;
     }
     const inField = e.target.matches("input, textarea, select");
@@ -673,7 +840,7 @@ document.addEventListener("keydown", (e) => {
             }
             case "Enter": return moveCards(targets(), proposedColumn), true;
             case "u": return undo(), true;
-            case "n": setTimeout(() => detailEl.querySelector(".note")?.focus(), 0); return true;
+            case "n": setTimeout(() => detailEl.querySelector(".draft")?.focus(), 0); return true;
             case "t": setTimeout(() => detailEl.querySelector(".tag-input")?.focus(), 0); return true;
             case "d": descExpanded = !descExpanded; renderDetail(); return true;
             case "o": if (cursorId) window.open(data.config.trackerUrl + cursorId, "_blank"); return true;
@@ -798,21 +965,23 @@ detailEl.addEventListener("click", (e) => {
     }
 });
 detailEl.addEventListener("input", (e) => {
-    if (!e.target.matches(".note")) return;
-    const d = (decisions[cursorId] ??= {});
-    d.note = e.target.value;
-    if (!d.note) delete d.note;
-    if (isEmptyDecision(d)) delete decisions[cursorId];
-    save();
+    if (!e.target.matches(".draft")) return;
+    setDraft(cursorId, e.target.value);
 });
 detailEl.addEventListener("click", (e) => {
     const c = byId.get(cursorId);
     if (!c) return;
     const x = e.target.closest(".tag-x");
-    if (x) return toggleTag(c, x.dataset.tag);
+    if (x) return removeTag(c, x.dataset.tag);
     if (e.target.closest("[data-act=add-tag]")) addTypedTag(c);
+    if (e.target.closest("[data-act=add-comment]")) addComment(c);
 });
 detailEl.addEventListener("keydown", (e) => {
+    if (e.target.matches(".draft") && e.key === "Enter" && e.ctrlKey) {
+        e.preventDefault();
+        const c = byId.get(cursorId);
+        if (c) addComment(c);
+    }
     if (e.target.matches(".tag-input") && e.key === "Enter") {
         e.preventDefault();
         const c = byId.get(cursorId);
@@ -878,143 +1047,116 @@ document.addEventListener("keydown", (e) => {
     }
 }, true);
 
-// ---------- synchronize with YouTrack ----------
+// ---------- refresh, order, and the overlay they use ----------
 
 const syncEl = $("#sync");
 const syncBox = syncEl.querySelector(".box");
 let syncBusy = false;
-let pendingPlan = null;
-
-/**
- * Works out what pushing would change. Each card goes to its column's board and state (a column
- * with no state keeps the card's state); as-found and come-back-later cards stay where they are.
- * Order: within each YouTrack column, cards chosen for it come first, then the ones still as
- * found, then the ones to come back to, each in the order the sorter shows them. Cards with no
- * board, and cards still as found in an anyBoard column, get no order: no single YouTrack column
- * matches them.
- */
-function buildPlan() {
-    const moves = [];
-    const closes = [];
-    const keep = [];
-    const orders = new Map();
-    const rank = (col) => (col.asFound ? 1 : col.later ? 2 : 0);
-    const sequence = columns.map((col, i) => i).sort((a, b) => rank(columns[a]) - rank(columns[b]) || a - b);
-    for (const i of sequence) {
-        const col = columns[i];
-        for (const c of orderColumn(i, "")) {
-            if (col.close) {
-                const why = decisions[c.id]?.note || c.analysis?.proposalWhy || "Closed while sorting the board.";
-                closes.push({ id: c.id, title: c.title, comment: `${data.config.attribution}\n\n${why}` });
-                continue;
-            }
-            let board = c.board;
-            let state = c.state;
-            if (!col.asFound && !col.later) {
-                board = col.board;
-                state = col.state ?? c.state;
-                if (board !== c.board || state !== c.state) moves.push({ id: c.id, title: c.title, from: `${c.board ?? "No board"} / ${c.state}`, board, state: col.state ?? null });
-                if (columns.some((x) => x.asFound && x.board === col.board && x.state === col.state)) keep.push(c.id);
-            }
-            if (board == null || col.anyBoard) continue;
-            const key = `${board}|${state}`;
-            if (!orders.has(key)) orders.set(key, { board, state, ids: [] });
-            orders.get(key).ids.push(c.id);
-        }
-    }
-    const tags = [];
-    for (const [id, d] of Object.entries(decisions)) {
-        const c = byId.get(id);
-        if (!c || !d.tags) continue;
-        const add = d.tags.add.map((n) => allTags?.find((t) => t.name === n)).filter((t) => t && !c.tags.some((x) => x.id === t.id));
-        const remove = d.tags.remove.map((n) => c.tags.find((t) => t.name === n)).filter(Boolean);
-        if (add.length || remove.length) tags.push({ id, title: c.title, add: add.map(({ id, name }) => ({ id, name })), remove: remove.map(({ id, name }) => ({ id, name })) });
-    }
-    return { moves, closes, keep, orders: [...orders.values()], tags };
-}
+let pendingOrders = null;
 
 function showSync(html) {
     syncBox.innerHTML = html;
     syncEl.hidden = false;
 }
 
-async function synchronize() {
+function closeOverlay() {
+    syncEl.hidden = true;
+    closingIds = [];
+    pendingOrders = null;
+    boardEl.focus();
+}
+
+/** Runs `fn` with both top-bar buttons disabled, so a second press waits for the first. */
+async function whileBusy(fn) {
     if (syncBusy) return;
     syncBusy = true;
-    $("#syncBtn").disabled = true;
-    showSync(`<h2>Synchronize</h2><p>Pulling the cards from YouTrack…</p>`);
+    $("#syncBtn").disabled = $("#orderBtn").disabled = true;
     try {
-        const r = await fetch("/api/pull", { method: "POST" });
-        const pulled = await r.json();
-        if (!r.ok) throw new Error(pulled.error);
-        allTags = null;
-        await load();
-        if (Object.values(decisions).some((d) => d.tags?.add.length) && !(await loadTags())) throw new Error(`could not read YouTrack's tags, so the tags to add have no ids: ${tagError}`);
-        pendingPlan = buildPlan();
-        renderPlan(pulled, pendingPlan);
-    } catch (e) {
-        showSync(`<h2>Synchronize</h2><p class="bad">Pull failed: ${esc(e.message)}</p><div class="actions"><button class="btn" data-sync="close">Close</button></div>`);
+        await fn();
     } finally {
         syncBusy = false;
-        $("#syncBtn").disabled = false;
+        $("#syncBtn").disabled = $("#orderBtn").disabled = false;
     }
 }
 
-function renderPlan(pulled, plan) {
-    const pulledLine = `Pulled ${pulled.total} cards.` +
-        (pulled.added.length ? ` New: ${pulled.added.join(", ")} (in their as-found columns).` : " No new cards.") +
-        (pulled.dropped.length ? ` No longer in the boards and states this sorter pulls, so dropped: ${pulled.dropped.join(", ")}.` : "");
-    const byTarget = new Map();
-    for (const m of plan.moves) {
-        const k = `${m.board} / ${m.state ?? "(keeps its state)"}`;
-        if (!byTarget.has(k)) byTarget.set(k, []);
-        byTarget.get(k).push(m);
-    }
-    const orderCount = plan.orders.reduce((n, o) => n + o.ids.length, 0);
-    showSync(`<h2>Synchronize: review the changes</h2>
-        <p>${esc(pulledLine)}</p>
-        <h3>Move ${plan.moves.length} card${plan.moves.length === 1 ? "" : "s"}</h3>
-        ${plan.moves.length ? [...byTarget].map(([k, ms]) => `<p><b>→ ${esc(k)}</b></p><ul>${ms.map((m) => `<li>${m.id} ${esc(m.title)} <span class="why">(from ${esc(m.from)})</span></li>`).join("")}</ul>`).join("") : "<p>None.</p>"}
-        <h3>Close ${plan.closes.length} card${plan.closes.length === 1 ? "" : "s"}, each with a comment</h3>
-        ${plan.closes.length ? `<ul>${plan.closes.map((c) => `<li>${c.id} ${esc(c.title)}<div class="comment-text">${esc(c.comment)}</div></li>`).join("")}</ul>` : "<p>None.</p>"}
-        <h3>Change the tags on ${plan.tags.length} card${plan.tags.length === 1 ? "" : "s"}</h3>
-        ${plan.tags.length ? `<ul>${plan.tags.map((t) => `<li>${t.id} ${esc(t.title)}: ${[...t.add.map((x) => `add "${esc(x.name)}"`), ...t.remove.map((x) => `remove "${esc(x.name)}"`)].join(", ")}</li>`).join("")}</ul>` : "<p>None.</p>"}
-        <h3>Order</h3>
-        <p>Set the order of ${orderCount} cards in ${plan.orders.length} YouTrack column${plan.orders.length === 1 ? "" : "s"} to match the sorter (cards chosen for a column first, then the ones still as found). Columns already in that order are left alone.</p>
-        <ul>${plan.orders.map((o) => `<li>${esc(o.board)} / ${esc(o.state)}: ${o.ids.length}</li>`).join("")}</ul>
-        <div class="actions"><button class="btn" data-sync="close">Cancel</button><button class="btn primary" data-sync="push">Push to YouTrack</button></div>`);
+/** Pulls the cards from YouTrack again, picking up changes made there. */
+function refresh() {
+    return whileBusy(async () => {
+        const label = $("#syncBtn").textContent;
+        $("#syncBtn").textContent = "Refreshing…";
+        try {
+            const r = await fetch("/api/pull", { method: "POST" });
+            const pulled = await r.json();
+            if (!r.ok) throw new Error(pulled.error);
+            allTags = null;
+            await load();
+            toast(`Pulled ${pulled.total} cards.` +
+                (pulled.added.length ? ` New: ${pulled.added.join(", ")}.` : "") +
+                (pulled.dropped.length ? ` No longer on these boards, so gone from here: ${pulled.dropped.join(", ")}.` : ""));
+        } catch (e) {
+            toast(`Refresh failed: ${e.message}`, true);
+        } finally {
+            $("#syncBtn").textContent = label;
+        }
+    });
 }
 
-async function pushPlan() {
-    if (syncBusy || !pendingPlan) return;
-    syncBusy = true;
-    $("#syncBtn").disabled = true;
-    showSync(`<h2>Synchronize</h2><p>Pushing to YouTrack… (setting the order takes one call per card)</p>`);
-    try {
-        const r = await fetch("/api/push", { method: "POST", body: JSON.stringify(pendingPlan) });
-        const result = await r.json();
-        if (!r.ok) throw new Error(result.error);
-        pendingPlan = null;
-        await load();
-        const failed = result.log.filter((l) => !l.ok);
-        showSync(`<h2>Synchronize: done${failed.length ? `, with ${failed.length} failure${failed.length === 1 ? "" : "s"}` : ""}</h2>
-            ${failed.length ? `<ul>${failed.map((l) => `<li class="bad">${esc(l.text)}</li>`).join("")}</ul>` : ""}
-            <ul>${result.log.filter((l) => l.ok).map((l) => `<li>${esc(l.text)}</li>`).join("")}</ul>
-            <p>Pulled again: ${result.pulled.total} cards.</p>
-            <div class="actions"><button class="btn primary" data-sync="close">Close</button></div>`);
-    } catch (e) {
-        showSync(`<h2>Synchronize</h2><p class="bad">Push failed: ${esc(e.message)}</p><div class="actions"><button class="btn" data-sync="close">Close</button></div>`);
-    } finally {
-        syncBusy = false;
-        $("#syncBtn").disabled = false;
-    }
+/**
+ * The order of each YouTrack board column, as the sorter shows it: [{ board, state, ids }]. Cards
+ * with no board, and the cards of an anyBoard column, Come back later or Close, get no order: no
+ * single YouTrack column matches them.
+ */
+function boardOrders() {
+    const orders = new Map();
+    columns.forEach((col, i) => {
+        if (!col.board || col.anyBoard || col.later || col.close) return;
+        for (const c of orderColumn(i, "")) {
+            const key = `${col.board}|${c.state}`;
+            if (!orders.has(key)) orders.set(key, { board: col.board, state: c.state, ids: [] });
+            orders.get(key).ids.push(c.id);
+        }
+    });
+    return [...orders.values()];
 }
 
-$("#syncBtn").addEventListener("click", synchronize);
+/** Shows what Set order would do, and does it on confirmation. */
+function askToOrder() {
+    pendingOrders = boardOrders();
+    const n = pendingOrders.reduce((sum, o) => sum + o.ids.length, 0);
+    showSync(`<h2>Set the order in YouTrack?</h2>
+        <p>Puts the ${n} cards of ${pendingOrders.length} YouTrack column${pendingOrders.length === 1 ? "" : "s"} in the order shown here, sorted by ${esc(sorts[prefs.sort].label.toLowerCase())}. Columns already in that order are left alone.</p>
+        <ul>${pendingOrders.map((o) => `<li>${esc(o.board)} / ${esc(o.state)}: ${o.ids.length}</li>`).join("")}</ul>
+        <div class="actions"><button class="btn" data-sync="close">Cancel</button><button class="btn primary" data-sync="do-order">Set order</button></div>`);
+}
+
+function setOrder() {
+    const orders = pendingOrders;
+    if (!orders) return;
+    return whileBusy(async () => {
+        showSync(`<h2>Setting the order…</h2><p>This takes one call to YouTrack per card.</p>`);
+        try {
+            const r = await fetch("/api/order", { method: "POST", body: JSON.stringify(orders) });
+            const log = await r.json();
+            if (!r.ok) throw new Error(log.error);
+            const failed = log.filter((l) => !l.ok);
+            showSync(`<h2>Order set${failed.length ? `, with ${failed.length} failure${failed.length === 1 ? "" : "s"}` : ""}</h2>
+                <ul>${log.map((l) => `<li${l.ok ? "" : ` class="bad"`}>${esc(l.text)}</li>`).join("")}</ul>
+                <div class="actions"><button class="btn primary" data-sync="close">Close</button></div>`);
+        } catch (e) {
+            showSync(`<h2>Set order</h2><p class="bad">Failed: ${esc(e.message)}</p><div class="actions"><button class="btn" data-sync="close">Close</button></div>`);
+        } finally {
+            pendingOrders = null;
+        }
+    });
+}
+
+$("#syncBtn").addEventListener("click", refresh);
+$("#orderBtn").addEventListener("click", () => !syncBusy && askToOrder());
 syncEl.addEventListener("click", (e) => {
     const act = e.target.closest("[data-sync]")?.dataset.sync;
-    if (act === "close" && !syncBusy) syncEl.hidden = true;
-    if (act === "push") pushPlan();
+    if (act === "close" && !syncBusy) closeOverlay();
+    if (act === "do-close") closeCards();
+    if (act === "do-order") setOrder();
 });
 
 // ---------- splitters ----------
@@ -1107,6 +1249,7 @@ async function load() {
     decisions = data.decisions;
     applyColumnOrder();
     byId = new Map(data.cards.map((c) => [c.id, c]));
+    for (const c of data.cards) if (!startedIn.has(c.id)) startedIn.set(c.id, columns[columnOf(c)].key);
     document.title = data.config.title;
     $("#title").textContent = data.config.title;
     if (!groupings[prefs.group]) prefs.group = "none";
@@ -1117,7 +1260,7 @@ async function load() {
     applyDetailWidth();
     $("#help").innerHTML = `<div class="box"><table>${keyHelp.map(([k, v]) => `<tr><td><kbd>${esc(k)}</kbd></td><td>${esc(v)}</td></tr>`).join("")}</table>
         <p>Score = benefit (reach × severity, +6 for a roadmap feature, +2 for a partner request) × (1 − 0.12 per risk step above 1) ÷ (1 + lines/800), scaled to 100.</p></div>`;
-    $("#keys").innerHTML = [["j k h l", "move"], ["⇧j ⇧k", "select range"], ["Space", "select"], [`1–${columns.length}`, "move to column"], ["Ctrl ← →", "move a column over"], ["Enter", "to proposal"], ["u", "undo"], ["n", "note"], ["t", "tag"], ["d", "details"], ["g", "group"], ["/", "search"], ["?", "all keys"]]
+    $("#keys").innerHTML = [["j k h l", "move"], ["⇧j ⇧k", "select range"], ["Space", "select"], [`1–${columns.length}`, "move to column"], ["Ctrl ← →", "move a column over"], ["Enter", "to proposal"], ["u", "undo"], ["n", "comment"], ["t", "tag"], ["d", "details"], ["g", "group"], ["/", "search"], ["?", "all keys"]]
         .map(([k, v]) => `<span><kbd>${esc(k)}</kbd> ${esc(v)}</span>`).join("");
     if (!cursorId || !byId.has(cursorId)) cursorId = prefs.lastCursor && byId.has(prefs.lastCursor) ? prefs.lastCursor : null;
     // ?card=BL-123 opens on that card with its description expanded (handy for screenshots).

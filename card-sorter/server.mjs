@@ -1,28 +1,32 @@
 // Card Sorter: a local app for sorting tracker cards into destinations (e.g. 6.6 / 6.7).
-// Usage: node server.mjs <dataDir> [port]
+// Usage: node server.mjs <dataDir> [port] [--no-open]
+//
+// Once listening, it opens the page in a tab of the default browser, unless a page left open from
+// an earlier run reconnects first or --no-open is given.
 //
 // <dataDir> holds:
-//   raw/youtrack.json        cards as extracted from YouTrack ({ cards: [...] }); rewritten by Synchronize
+//   raw/youtrack.json        cards as extracted from YouTrack ({ cards: [...] }); rewritten by Refresh,
+//                            and one card at a time after each change
 //   raw/prs-<repo>.json      PRs per repo (gh pr list --json ...), optional
 //   raw/branches-<repo>.txt  remote branch names, optional
 //   analysis/*.json          arrays of per-card analysis objects, merged by id, optional
 //   config.json              destinations and title, optional
-//   decisions.json           written by this server: { "<id>": { column, note, tags: { add, remove }, at } }
+//   decisions.json           what lives only in the sorter: { "<id>": { later, draft, at } }
 //
-// The server serves the page and the data, saves decisions, and tells the page to reload
-// (Server-Sent Events) when the app's files or the data change. It talks to YouTrack only when John
-// presses Synchronize (see youtrack.mjs): /api/pull re-extracts the cards, /api/push applies a plan
-// he has confirmed.
-import { execFileSync } from "node:child_process";
+// The server serves the page and the data, and tells the page to reload (Server-Sent Events) when
+// the app's files or the data change. Each change John makes goes to YouTrack at once through
+// /api/change (see youtrack.mjs); /api/pull re-extracts the cards and /api/order sets the order of
+// the board's columns.
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { attachmentUrl, pull, push, tagOf, visibleTags } from "./youtrack.mjs";
+import { addComment, attachmentUrl, close, fetchCard, move, pull, setOrder, setTag, tagOf, visibleTags } from "./youtrack.mjs";
 
 const appDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "app");
 const dataDir = path.resolve(process.argv[2] ?? "");
-const port = Number(process.argv[3] ?? 5177);
+const port = Number(process.argv.slice(3).find((a) => !a.startsWith("--")) ?? 5177);
 if (!process.argv[2] || !fs.existsSync(path.join(dataDir, "raw", "youtrack.json"))) {
     console.error("usage: node server.mjs <dataDir> [port]   (dataDir must contain raw/youtrack.json)");
     process.exit(1);
@@ -49,22 +53,22 @@ const defaultConfig = {
     attribution: `[Claude Opus 5.5 from ${developerName()}'s machine during card-sorter]`,
     trackerUrl: "https://issues.bloomlibrary.org/youtrack/issue/",
     // Each column is a place a card can end up: a board (Kanban Board value) plus, optionally, a
-    // State. A column without a state keeps the card's current state.
-    // An "asFound" column holds cards nobody has sorted yet; every card starts in one. A column
-    // with the same board and state but no asFound flag holds the cards chosen to stay there.
+    // State. A column without a state shows the board's cards in every state; a card moved there
+    // gets the column's newState, or keeps its own State when the column has none.
+    // A card starts in the column of its board and state. An "asFound" column holds cards nobody has
+    // sorted yet: a card that stays in it is left as it is. A column with the same board and state
+    // but no asFound flag would split the cards chosen to stay there from the rest.
     // An "anyBoard" column holds the cards in its state on every board, and the cards with no
     // board. Its cards keep their board until the developer moves them to another column.
     columns: [
         { key: "incoming|found", label: "Incoming (any board)", board: null, state: "Incoming", anyBoard: true, asFound: true },
-        { key: "6.6|Open|found", label: "6.6 Open (as found)", board: "Bloom 6.6", state: "Open", asFound: true },
-        { key: "6.6|Ready For Work|found", label: "6.6 Ready For Work (as found)", board: "Bloom 6.6", state: "Ready For Work", asFound: true },
         // Not a board: a parking place for cards John can't decide yet. Applying leaves them as they are.
         { key: "later", label: "Come back later", board: null, state: null, later: true },
-        { key: "6.6|Open", label: "6.6 Open (chosen)", board: "Bloom 6.6", state: "Open" },
-        { key: "6.6|Ready For Work", label: "6.6 Ready For Work (chosen)", board: "Bloom 6.6", state: "Ready For Work" },
+        { key: "6.6|Open", label: "6.6 Open", board: "Bloom 6.6", state: "Open" },
+        { key: "6.6|Ready For Work", label: "6.6 Ready For Work", board: "Bloom 6.6", state: "Ready For Work" },
         { key: "6.7|Open", label: "6.7 Open", board: "Bloom 6.7", state: "Open" },
         { key: "6.7|Ready For Work", label: "6.7 Ready For Work", board: "Bloom 6.7", state: "Ready For Work" },
-        { key: "live-with", label: "Issues We'll Live With", board: "Issues We'll Live With for now", state: null },
+        { key: "live-with", label: "Issues We'll Live With", board: "Issues We'll Live With for now", state: null, newState: "Open" },
         // Not a board: applying it resolves the card (fixed, done, or duplicate) with a comment.
         { key: "close", label: "Close / done", board: null, state: null, close: true },
     ],
@@ -85,6 +89,12 @@ function field(card, name) {
     if (!f || f.value == null) return null;
     if (Array.isArray(f.value)) return f.value.map((v) => v.name ?? v.fullName).join(", ");
     return f.value.name ?? f.value.fullName ?? f.value.presentation ?? null;
+}
+
+/** Returns the value of a YouTrack text custom field, or null when it is empty. */
+function text(card, name) {
+    const v = card.customFields.find((x) => x.name === name)?.value;
+    return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
 /** Collects PRs and branches whose title or branch name mentions each card id. */
@@ -115,6 +125,18 @@ function findWork(ids) {
 /** Builds the payload the page renders: normalized cards with their analysis and decisions. */
 function buildData() {
     const raw = readJson(path.join(dataDir, "raw", "youtrack.json"));
+    const analysis = readAnalysis();
+    const work = findWork(raw.cards.map((c) => c.idReadable));
+    return {
+        config: { ...defaultConfig, ...readJson(path.join(dataDir, "config.json"), {}) },
+        extractedAt: raw.extractedAt,
+        cards: raw.cards.map((c) => pageCard(c, work, analysis)),
+        decisions: readJson(decisionsFile, {}),
+    };
+}
+
+/** Every card's analysis, by id. */
+function readAnalysis() {
     const analysis = {};
     const analysisDir = path.join(dataDir, "analysis");
     if (fs.existsSync(analysisDir)) {
@@ -122,9 +144,12 @@ function buildData() {
             for (const a of readJson(path.join(analysisDir, file), [])) analysis[a.id] = a;
         }
     }
-    const ids = raw.cards.map((c) => c.idReadable);
-    const work = findWork(ids);
-    const cards = raw.cards.map((c) => ({
+    return analysis;
+}
+
+/** A card as YouTrack returns it, in the shape the page draws. */
+function pageCard(c, work, analysis) {
+    return {
         id: c.idReadable,
         title: c.summary,
         description: c.description ?? "",
@@ -136,21 +161,19 @@ function buildData() {
         created: c.created,
         updated: c.updated,
         votes: c.votes,
-        reporter: c.reporter?.fullName ?? c.reporter?.login ?? null,
+        // Who reported it: the Reporter Name or Reporter Email fields that problem reports fill in,
+        // or else whoever created the card.
+        reporter: text(c, "Reporter Name") ?? text(c, "Reporter Email") ?? c.reporter?.fullName ?? c.reporter?.login ?? null,
+        reporterEmail: text(c, "Reporter Email"),
         links: (c.links ?? []).flatMap((l) => l.issues.map((i) => ({
             relation: l.direction === "INWARD" ? l.linkType.targetToSource || l.linkType.name : l.linkType.sourceToTarget || l.linkType.name,
             id: i.idReadable, title: i.summary, resolved: i.resolved != null,
         }))),
         comments: (c.comments ?? []).filter((x) => !x.deleted).map((x) => ({ author: x.author?.fullName ?? x.author?.login, created: x.created, text: x.text })),
         attachments: (c.attachments ?? []).map((a) => ({ name: a.name, url: attachmentUrl(a.url), mimeType: a.mimeType })),
+        resolved: c.resolved != null,
         work: work[c.idReadable],
         analysis: analysis[c.idReadable] ?? null,
-    }));
-    return {
-        config: { ...defaultConfig, ...readJson(path.join(dataDir, "config.json"), {}) },
-        extractedAt: raw.extractedAt,
-        cards,
-        decisions: readJson(decisionsFile, {}),
     };
 }
 
@@ -202,6 +225,19 @@ function writeDecisions(decisions) {
     fs.renameSync(decisionsFile + ".tmp", decisionsFile);
 }
 
+/** Puts a card fetched from YouTrack in place of the sorter's copy, and returns it as the page shows it. */
+function replaceCard(fresh) {
+    const rawFile = path.join(dataDir, "raw", "youtrack.json");
+    const raw = readJson(rawFile);
+    const i = raw.cards.findIndex((c) => c.idReadable === fresh.idReadable);
+    if (i >= 0) raw.cards[i] = fresh;
+    else raw.cards.push(fresh);
+    lastOwnWrite = Date.now();
+    fs.writeFileSync(rawFile + ".tmp", JSON.stringify(raw, null, 1));
+    fs.renameSync(rawFile + ".tmp", rawFile);
+    return pageCard(fresh, findWork([fresh.idReadable]), readAnalysis());
+}
+
 /** Drops decisions for cards that are no longer in the sorter. */
 function pruneDecisions() {
     const ids = new Set(readJson(path.join(dataDir, "raw", "youtrack.json")).cards.map((c) => c.idReadable));
@@ -243,25 +279,27 @@ http.createServer((req, res) => {
             return result;
         });
     }
-    if (url.pathname === "/api/push" && req.method === "POST") {
+    if (url.pathname === "/api/change" && req.method === "POST") {
+        // One change to one card, made in YouTrack at once. Whether it went through or not, the
+        // card is read back and returned as YouTrack now has it, so the page shows the truth.
         return readBody(req, (body) => respond(res, async () => {
-            const plan = JSON.parse(body);
+            const { id, kind, ...a } = JSON.parse(body);
             const config = buildData().config;
-            const log = await push(config, plan);
-            // A card that moved or closed now sits where its decision put it, so the decision is
-            // done, except for cards chosen to stay in a column that also has an as-found twin.
-            // Tag changes that all went through are done too.
-            const done = new Set(log.filter((l) => l.ok && l.id && !l.tagsDone).map((l) => l.id));
-            const decisions = readJson(decisionsFile, {});
-            for (const id of done) if (!plan.keep.includes(id)) delete decisions[id]?.column;
-            for (const l of log) if (l.tagsDone) delete decisions[l.id]?.tags;
-            for (const [id, d] of Object.entries(decisions)) if (d.column == null && !d.note && !d.tags) delete decisions[id];
-            writeDecisions(decisions);
-            lastOwnWrite = Date.now();
-            const pulled = await pull(dataDir, config);
-            pruneDecisions();
-            return { log, pulled };
+            let error = null;
+            try {
+                if (kind === "move") await move(id, a);
+                else if (kind === "tag") await setTag(id, a.tag, a.on);
+                else if (kind === "comment") await addComment(id, `${config.attribution}\n\n${a.text}`);
+                else if (kind === "close") await close(config, id, `${config.attribution}\n\n${a.text}`);
+                else throw new Error(`no such change: ${kind}`);
+            } catch (e) {
+                error = e.message;
+            }
+            return { error, card: replaceCard(await fetchCard(id)) };
         }));
+    }
+    if (url.pathname === "/api/order" && req.method === "POST") {
+        return readBody(req, (body) => respond(res, async () => setOrder(buildData().config, JSON.parse(body))));
     }
     if (url.pathname === "/api/events") {
         res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
@@ -274,4 +312,20 @@ http.createServer((req, res) => {
     if (!file.startsWith(appDir) || !fs.existsSync(file)) return res.writeHead(404).end("not found");
     res.writeHead(200, { "Content-Type": mime[path.extname(file)] ?? "application/octet-stream", "Cache-Control": "no-store" });
     fs.createReadStream(file).pipe(res);
-}).listen(port, "127.0.0.1", () => console.log(`Card Sorter: http://localhost:${port}/  (data: ${dataDir})`));
+}).listen(port, "127.0.0.1", () => {
+    const url = `http://localhost:${port}/`;
+    console.log(`Card Sorter: ${url}  (data: ${dataDir})`);
+    // A page left open from an earlier run reconnects to /api/events within a few seconds; open a
+    // tab only when none does, so restarting the server does not add a second tab.
+    if (!process.argv.includes("--no-open")) setTimeout(() => { if (!clients.size) openTab(url); }, 6000);
+});
+
+/** Opens the URL in a tab of the default browser. */
+function openTab(url) {
+    const [cmd, args] =
+        process.platform === "win32" ? ["cmd", ["/c", "start", "", url]]
+        : process.platform === "darwin" ? ["open", [url]]
+        : ["xdg-open", [url]];
+    spawn(cmd, args, { detached: true, stdio: "ignore" }).on("error", (e) => console.error(`Could not open ${url}: ${e.message}`)).unref();
+    console.log(`Opened ${url} in the default browser.`);
+}

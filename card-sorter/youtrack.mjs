@@ -1,5 +1,5 @@
-// The Card Sorter's only contact with YouTrack: pulling cards into raw/youtrack.json, and pushing
-// John's confirmed decisions (board, state, closing, order within a column) back.
+// The Card Sorter's only contact with YouTrack: pulling cards into raw/youtrack.json, and making
+// each change John makes in the sorter (board, state, tags, comments, closing, order) as he makes it.
 // Every call goes through the team's tool server (bloom-services), which makes it as the shared
 // Bloom "Bot" account.
 import fs from "node:fs";
@@ -39,6 +39,11 @@ async function findAll(query) {
     return all;
 }
 
+/** One card, with the fields the sorter shows, as YouTrack has it now. */
+export async function fetchCard(id) {
+    return yt("GET", `/issues/${id}?fields=${cardFields}`);
+}
+
 /**
  * Re-extracts the cards. In scope: unresolved cards in one of `states` on a board that a column
  * names. A card on one of `sourceBoards` comes in even if it is new; a card on another board stays
@@ -75,7 +80,7 @@ export async function pull(dataDir, config) {
 /**
  * Every tag the Bot can see, by name: [{ id, name, background, foreground }]. A tag also says who
  * may put it on a card, which the Bot cannot read for its own groups, so a tag listed here can
- * still be refused when pushed.
+ * still be refused.
  */
 export async function visibleTags() {
     const all = [];
@@ -92,6 +97,48 @@ export function tagOf(t) {
     return { id: t.id, name: t.name, background: t.color?.background ?? null, foreground: t.color?.foreground ?? null };
 }
 
+/**
+ * Sets the card's Kanban Board and State; either one left undefined is left as it is, and a board
+ * of null takes the card off every board. Throws when YouTrack ends up with something else.
+ */
+export async function move(id, { board, state }) {
+    const customFields = [];
+    if (board !== undefined) customFields.push({ name: "Kanban Board", $type: "SingleVersionIssueCustomField", value: board == null ? null : { name: board } });
+    if (state !== undefined) customFields.push({ name: "State", $type: "StateIssueCustomField", value: { name: state } });
+    if (!customFields.length) return;
+    const r = await yt("POST", `/issues/${id}?fields=customFields(name,value(name))`, { customFields });
+    const nowBoard = fieldValue(r, "Kanban Board");
+    const nowState = fieldValue(r, "State");
+    if ((board !== undefined && nowBoard !== board) || (state !== undefined && nowState !== state)) {
+        throw new Error(`YouTrack now says ${nowBoard ?? "no board"} / ${nowState}`);
+    }
+}
+
+/** Puts a tag on the card or takes it off, then checks that YouTrack agrees. */
+export async function setTag(id, tag, on) {
+    if (on) await yt("POST", `/issues/${id}/tags?fields=id`, { id: tag.id });
+    else await yt("DELETE", `/issues/${id}/tags/${tag.id}`);
+    const now = ((await yt("GET", `/issues/${id}?fields=tags(id)`)).tags ?? []).some((x) => x.id === tag.id);
+    if (now !== on) throw new Error(`"${tag.name}" is ${now ? "still" : "not"} on the card afterwards`);
+}
+
+export async function addComment(id, text) {
+    await yt("POST", `/issues/${id}/comments?fields=id`, { text });
+}
+
+/**
+ * Resolves the card with a comment. A comment on a closed card reopens it, so the comment goes up
+ * first and the card closes after; a card that already has this exact comment, from a close that
+ * failed, does not get it again.
+ */
+export async function close(config, id, comment) {
+    const { comments = [] } = await yt("GET", `/issues/${id}?fields=comments(text)`);
+    if (!comments.some((m) => m.text === comment)) await addComment(id, comment);
+    await yt("POST", `/issues/${id}?fields=id`, { customFields: [{ name: "State", $type: "StateIssueCustomField", value: { name: config.closeState } }] });
+    const r = await yt("GET", `/issues/${id}?fields=resolved,customFields(name,value(name))`);
+    if (!r.resolved) throw new Error(`still unresolved; State is ${fieldValue(r, "State")}`);
+}
+
 /** The agile board's sprint id for a Kanban Board value (the board's sprints are its versions). */
 async function sprintIdFor(config, boardName) {
     const agile = await yt("GET", `/agiles/${config.agileId}?fields=sprints(id,name)`);
@@ -101,68 +148,14 @@ async function sprintIdFor(config, boardName) {
 }
 
 /**
- * Pushes a plan the page built and John confirmed:
- *   moves:  [{ id, board, state }]   set Kanban Board and State
- *   closes: [{ id, comment }]        resolve the card, adding the comment
- *   orders: [{ board, state, ids }]  make `ids` the top of that column, in that order
- *   tags:   [{ id, add: [{ id, name }], remove: [{ id, name }] }]  put tags on the card or take them off
- * Returns one line per thing done or failed. A failure is reported and the rest carries on. A
- * card's tag line has `tagsDone` only when all of its tag changes went through.
+ * Makes `ids` the top of each board column, in that order: orders is [{ board, state, ids }].
+ * Uses issueOrder, an undocumented board request copied from YouTrack's own board page; YouTrack
+ * refuses it while the board sorts by a query. Returns one line per column, done or failed.
  */
-export async function push(config, plan) {
+export async function setOrder(config, orders) {
     const log = [];
-    for (const t of plan.tags ?? []) {
-        const failed = [];
-        for (const tag of t.add) {
-            try {
-                await yt("POST", `/issues/${t.id}/tags?fields=id`, { id: tag.id });
-            } catch (e) {
-                failed.push(`add "${tag.name}": ${e.message}`);
-            }
-        }
-        for (const tag of t.remove) {
-            try {
-                await yt("DELETE", `/issues/${t.id}/tags/${tag.id}`);
-            } catch (e) {
-                failed.push(`remove "${tag.name}": ${e.message}`);
-            }
-        }
-        try {
-            const now = new Set(((await yt("GET", `/issues/${t.id}?fields=tags(id)`)).tags ?? []).map((x) => x.id));
-            for (const tag of t.add) if (!now.has(tag.id) && !failed.some((f) => f.startsWith(`add "${tag.name}"`))) failed.push(`"${tag.name}" is not on the card afterwards`);
-            for (const tag of t.remove) if (now.has(tag.id) && !failed.some((f) => f.startsWith(`remove "${tag.name}"`))) failed.push(`"${tag.name}" is still on the card`);
-        } catch (e) {
-            failed.push(`reading the tags back: ${e.message}`);
-        }
-        const what = [...t.add.map((x) => `+${x.name}`), ...t.remove.map((x) => `−${x.name}`)].join(", ");
-        if (failed.length) log.push({ ok: false, text: `${t.id}: tags ${what}: ${failed.join("; ")}` });
-        else log.push({ ok: true, id: t.id, tagsDone: true, text: `${t.id} tags: ${what}` });
-    }
-    for (const m of plan.moves) {
-        try {
-            const customFields = [{ name: "Kanban Board", $type: "SingleVersionIssueCustomField", value: { name: m.board } }];
-            if (m.state) customFields.push({ name: "State", $type: "StateIssueCustomField", value: { name: m.state } });
-            const r = await yt("POST", `/issues/${m.id}?fields=customFields(name,value(name))`, { customFields });
-            const board = fieldValue(r, "Kanban Board");
-            const state = fieldValue(r, "State");
-            if (board !== m.board || (m.state && state !== m.state)) throw new Error(`YouTrack now says ${board} / ${state}`);
-            log.push({ ok: true, id: m.id, text: `${m.id} → ${m.board} / ${state}` });
-        } catch (e) {
-            log.push({ ok: false, text: `${m.id}: move failed: ${e.message}` });
-        }
-    }
-    for (const c of plan.closes) {
-        try {
-            await yt("POST", "/commands", { query: `State ${config.closeState}`, issues: [{ idReadable: c.id }], comment: c.comment });
-            const r = await yt("GET", `/issues/${c.id}?fields=resolved,customFields(name,value(name))`);
-            if (!r.resolved) throw new Error(`still unresolved; State is ${fieldValue(r, "State")}`);
-            log.push({ ok: true, id: c.id, text: `${c.id} closed` });
-        } catch (e) {
-            log.push({ ok: false, text: `${c.id}: close failed: ${e.message}` });
-        }
-    }
     const sprints = {};
-    for (const o of plan.orders) {
+    for (const o of orders) {
         const where = `${o.board} / ${o.state}`;
         try {
             sprints[o.board] ??= await sprintIdFor(config, o.board);

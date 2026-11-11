@@ -14,7 +14,8 @@
     <label>Group <select id="group"></select></label>
     <label>Sort <select id="sort"></select></label>
     <input id="search" type="search" placeholder="Search  ( / )" autocomplete="off">
-    <button id="syncBtn" title="Pull fresh cards from YouTrack, then review and push your changes">Synchronize</button>
+    <button id="orderBtn" title="Set the order of the cards in YouTrack's board columns to the order shown here">Set order</button>
+    <button id="syncBtn" title="Pull the cards from YouTrack again">Refresh</button>
   </div>
 </header>
 <main>
@@ -25,6 +26,7 @@
 <footer id="keys"></footer>
 <div id="help" hidden></div>
 <div id="sync" hidden><div class="box"></div></div>
+<div id="toast" hidden></div>
 <script type="module" src="app.js"></script>
 </body>
 </html>
