@@ -313,7 +313,8 @@ phase says "each reviewer" and means this list:
 1. **The local review** (Phase 1) — runs in-session at the user's chosen level. Its outcome
  (level ran, findings raised / fixed / escalated / dismissed, or "clean", or "skipped at
  user request") is captured and reported as a reviewer row like any other — never silently
- omitted.
+ omitted. The walkaround (Phase 1) gets a row of its own: what it changed, what went to the
+ decision report, or "nothing to change".
 2. **Devin** — available for **every** GitHub PR via its review page
  (`https://devinreview.com/<owner>/<repo>/pull/<n>`, alias of `app.devin.ai/review/…` —
  literally the PR's `github.com` URL with the host swapped). It needs **no GitHub app, no CI
@@ -533,6 +534,15 @@ request ('without review')".
 
 Cap the loop at **4 cycles** to avoid churn; note in the report if capped.
 
+**The walkaround — after the local review, at every level except "without review".** Run the
+`walkaround` skill, which looks at the whole PR for code that fixes made one at a time leave
+behind. Its proposals that would change behavior go to the decision report. Then run the fast
+gate.
+
+**Progress:** `progress walkaround running` as it starts; `progress walkaround done "<n> changes,
+<n> proposals"` when it reports (`failed` instead when a proposal waits on the developer), or
+`progress walkaround skipped "without review"`.
+
 ## Phase 2 — Integrate the base (before publishing)
 
 **Progress:** `progress merge running` now; when the merge settles, `progress merge done`, or
@@ -671,7 +681,12 @@ state in step 5. Every push in step 3 sets `devin`, `ci` and `tests` back to `ru
   thread left **open** (never auto-dismiss a human; it gets closed when the decision comes
   back — see "Processing the user's decisions"). Only clear-cut, acted-on items get closed
   above.
-3. If any fixes were made → re-run the fast gate, commit, push. A new commit **restarts** every
+3. If any fixes were made → run the walkaround (Phase 1) over the whole PR again, with the
+ earlier walkaround's report and the developer's answers to its proposals in hand, then
+ re-run the fast gate, commit, push. Answering review comments one at a time is where a PR picks
+ up a second mechanism for a job it already does, and the walkaround before the push lets the
+ reviewers see the result without another wait. Record it as in Phase 1 (`progress walkaround
+ running`, then its outcome), so the dashboard shows the latest pass. A new commit **restarts** every
  async reviewer, so re-trigger Devin and **reset the wait clock**. Cap the overall
  fix-push-rewait cycle at **4**; note in the report if capped.
 4. **Run the tests related to the change — once, here, overlapped with the wait.** While

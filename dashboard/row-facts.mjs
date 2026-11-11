@@ -65,7 +65,7 @@ function workingSince(seen, key, a, now) {
 
 // The steps progress.mjs accepts, and their states. row.js draws them in its RUN_STEPS, apart from
 // `ci` (on BloomDesktop the PR's checks are only pr-automation, which starts Devin, and Reviewable).
-export const RUN_STEPS = ["discover", "local", "merge", "publish", "devin", "ci", "bots", "tests", "report"];
+export const RUN_STEPS = ["discover", "local", "walkaround", "merge", "publish", "devin", "ci", "bots", "tests", "report"];
 export const RUN_STATES = ["running", "done", "failed", "skipped"];
 export const RUN_FRESH_MS = 45 * 60000;
 

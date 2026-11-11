@@ -218,6 +218,7 @@ function processCell(d) {
 const RUN_STEPS = [
   ["discover", "Discover", "Read the card, the PR and the repo's checks"],
   ["local", "Local checks", "Typecheck, lint, fast tests, local review"],
+  ["walkaround", "Walkaround", "The whole PR: one job in one place, names that fit, nothing left over"],
   ["merge", "Merge master", "Bring in the base branch"],
   ["publish", "Push and draft PR", ""],
   ["reviewers", "Automated reviews and tests", "", [["devin", "Devin"], ["bots", "Answering review comments"], ["tests", "Related tests"]]],
