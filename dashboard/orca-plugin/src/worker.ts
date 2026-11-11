@@ -18,10 +18,14 @@
 // The session's prompt has no leading slash: a Git Bash terminal rewrites an argument that starts
 // with "/" into a Windows path. Orca's agent.launch starts Claude but has not been typing its
 // prompt in, so the prompt goes on Claude's command line.
+//
+// A server that was killed (Claude Code ends background commands when memory runs short) leaves
+// running.json behind with a dead pid, where a stop of its own removes it. The plugin then starts
+// another with --revive, and a window still open on the killed one reloads onto it.
 // Orca transpiles this file when it loads: no build step.
 import type { OrcaWorkerApi } from 'orca/worker'
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -38,6 +42,33 @@ const STARTING = 'Loading...'
 const SESSION_KEY = 'session'
 type Session = { terminalId: string; startedAt: number }
 type Health = { dashboard: true; pid: number; page?: boolean }
+const RUNNING_FILE = join(homedir(), '.claude', 'bloom-dashboard', 'running.json')
+// The server rewrites running.json every 5 s; one older than this is from before a restart.
+const RUNNING_FRESH_MS = 60_000
+// At most this many revives in REVIVE_WINDOW_MS, so a server that dies at start is not restarted forever.
+const MAX_REVIVES = 3
+const REVIVE_WINDOW_MS = 10 * 60_000
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+// True when the last server was running within RUNNING_FRESH_MS and its process is gone without
+// stopping on its own.
+function serverWasKilled(): boolean {
+  try {
+    if (Date.now() - statSync(RUNNING_FILE).mtimeMs > RUNNING_FRESH_MS) return false
+    const { pid } = JSON.parse(readFileSync(RUNNING_FILE, 'utf8'))
+    return typeof pid === 'number' && !isAlive(pid)
+  } catch {
+    return false
+  }
+}
 
 async function health(): Promise<Health | null> {
   try {
@@ -58,7 +89,7 @@ async function askServerToShowWindow(): Promise<void> {
 
 // Starts dashboard/server.mjs of the checkout on its own, detached from Orca. The worker's
 // environment leaves out the user's folders, which Chrome and the gather need.
-function startServerNow(checkoutPath: string): void {
+function startServerNow(checkoutPath: string, args: string[] = []): void {
   const home = homedir()
   const env = {
     ...process.env,
@@ -67,7 +98,7 @@ function startServerNow(checkoutPath: string): void {
     LOCALAPPDATA: process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'),
     ProgramFiles: process.env.ProgramFiles || 'C:/Program Files'
   }
-  spawn('node', [join(checkoutPath, 'dashboard', 'server.mjs')], { detached: true, stdio: 'ignore', windowsHide: true, env }).unref()
+  spawn('node', [join(checkoutPath, 'dashboard', 'server.mjs'), ...args], { detached: true, stdio: 'ignore', windowsHide: true, env }).unref()
 }
 
 export default function activate(orca: OrcaWorkerApi): void {
@@ -113,6 +144,8 @@ export default function activate(orca: OrcaWorkerApi): void {
       const session = (await orca.storage.get(SESSION_KEY)) as Session | null
       if (!session) break
       if (await health()) { seen = true; quiet = 0 }
+      // A killed server is about to be revived, and the session still keeps its rows.
+      else if (serverWasKilled()) quiet = 0
       else if (seen && ++quiet >= QUIET_POLLS) { await endSession(session, 'its dashboard server stopped'); break }
       else if (!seen && Date.now() - session.startedAt > STARTING_MS) { await endSession(session, 'its dashboard server never started'); break }
       await sleep(POLL_MS)
@@ -155,6 +188,34 @@ export default function activate(orca: OrcaWorkerApi): void {
     return 'Starting the dashboard.'
   }
 
+  async function checkoutPath(): Promise<string | null> {
+    const { workspaces } = await orca.host.call('workspace.list')
+    return workspaces.find((w) => CHECKOUT.test(w.path.replace(/[\\/]+$/, '')))?.path ?? null
+  }
+
+  // Starts a server in place of one that was killed. Runs for as long as Orca does.
+  const revives: number[] = []
+  async function reviveKilledServers(): Promise<void> {
+    for (;;) {
+      await sleep(POLL_MS)
+      try {
+        if (pressing || !serverWasKilled() || (await health())) continue
+        const now = Date.now()
+        while (revives.length && now - revives[0] > REVIVE_WINDOW_MS) revives.shift()
+        if (revives.length >= MAX_REVIVES) continue
+        const path = await checkoutPath()
+        if (!path) continue
+        revives.push(now)
+        // --keep-sessions: the session that wrote the rows is still open, and keeps them.
+        startServerNow(path, ['--revive', '--keep-sessions'])
+        orca.log('revived the dashboard server, which had been killed')
+        await sleep(15_000) // time to start listening and rewrite running.json
+      } catch (e) {
+        orca.log('reviving the dashboard server: ' + (e instanceof Error ? e.message : String(e)))
+      }
+    }
+  }
+
   // A press while another press is still being handled waits for that one instead of starting again.
   let pressing: Promise<string> | null = null
   orca.commands.register('dashboard.start', async () => {
@@ -170,4 +231,5 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   // A worker restarted while a session is open picks up watching it.
   void watchSession()
+  void reviveKilledServers()
 }

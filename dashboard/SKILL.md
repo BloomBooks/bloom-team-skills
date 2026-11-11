@@ -73,6 +73,11 @@ into this session, which is that request):
   and stop updating rows; the other session does both now.
 - This session ends. The page then says that the server has stopped.
 
+When the background task ends with neither line, the server was killed (Claude Code stops
+background commands when memory runs short). Orca's Bloom Dashboard plugin starts it again within
+a few seconds, and the open page reloads onto it. Keep the Monitor running and keep updating rows,
+and do not start the server yourself.
+
 ## 2. Gather
 
 Run `node gather.mjs ~/.claude/bloom-dashboard/facts.json [board]` from this folder (about 15 s),

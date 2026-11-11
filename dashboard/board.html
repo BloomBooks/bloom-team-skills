@@ -63,7 +63,7 @@ function infoIcon(text, id) {
 // page by server.mjs; other web pages can't read it, so they can't post to the server.
 // Posts `body` to the server and returns its answer when it did what was asked, or null after
 // saying why not with `note` (showNote, or showTaskNote under History's Add box).
-const SERVER_GONE = "The dashboard server isn't answering. It runs only while its Claude session is open; run /dashboard to start it again.";
+const SERVER_GONE = "The dashboard server isn't answering. If it was killed, Orca's Bloom Dashboard plugin starts it again within a few seconds and this page reloads; otherwise press Bloom Dashboard in Orca's status bar.";
 async function request(path, body, failure, note) {
   note("");
   try {

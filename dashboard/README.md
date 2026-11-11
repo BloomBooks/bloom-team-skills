@@ -128,9 +128,15 @@ The server opens the page in a Chrome app window. A second server takes the port
 first to exit (`/api/handover`, with `handover.key`), and the first prints `REPLACED`. Closing the
 window stops it with `WINDOW_CLOSED`, as does no page asking for five minutes.
 
+While it runs, the server rewrites `running.json` (its pid) every 5 seconds, and each of those
+stops removes it. Something that kills the server instead, such as Claude Code ending background
+commands when memory runs short, leaves the file behind with a dead pid. The Orca plugin then
+starts a server again (below), and a window still open on the killed one reloads onto it.
+
 A session whose command line is `claude "Open the dashboard"` exists only for the dashboard and
 holds about 300 MB, so the server ends such sessions: once listening, every one that started before
-it except its own; when it exits, its own. `--keep-sessions` turns that off.
+it except its own; when it exits, its own, unless that session started the server that took over
+from it. `--keep-sessions` turns that off.
 
 ## The Orca plugins
 
@@ -139,6 +145,12 @@ button asks it to show its window (`/api/show`); otherwise it starts `server.mjs
 background terminal in the bloom-team-skills workspace running `claude "Open the dashboard"` (no
 leading slash, which Git Bash would rewrite into a Windows path). The button reads "Loading..."
 meanwhile, and leaves alone a session it started under 90 seconds ago.
+
+For as long as Orca runs, the plugin also checks every 5 seconds for a server that was killed: a
+`running.json` written in the last minute whose pid is gone, and nothing answering on the port. It
+starts `server.mjs --revive --keep-sessions`, at most three times in ten minutes. `--revive` opens
+a window only when no page asks within 8 seconds, and `--keep-sessions` leaves alone the session
+that still writes the rows.
 
 `orca-plugin.json` with `worktree-panel/` is the Worktree panel: the dashboard's row for the
 worktree Orca has focused, with its checkout and its Claude session. `worktree-panel/README.md`

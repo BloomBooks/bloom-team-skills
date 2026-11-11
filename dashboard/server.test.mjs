@@ -100,7 +100,7 @@ test("a row the session wrote wrongly reaches the page, and events.log once", as
 });
 
 test("a second server takes the port over, and the first prints REPLACED and exits 0", async () => {
-  const { home, cleanup } = makeHome();
+  const { home, data, cleanup } = makeHome();
   const port = await freePort();
   const a = start(home, port);
   let b;
@@ -112,6 +112,7 @@ test("a second server takes the port over, and the first prints REPLACED and exi
     assert.ok(a.lines.some(l => l.startsWith("REPLACED")), a.lines.join("\n"));
     const health = await (await fetch(`http://127.0.0.1:${port}/api/health`)).json();
     assert.equal(health.pid, b.child.pid);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(data, "running.json"), "utf8")).pid, b.child.pid);
   } finally {
     a.child.kill();
     b?.child.kill();
@@ -120,18 +121,36 @@ test("a second server takes the port over, and the first prints REPLACED and exi
   }
 });
 
-test("closing the window stops the server with WINDOW_CLOSED", async () => {
-  const { home, cleanup } = makeHome();
+test("a killed server leaves running.json with its pid, for the Orca plugin to revive", async () => {
+  const { home, data, cleanup } = makeHome();
+  const port = await freePort();
+  const s = start(home, port);
+  try {
+    await within(s.first, 15000, "DASHBOARD_URL");
+    s.child.kill();
+    await s.exit;
+    assert.equal(JSON.parse(fs.readFileSync(path.join(data, "running.json"), "utf8")).pid, s.child.pid);
+  } finally {
+    s.child.kill();
+    await s.exit;
+    cleanup();
+  }
+});
+
+test("closing the window stops the server with WINDOW_CLOSED, and removes running.json", async () => {
+  const { home, data, cleanup } = makeHome();
   const port = await freePort();
   const s = start(home, port);
   try {
     const base = `http://127.0.0.1:${port}`;
     await within(s.first, 15000, "DASHBOARD_URL");
+    assert.ok(fs.existsSync(path.join(data, "running.json")));
     await fetch(base + "/api/state");
     assert.equal((await fetch(base + "/api/closing", { method: "POST", body: "wrong" })).status, 403);
     assert.equal((await fetch(base + "/api/closing", { method: "POST", body: await tokenOf(base) })).status, 200);
     assert.equal(await within(s.exit, 10000, "the server to exit"), 0);
     assert.ok(s.lines.some(l => l.startsWith("WINDOW_CLOSED")), s.lines.join("\n"));
+    assert.ok(!fs.existsSync(path.join(data, "running.json")));
   } finally {
     s.child.kill();
     await s.exit;

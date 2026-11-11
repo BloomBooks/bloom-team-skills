@@ -1,13 +1,15 @@
 // Serves the dashboard page on http://127.0.0.1:<port>/ for as long as the Claude session that
 // started it is open, and does what the page's buttons ask in Orca.
 //
-// Usage: node server.mjs [--port N] [--gather-minutes M] [--no-window] [--keep-sessions]
+// Usage: node server.mjs [--port N] [--gather-minutes M] [--no-window] [--keep-sessions] [--revive]
 //   (defaults 47321 and 15)
 //
 // Once listening, it opens the page in a Chrome app window (chrome --app=<url>): a window of its
 // own, with no tabs or address bar and its own taskbar button. --no-window leaves that out.
 // --keep-sessions leaves every Claude session alone (see "sessions that exist only for the
-// dashboard" below); the tests run the server with both.
+// dashboard" below); the tests run the server with both. --revive is how the Orca plugin starts
+// a server in place of one that was killed: a window still open on the killed one reloads onto
+// this one, so it opens a window only when no page asks within 8 seconds.
 //
 // Data lives in ~/.claude/bloom-dashboard/:
 //   board.json     { "board": "Bloom 6.6" }  the Kanban Board the rows were gathered for
@@ -23,6 +25,10 @@
 //                  watches it with watch-events.mjs
 //   progress/<worktree>.json  a preflight run's phases, written by progress.mjs
 //   tasks.json     the developer's to-do items for History (tasks.mjs)
+//   running.json   { "pid": N, "port": P } while this server runs; a stop below removes it, so
+//                  one left behind with a dead pid means the server was killed (Claude Code ends
+//                  background commands when memory runs short), and the Orca plugin starts
+//                  another
 //
 // A server that finds another dashboard server on its port asks that one to exit (POST
 // /api/handover with the key in handover.key), or kills it when it does not answer that request,
@@ -43,7 +49,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { diffFacts } from "./diff-facts.mjs";
@@ -60,6 +66,33 @@ const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 // and runs it as Node, so every `orca` command fails with "Cannot find module ...\orca\worktree".
 process.chdir(here);
 delete process.env.ELECTRON_RUN_AS_NODE;
+fillInUserEnvironment();
+
+// A server that the Orca plugin starts gets Orca's worker environment, which lacks most of the
+// developer's own variables: REVIEWABLE_API_TOKEN, without which own-review.mjs reads no marks
+// from Reviewable and every file counts as unreviewed, and the user Path entries that find the
+// `reviewable` CLI. This adds each variable from the Windows user and machine environment that
+// the process lacks, and the Path entries it lacks.
+function fillInUserEnvironment() {
+  if (process.platform !== "win32") return;
+  const expand = v => v.replace(/%([^%]+)%/g, (m, name) => process.env[name] ?? m);
+  for (const key of ["HKCU\\Environment", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"]) {
+    let text;
+    try { text = execFileSync("reg.exe", ["query", key], { encoding: "utf8", windowsHide: true }); } catch { continue; }
+    for (const line of text.split(/\r?\n/)) {
+      const m = line.match(/^\s{4}(\S+)\s+REG_(?:EXPAND_)?SZ\s+(.*)$/);
+      if (!m) continue;
+      const [, name, value] = m;
+      if (name.toLowerCase() === "path") {
+        const have = new Set((process.env.Path || process.env.PATH || "").split(";").map(p => p.toLowerCase()));
+        const add = expand(value).split(";").filter(p => p && !have.has(p.toLowerCase()));
+        if (add.length) process.env.Path = [process.env.Path || process.env.PATH || "", ...add].filter(Boolean).join(";");
+      } else if (process.env[name] === undefined) {
+        process.env[name] = expand(value);
+      }
+    }
+  }
+}
 const data = dataDir();
 const eventsLog = path.join(data, "events.log");
 const serverLog = path.join(data, "server.log");
@@ -74,6 +107,8 @@ const port = Number(arg("--port") ?? 47321);
 const gatherMinutes = Number(arg("--gather-minutes") ?? 15);
 const openWindow = !process.argv.includes("--no-window");
 const manageSessions = !process.argv.includes("--keep-sessions");
+const revive = process.argv.includes("--revive");
+const runningFile = path.join(data, "running.json");
 const origin = `http://127.0.0.1:${port}`;
 const token = crypto.randomBytes(16).toString("hex");
 // A key that every dashboard server of this user shares, so that one can ask another to exit and
@@ -260,7 +295,8 @@ const ACTIONS = {
 // ---- sessions that exist only for the dashboard ----------------------------------------------
 // The Orca plugin's button starts `claude "Open the dashboard"`. Such a session has nothing to do
 // once its server is gone, and each one holds about 300 MB, so a server kills them: on listening,
-// every one that started before it other than its own; on exiting, its own. A /dashboard typed
+// every one that started before it other than its own; on exiting, its own, unless that session
+// started the server that took over. A /dashboard typed
 // into a working session has another command line and is never touched. --keep-sessions turns
 // this off.
 const serverStarted = Date.now();
@@ -315,7 +351,12 @@ async function endOwnSession() {
   const chain = ancestry(all);
   const own = all.find(p => p.pid === chain[chain.length - 1]);
   if (!own || !isDedicated(own)) return;
-  for (const d of descendants(all, own.pid)) if (!chain.includes(d)) kill(d);
+  const below = descendants(all, own.pid);
+  // The same session started the server that took over from this one, and keeps it.
+  const byPid = new Map(all.map(p => [p.pid, p]));
+  const newer = below.find(d => d !== process.pid && /\bserver\.mjs\b/.test(byPid.get(d)?.cmd || ""));
+  if (newer) { log(`left the dashboard session pid ${own.pid} open: it started server pid ${newer}`); return; }
+  for (const d of below) if (!chain.includes(d)) kill(d);
   kill(own.pid);
   log(`ended this server's dashboard session pid ${own.pid}`);
 }
@@ -330,6 +371,8 @@ async function stop(line, why) {
   stopping = true;
   log(why + "; exiting");
   console.log(line);
+  // A newer server that took over may already have written its own.
+  try { if (JSON.parse(fs.readFileSync(runningFile, "utf8")).pid === process.pid) fs.rmSync(runningFile); } catch {}
   server.close();
   await endOwnSession().catch(e => log("ending own session: " + e.message));
   process.exit(0);
@@ -492,11 +535,16 @@ server.on("listening", async () => {
       stop("WINDOW_CLOSED: " + why, why);
     }
   }, 30000);
-  log("listening on " + origin + " pid " + process.pid);
+  log("listening on " + origin + " pid " + process.pid + (revive ? " (revived by the Orca plugin)" : ""));
+  // Rewritten every 5 s: the Orca plugin revives only a server that was running a minute ago,
+  // not one that a restart of the machine ended hours before.
+  const markRunning = () => { if (!stopping) fs.writeFileSync(runningFile, JSON.stringify({ pid: process.pid, port })); };
+  markRunning();
+  setInterval(markRunning, 5000);
   endStaleSessions().catch(e => log("ending stale sessions: " + e.message));
-  // After a takeover, a window left open on the old server asks within 3 s and reloads onto this
-  // one, so open another only when none has asked.
-  if (openWindow && tookOver) setTimeout(() => { if (!lastPageRequest) openAppWindow(); }, 8000);
+  // After a takeover or a revive, a window left open on the old server asks within 3 s and reloads
+  // onto this one, so open another only when none has asked.
+  if (openWindow && (tookOver || revive)) setTimeout(() => { if (!lastPageRequest) openAppWindow(); }, 8000);
   else if (openWindow) openAppWindow();
   console.log(`DASHBOARD_URL ${origin}/`);
 });
