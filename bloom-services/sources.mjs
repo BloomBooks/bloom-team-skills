@@ -1,5 +1,5 @@
-// The commands that read and write the team's web services: YouTrack, Sentry, Slack, Zulip,
-// Notion, Cloudflare, Crowdin, Mixpanel, Contentful, Bloom Library's books and Parse server, the community
+// The commands that read and write the team's web services: YouTrack, Sentry, Slack, Notion,
+// Cloudflare, Crowdin, Mixpanel, Contentful, Bloom Library's books and Parse server, the community
 // forum, TeamCity and the status pages. tools.mjs beside this file runs them for a developer's Claude; the Bloom bot's
 // bot-tools.mjs (in the private BloomBooks/bloom-bot repo) runs the same ones for the bot. Each
 // command takes its arguments and the text of its @<file> body, and returns the text to print.
@@ -9,9 +9,7 @@
 // in the bot (by its own token) and any member of the BloomBooks GitHub organization (by their
 // `gh auth token`), and passes each request on as it is, with the token added (bloom-bot's
 // worker/src/services.js). Public services (the forum, Bloom Library, TeamCity as a guest, the
-// status pages, Contentful's read-only APIs) are called directly. Zulip is the exception: the
-// bot's Zulip account is in ~/.zuliprc on its own machine, so zulip-history reads it there and
-// calls Zulip directly; elsewhere it says there is no Zulip access.
+// status pages, Contentful's read-only APIs) are called directly.
 //
 //   youtrack [GET|POST|DELETE] <api path> [@<file>]     YouTrack's REST API as the Bot account
 //   attachment <issue id> <name> [<path>]                saves the attachment to ./.card/<name>, or to
@@ -34,10 +32,6 @@
 //   slack-upload <channel id> <file> [thread ts]         puts a file from the working directory in a
 //                                                        Slack channel, or in that thread, as the bot
 //   slack-delete <channel id> <message ts>               deletes one of the bot's own Slack messages
-//   zulip-history <channel> [topic]                      a Zulip channel's topics and messages, with
-//                                                        sender, date and reactions; saves the text to
-//                                                        ./.zulip/<channel>/messages.md and each
-//                                                        message's uploaded files beside it
 //   book <Bloom Library link or book id>                 saves a public book's files under ./.book/<title>/
 //   community <path>                                     a GET on the community forum's JSON
 //                                                        (https://community.software.sil.org), e.g.
@@ -65,7 +59,6 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 // Where the tool server runs: the Worker on Cloudflare (bloom-bot's worker/README.md), so that
@@ -79,8 +72,6 @@ const SLACK_MAX_MESSAGES = 1000;
 const SLACK_MARKDOWN_MAX_CHARS = 12_000;
 // The files that a Slack image block shows.
 const SLACK_IMAGE_TYPES = [".png", ".jpg", ".jpeg", ".gif"];
-const ZULIP_MAX_MESSAGES = 5000;
-const ZULIP_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 const BOOK_MAX_BYTES = 300 * 1024 * 1024;
 const MAX_PRINT_CHARS = 40_000;
 const PARSE = "https://server.bloomlibrary.org/parse";
@@ -321,66 +312,6 @@ async function postWhenFilesAreReady(message, hasFiles) {
             await new Promise((resolve) => setTimeout(resolve, waits[attempt] * 1000));
         }
     }
-}
-
-/** The bot's Zulip account from ~/.zuliprc: its site and the header that signs in as it. */
-function zulipAccount() {
-    const rc = path.join(os.homedir(), ".zuliprc");
-    if (!fs.existsSync(rc)) throw new Error("there is no ~/.zuliprc here, so there is no Zulip access. Only the bot's machine has one.");
-    const values = {};
-    for (const line of fs.readFileSync(rc, "utf8").split(/\r?\n/)) {
-        const match = line.match(/^\s*(\w+)\s*=\s*(.*?)\s*$/);
-        if (match) values[match[1]] = match[2];
-    }
-    return {
-        site: values.site.replace(/\/$/, ""),
-        authorization: `Basic ${Buffer.from(`${values.email}:${values.key}`).toString("base64")}`,
-    };
-}
-
-/** A GET on Zulip's API as the bot; throws when Zulip says the request failed. */
-async function zulipGet(zulip, apiPathAndQuery) {
-    const url = `${zulip.site}${apiPathAndQuery}`;
-    const response = await check(await fetchWithTimeout(url, { headers: { Authorization: zulip.authorization } }), url);
-    const data = await response.json();
-    if (data.result !== "success") throw new Error(`Zulip ${apiPathAndQuery.split("?")[0]}: ${data.msg}`);
-    return data;
-}
-
-/** Every message in a Zulip channel, or in one of its topics, oldest first, as raw Markdown. */
-async function zulipMessages(zulip, channel, topic) {
-    const narrow = [{ operator: "channel", operand: channel }];
-    if (topic !== undefined) narrow.push({ operator: "topic", operand: topic });
-    const messages = [];
-    let anchor = "oldest";
-    for (;;) {
-        const query = new URLSearchParams({
-            anchor, include_anchor: String(anchor === "oldest"), num_before: "0", num_after: "1000",
-            // client_gravatar off, so every sender's avatar_url is filled in, Gravatar ones too.
-            apply_markdown: "false", client_gravatar: "false", narrow: JSON.stringify(narrow),
-        });
-        const page = await zulipGet(zulip, `/api/v1/messages?${query}`);
-        messages.push(...page.messages);
-        if (page.found_newest || page.messages.length === 0) return messages;
-        if (messages.length >= ZULIP_MAX_MESSAGES) throw new Error(`#${channel} has more than ${ZULIP_MAX_MESSAGES} messages; read it a topic at a time`);
-        anchor = String(messages[messages.length - 1].id);
-    }
-}
-
-/** Saves one Zulip upload (a /user_uploads/... path from a message) as `<number>-<its name>` in
- * `folder`, and returns where. The number keeps two uploads with one name (pasted screenshots are
- * all image.png) from overwriting each other. Zulip hands the bot a short-lived link to the file,
- * which loads without signing in. */
-async function saveZulipUpload(zulip, uploadPath, folder, number) {
-    const { url } = await zulipGet(zulip, `/api/v1${uploadPath}`);
-    const link = new URL(url, zulip.site).href;
-    const response = await check(await fetchWithTimeout(link), link.split("?")[0]);
-    const size = Number(response.headers.get("content-length") ?? 0);
-    if (size > ZULIP_UPLOAD_MAX_BYTES) return `not saved: ${uploadPath} is ${Math.round(size / 1024 / 1024)} MB`;
-    const file = pathInWorkingDirectory(path.join(folder, `${number}-${decodeURIComponent(path.basename(uploadPath))}`));
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, Buffer.from(await response.arrayBuffer()));
-    return path.relative(process.cwd(), file);
 }
 
 /** Files as a multipart/form-data body, the way YouTrack takes attachments: [bytes, its Content-Type
@@ -669,48 +600,6 @@ export const sourceCommands = {
         if (!ts) throw new Error("usage: slack-delete <channel id> <message ts>");
         await slack("chat.delete", { channel, ts });
         return `deleted ts ${ts} in ${channel}`;
-    },
-    async "zulip-history"(args) {
-        const [channel, topic] = args;
-        if (!channel) throw new Error("usage: zulip-history <channel> [topic]");
-        const zulip = zulipAccount();
-        const messages = await zulipMessages(zulip, channel, topic);
-        const { members } = await zulipGet(zulip, "/api/v1/users");
-        const names = new Map(members.map((u) => [u.user_id, u.full_name]));
-        const folder = path.join(".zulip", channel.replace(/[^\w.-]+/g, "-"));
-
-        const topics = new Map();
-        for (const m of messages) {
-            if (!topics.has(m.subject)) topics.set(m.subject, []);
-            topics.get(m.subject).push(m);
-        }
-        const lines = [];
-        let saved = 0;
-        for (const [name, inTopic] of topics) {
-            lines.push(`## ${name} (${inTopic.length} message${inTopic.length === 1 ? "" : "s"})`, "");
-            for (const m of inTopic) {
-                const avatar = m.avatar_url ? new URL(m.avatar_url, zulip.site).href : "none";
-                lines.push(`--- ${new Date(m.timestamp * 1000).toISOString()} | ${m.sender_full_name} | message ${m.id} | avatar ${avatar}`, m.content);
-                const byEmoji = new Map();
-                for (const r of m.reactions ?? []) {
-                    const who = r.user?.full_name ?? names.get(r.user_id) ?? `user ${r.user_id}`;
-                    byEmoji.set(r.emoji_name, [...(byEmoji.get(r.emoji_name) ?? []), who]);
-                }
-                if (byEmoji.size) lines.push(`reactions: ${[...byEmoji].map(([emoji, who]) => `:${emoji}: ${who.join(", ")}`).join("; ")}`);
-                const uploads = [...new Set([...m.content.matchAll(/\/user_uploads\/[^\s)\]"'>]+/g)].map((match) => match[0]))];
-                for (const [index, upload] of uploads.entries()) {
-                    const where = await saveZulipUpload(zulip, upload, path.join(folder, String(m.id)), index + 1);
-                    if (!where.startsWith("not saved")) saved++;
-                    lines.push(`file ${upload}: ${where}`);
-                }
-                lines.push("");
-            }
-        }
-        const transcript = pathInWorkingDirectory(path.join(folder, "messages.md"));
-        fs.mkdirSync(path.dirname(transcript), { recursive: true });
-        fs.writeFileSync(transcript, lines.join("\n"));
-        const summary = `#${channel}${topic === undefined ? "" : ` > ${topic}`}: ${topics.size} topics, ${messages.length} messages, ${saved} files saved. The full text is in ${path.relative(process.cwd(), transcript)}.`;
-        return `${summary}\n\n${json(lines.join("\n"))}`;
     },
     async book(args) {
         return downloadBook(args[0]);
