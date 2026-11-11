@@ -24,7 +24,8 @@
 // line "<repo>". Repos are the BloomBooks repos that Orca knows. Agents commit under the developer's
 // git name, so their commits count.
 //
-// The team's stand-up meeting is at STANDUP each weekday, local time. Work done on a weekday before
+// The team's stand-up meeting is at STANDUP each weekday, on the clock in Denver (8:45 MST in
+// winter and 8:45 MDT in summer), whatever this machine's time zone. Work done on a weekday before
 // it was reported at that meeting, so a day lists a card once for the work before stand-up
 // (beforeStandup: true) and once for the work after it.
 //
@@ -44,13 +45,19 @@ import { join } from "node:path";
 import { mayHoldPrompt, promptText, typedPrompt } from "./transcripts.mjs";
 
 export const WEEKDAYS = 3;
-// The stand-up meeting's time of day, local time, Monday to Friday. board.html gets it from
-// /api/state.
-export const STANDUP = { hour: 8, minute: 45 };
+// The stand-up meeting's time of day, Monday to Friday, in its time zone (which follows daylight
+// saving time). board.html gets it from /api/state, and has its own copy of standupClock().
+export const STANDUP = { zone: "America/Denver", hour: 8, minute: 45 };
+// A time's weekday (0 is Sunday) and minutes since midnight on the stand-up's clock.
+export function standupClock(t, s = STANDUP) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: s.zone, weekday: "short", hour: "numeric", minute: "numeric", hourCycle: "h23" })
+    .formatToParts(new Date(t)).map(x => [x.type, x.value]));
+  return { weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.weekday), minutes: Number(p.hour) * 60 + Number(p.minute) };
+}
 // Whether a time falls on a weekday before that day's stand-up.
-export function beforeStandup(t) {
-  const d = new Date(t);
-  return d.getDay() % 6 !== 0 && d.getHours() * 60 + d.getMinutes() < STANDUP.hour * 60 + STANDUP.minute;
+export function beforeStandup(t, s = STANDUP) {
+  const c = standupClock(t, s);
+  return c.weekday % 6 !== 0 && c.minutes < s.hour * 60 + s.minute;
 }
 const LOOK_BACK_DAYS = 14;
 const CARDS = /\bBL-\d+/gi;

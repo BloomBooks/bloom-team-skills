@@ -231,10 +231,9 @@ ul.lines li.fu-forgot, ul.lines li.fu-merged { box-shadow: inset 3px 0 0 var(--y
 /* A History line's icon for Finished, Worked on or Reviewed, which names itself on hover. */
 ul.lines .kind { flex: none; display: inline-flex; color: var(--muted); cursor: default; }
 ul.lines .kind-finished { color: var(--accent); }
-/* A History day's stand-up: a rule with the meeting's time, then the work before it, dimmed. */
+/* A History day's stand-up: a rule with the meeting's time, then the work before it. */
 .standup-line { display: flex; align-items: center; gap: 10px; margin: 10px 0 6px; font-size: 12px; color: var(--muted); }
 .standup-line::before, .standup-line::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
-.before-standup { opacity: 0.55; }
 .day ul.lines.tasks + ul.lines { margin-top: 8px; }
 ul.lines .fu { font-size: 12px; font-weight: 600; flex: none; white-space: nowrap; }
 ul.lines li.fu-responded .fu, ul.lines li.fu-new .fu { color: var(--you); }

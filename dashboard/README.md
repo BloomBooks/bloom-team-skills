@@ -115,8 +115,8 @@ theirs to follow through. `reviewed.mjs` works these out (`backForReview`, `card
 Below the groups, History shows today and the two weekdays before it, plus a weekend day with any
 activity, each day's lines marked **Finished** (a PR marked ready or opened ready, or merged),
 **Worked on** (the developer's commits, uncommitted files, and prompts to Claude Code in the card's
-worktree) or **Reviewed**, from `standup.mjs`. A line at the stand-up's time (8:45, `STANDUP`)
-splits a weekday, with the work before it dimmed. The developer's tasks live in `tasks.json`
+worktree) or **Reviewed**, from `standup.mjs`. A line at the stand-up's time (8:45 Denver time,
+MST or MDT, `STANDUP`; shown in the developer's own time) splits a weekday, with the work before it below the line. The developer's tasks live in `tasks.json`
 (`tasks.mjs`), the one file here that nothing can work out again.
 
 Card links, PR links and State icons share four colours: green for work the developer still has

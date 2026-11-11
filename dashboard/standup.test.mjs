@@ -29,10 +29,17 @@ test("History starts two weekdays before today, skipping a weekend", () => {
   assert.equal(dayOf(new Date(2026, 10, 9, 23, 30)), "2026-11-09");
 });
 
-test("work counts as before stand-up only on a weekday before 8:45", () => {
-  assert.equal(beforeStandup(new Date(2026, 10, 9, 8, 44)), true);
-  assert.equal(beforeStandup(new Date(2026, 10, 9, 8, 45)), false);
-  assert.equal(beforeStandup(new Date(2026, 10, 8, 7, 0)), false);  // Sunday
+test("work counts as before stand-up only on a weekday before 8:45 in Denver", () => {
+  // UTC instants, so the test means the same in any time zone. In November Denver is on MST (UTC-7).
+  assert.equal(beforeStandup("2026-11-09T15:44:00Z"), true);   // Monday 8:44 MST
+  assert.equal(beforeStandup("2026-11-09T15:45:00Z"), false);  // Monday 8:45 MST
+  assert.equal(beforeStandup("2026-11-08T14:00:00Z"), false);  // Sunday 7:00 MST
+  // In July Denver is on MDT (UTC-6), and the meeting is still at 8:45 there.
+  assert.equal(beforeStandup("2026-07-13T14:44:00Z"), true);   // Monday 8:44 MDT
+  assert.equal(beforeStandup("2026-07-13T14:45:00Z"), false);  // Monday 8:45 MDT
+  // Late Friday evening in Denver is already Saturday in UTC.
+  assert.equal(beforeStandup("2026-11-14T05:00:00Z"), false);  // Friday 22:00 MST
+  assert.equal(beforeStandup("2026-11-13T15:00:00Z"), true);   // Friday 8:00 MST
 });
 
 test("bloomRepos keeps the BloomBooks repos Orca knows", () => {

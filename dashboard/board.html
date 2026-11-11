@@ -199,9 +199,16 @@ function showTaskNote(text) {
 // that day. standup.mjs's historyStart() works out the same first day.
 //
 // Each day's work is one list, newest first, each line labelled Finished, Worked on or Reviewed.
-// On a weekday whose stand-up has passed, a line marks the meeting, and the work before it (which
-// was reported there) is dimmed below it. standup.mjs marks those lines beforeStandup.
-let lastStandup = null, lastTasks = [], standupAt = { hour: 8, minute: 45 };
+// On a weekday whose stand-up has passed, a line marks the meeting, with the work before it below
+// it. standup.mjs marks those lines beforeStandup.
+let lastStandup = null, lastTasks = [], standupAt = { zone: "America/Denver", hour: 8, minute: 45 };
+// A time's weekday (0 is Sunday) and minutes since midnight on the stand-up's clock, the same as
+// standupClock() in standup.mjs.
+function standupClock(t) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: standupAt.zone, weekday: "short", hour: "numeric", minute: "numeric", hourCycle: "h23" })
+    .formatToParts(new Date(t)).map(x => [x.type, x.value]));
+  return { weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.weekday), minutes: Number(p.hour) * 60 + Number(p.minute) };
+}
 function renderStandup(days, tasks) {
   const now = new Date();
   const first = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -221,8 +228,10 @@ function renderStandup(days, tasks) {
   const shown = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
   // Open tasks first, then the ones checked off that day, each in the order they were made.
   const order = (a, b) => (!!a.checked - !!b.checked) || a.created.localeCompare(b.created);
-  const meeting = new Date(now.getFullYear(), now.getMonth(), now.getDate(), standupAt.hour, standupAt.minute);
-  const early = t => { const d = new Date(t); return d.getDay() % 6 !== 0 && d.getHours() * 60 + d.getMinutes() < standupAt.hour * 60 + standupAt.minute; };
+  const meetingMinutes = standupAt.hour * 60 + standupAt.minute;
+  const early = t => { const c = standupClock(t); return c.weekday % 6 !== 0 && c.minutes < meetingMinutes; };
+  // Today's meeting, as a moment: now, moved back or forward to the meeting's minute on its clock.
+  const meeting = new Date(now.getTime() - (standupClock(now).minutes - meetingMinutes) * 60000 - now.getSeconds() * 1000 - now.getMilliseconds());
   // A day's tasks and work lines, either the ones before its stand-up or the ones after.
   const part = (day, before) => {
     const out = [];
@@ -238,7 +247,7 @@ function renderStandup(days, tasks) {
   const box = document.getElementById("standup-days");
   box.replaceChildren(...shown.map(day => {
     // Today's stand-up has not happened yet: everything so far goes in the report.
-    const met = day.date !== today || now >= meeting;
+    const met = day.date !== today || !early(now);
     const after = met ? part(day, false) : [...part(day, false), ...part(day, true)];
     const before = met ? part(day, true) : [];
     return el("div", { class: "day" },
@@ -246,7 +255,7 @@ function renderStandup(days, tasks) {
       !after.length && !before.length ? el("p", { class: "nothing" }, "Nothing recorded.") : null,
       ...after,
       before.length ? el("div", { class: "standup-line" }, el("span", {}, meetingLabel)) : null,
-      before.length ? el("div", { class: "before-standup", title: "Done before this day's stand-up, so already reported there" }, ...before) : null);
+      before.length ? el("div", { class: "before-standup" }, ...before) : null);
   }));
 }
 document.getElementById("task-form").addEventListener("submit", async e => {
