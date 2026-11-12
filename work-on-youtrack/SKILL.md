@@ -37,7 +37,11 @@ What the script does, so you can explain its output:
    fails or answers with something else, the first three words of the title are used.
 5. Assigns the card to the developer when it has no Assignee, and moves it to In Progress when its
    State comes before In Progress (Incoming, Open, Ready For Work, Has Comments). A card in review,
-   in testing or closed keeps its State. Both fields are read back.
+   in testing or closed keeps its State. Both fields are read back. A card it moved to In Progress
+   then goes right after the developer's last card in that column of its board (Bloom Kanban, the
+   sprint its Kanban Board field names), through the board's `issueOrder` request as the
+   `card-sorter` does; with no other card of theirs there it stays where YouTrack put it. Failing
+   to place it is reported, not fatal.
 6. Asks a running dashboard (the `dashboard` skill) to gather now, so the card appears there
    without waiting for the dashboard's 15-minute gather.
 7. Brings Orca to the front.

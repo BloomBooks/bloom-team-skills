@@ -10,7 +10,7 @@
 //               nothing on the card
 //   --json      prints one JSON object instead of text: { ok, action, card, summary, state,
 //               pr, worktree, branch, words, wordsFrom, terminal, others, assigned,
-//               movedTo, dashboard, error }
+//               movedTo, placedAfter, placeError, dashboard, error }
 //
 // Exit code 0 on success, 1 on any failure (the text or JSON says why).
 import { execFile, execFileSync, spawn } from "node:child_process";
@@ -108,6 +108,47 @@ async function takeCard(id, info, login, target) {
   if (now.assignee?.login !== login) throw new Error(`assigning ${id} to ${login} did not take (the Assignee is ${now.assignee?.login ?? "empty"}); see the youtrack-api skill, §1`);
   if (out.movedTo && now.state !== IN_PROGRESS) throw new Error(`moving ${id} to ${IN_PROGRESS} did not take (the State is ${now.state})`);
   return out;
+}
+
+// The developer's last card in the In Progress column of the card's board (the agile board's
+// sprint named by the card's "Kanban Board" field), in the board's order, leaving the card itself
+// out. Returns { board, column, cell, after: { id, idReadable } | null, card: <internal id> | null }.
+const AGILE = "89-5"; // Bloom Kanban
+async function inProgressCell(id, login) {
+  const kanban = (await yt(`/issues/${id}?fields=customFields(name,value(name))`)).customFields?.find(c => c.name === "Kanban Board")?.value?.name;
+  if (!kanban) throw new Error(`${id} has no Kanban Board`);
+  const sprint = (await yt(`/agiles/${AGILE}?fields=sprints(id,name)`)).sprints.find(s => s.name === kanban);
+  if (!sprint) throw new Error(`the Bloom Kanban board has no sprint named "${kanban}"`);
+  const base = `/agiles/${AGILE}/sprints/${sprint.id}/board`;
+  const cells = "cells(id,column(id,presentation),issues(id,idReadable,customFields(name,value(login))))";
+  const b = await yt(`${base}?fields=sortByQuery,orphanRow(${cells}),trimmedSwimlanes(${cells})`);
+  if (b.sortByQuery) throw new Error(`the ${kanban} board sorts by a query, so it has no order to set`);
+  // Swimlanes are cards with subtasks; a card's own row holds it, so look for the card's row first.
+  const rows = [b.orphanRow, ...(b.trimmedSwimlanes || [])].map(r => r.cells.find(c => c.column.presentation === IN_PROGRESS)).filter(Boolean);
+  const cell = rows.find(c => c.issues.some(i => i.idReadable === id)) || b.orphanRow.cells.find(c => c.column.presentation === IN_PROGRESS);
+  if (!cell) throw new Error(`the ${kanban} board has no ${IN_PROGRESS} column`);
+  const assignee = i => i.customFields?.find(f => f.name === "Assignee")?.value?.login;
+  const after = cell.issues.filter(i => i.idReadable !== id && assignee(i) === login).at(-1) || null;
+  return { board: kanban, base, cell, after, card: cell.issues.find(i => i.idReadable === id)?.id ?? null };
+}
+// Puts the card, just moved to In Progress, right after the developer's last card in that column,
+// so the developer's cards stay together and in the order they took them. Leaves it alone when the
+// developer has no other card there. Returns the card it now follows, or null.
+async function placeAfterMine(id, login) {
+  let c;
+  // YouTrack can take a moment to show a card in its new column.
+  for (let tries = 0; tries < 5; tries++) {
+    c = await inProgressCell(id, login);
+    if (c.card || !c.after) break;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  if (!c.after) return null;
+  if (!c.card) throw new Error(`${id} does not show in the ${c.board} board's ${IN_PROGRESS} column`);
+  const ids = c.cell.issues.map(i => i.id);
+  if (ids.indexOf(c.card) !== ids.indexOf(c.after.id) + 1) {
+    await yt(`${c.base}/columns/${c.cell.column.id}/cells/${c.cell.id}/issueOrder?fields=leading(id),moved(id)`, { leading: { id: c.after.id }, moved: { id: c.card } });
+  }
+  return c.after.idReadable;
 }
 
 // ---- the card's PR --------------------------------------------------------------------------
@@ -237,6 +278,8 @@ function describe(r) {
   if (r.otherPrs?.length) lines.push("Other open PRs for this card: " + r.otherPrs.join(", "));
   const changes = [r.assigned && `assigned to ${r.login}`, r.movedTo && `moved to ${r.movedTo}`].filter(Boolean);
   if (changes.length) lines.push(`${would ? "Would mark" : "Marked"} the card ${changes.join(" and ")}.`);
+  if (r.placedAfter) lines.push(`${would ? "Would place" : "Placed"} it after ${r.placedAfter}, your last card in ${IN_PROGRESS}.`);
+  if (r.placeError) lines.push(`Could not place it after your other ${IN_PROGRESS} cards: ${r.placeError}`);
   if (r.dashboard) lines.push("Asked the dashboard to refresh.");
   if (r.frontError) lines.push("Could not bring Orca to the front: " + r.frontError);
   return lines.join("\n");
@@ -289,9 +332,16 @@ async function main() {
     }
   }
   result.login = me;
-  if (dryRun) Object.assign(result, { assigned: !info.assignee, movedTo: info.stateOrdinal === null || info.stateOrdinal < target ? IN_PROGRESS : null });
-  else {
+  if (dryRun) {
+    Object.assign(result, { assigned: !info.assignee, movedTo: info.stateOrdinal === null || info.stateOrdinal < target ? IN_PROGRESS : null });
+    if (result.movedTo) {
+      try { result.placedAfter = (await inProgressCell(card, me)).after?.idReadable || null; } catch (e) { result.placeError = e.message; }
+    }
+  } else {
     Object.assign(result, await takeCard(card, info, me, target));
+    if (result.movedTo) {
+      try { result.placedAfter = await placeAfterMine(card, me); } catch (e) { result.placeError = e.message; }
+    }
     result.dashboard = await refreshDashboard();
   }
   if (!dryRun) await bringOrcaToFront().catch(e => { result.frontError = e.message; });
