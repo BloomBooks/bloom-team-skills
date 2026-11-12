@@ -216,24 +216,23 @@ instead. One paged call per file per language answers "do all N carry a suggesti
 
 ## Pointing translators at just the strings you mean
 
-A file link drops a translator into the whole file. **The Editor takes a `?q=` search on the
-end of the URL** and opens filtered to the strings that match:
+A file link drops a translator into the whole file. **Put a search after `#q=` in the URL's
+fragment**, and the Editor opens with that search applied:
 
 ```
-https://crowdin.com/editor/sil-bloom/76/en-es?q=AiImageEditor
+https://crowdin.com/editor/sil-bloom/76/en-pt?#q=EditTab.Table
 ```
 
-Where the ids of a feature share a prefix, that one parameter isolates them exactly and costs
-nothing: no writes to the project, nothing to maintain, and it keeps working as later strings
-with the same prefix arrive. Use it in any mail or comment that sends someone to a file. `q`
-matches the key, so it catches every id carrying the prefix -- including ones the app has since
-stopped using (see the string-table trap below).
+(That exact form was checked in a logged-in browser on 2026-11-12.)
 
-Crowdin's own mechanism for this is **labels** -- create one, attach it to the strings, then
-filter by it in the Editor and copy the resulting URL. Prefer `?q=` unless the set you want
-cannot be described by a prefix or a search: a label is a write to a shared project and has to
-be re-applied to every new batch. Labels live at `/projects/{id}/labels` and a string carries
-its `labelIds`.
+It has to be the fragment: a `?q=` query parameter is ignored, and the Editor opens the whole
+file. Where the ids of a feature share a prefix, that search isolates them, costs nothing (no
+writes to the project), and keeps working as later strings with the prefix arrive. Use it in any
+mail or comment that sends someone to a file.
+
+When the set has no shared prefix, attach a **label** to its strings instead, and say which label
+to choose in the Editor's filter. Labels live at `/projects/{id}/labels`, and a string carries its
+`labelIds`. A label is a write to a shared project and has to be applied to every new batch.
 
 **A language's editor code is not its language id** -- get it from `languagesApi.getLanguage(id)`
 rather than guessing (see [Project constants](#project-constants)). `es-ES` is `en-es`, `pt-PT`
