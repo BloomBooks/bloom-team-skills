@@ -87,9 +87,9 @@ catches these, so the walkaround always covers the whole PR, never the latest fi
    - the proposals;
    - any untracked file that step 2 staged.
 
-   Recommend each proposal by one test: whether the code would easier to reason about and more maintainable with it. The walkaround exists to leave good code, so a restructuring or simplification that would leave better code is recommended however late the PR is, and whether or not the current code works or  
-   a user would notice. State the size of the change as its effort. The reasons that count  
-   against a proposal are that it adds failure modes, is harder to test, harder to understand. For an efficiency  
+   Recommend each proposal by one test: whether the code would be easier to reason about and more maintainable with it. The walkaround exists to leave good code, so a restructuring or simplification that would leave better code is recommended however late the PR is, and whether or not the current code works or
+   a user would notice. State the size of the change as its effort. The reasons that count
+   against a proposal are that it adds failure modes, is harder to test, harder to understand. For an efficiency
    proposal, make clear what improvement is expected for people on old slow computers, and if you didn't test, offer to test and find out.
 
-   Inside `preflight`, proposals go to its decision report. Run on its own, if there are 2 or less proposals, use`AskUserQuestion`. Otherwise use the Decider skill. Afterward offer to commit; this skill never commits.
+   Inside `preflight`, proposals go to its decision report. Run on its own, if there are 2 or less proposals, use `AskUserQuestion`. Otherwise use the Decider skill. Afterward offer to commit; this skill never commits.
