@@ -617,6 +617,9 @@ anything else:
   ```
   <!-- preflight-narrative:begin -->
   … the narrative, then the reviewer sections …
+
+  ---
+
   Preflight report: <report URL>
   <!-- preflight-narrative:end -->
   ```
@@ -808,7 +811,9 @@ do it either way.
 - **Link the preflight report from the PR description, never from the tracker card.** After
 publishing the report (see "Report artifact" below; its public URL is stable per branch), put a
 `Preflight report: <url>` line at the end of the narrative block, just before
-`<!-- preflight-narrative:end -->`, so each run's refresh keeps it current. Do this **before ending
+`<!-- preflight-narrative:end -->`, so each run's refresh keeps it current. Put a horizontal rule
+(`---`, with a blank line on each side) between the last reviewer section and that line, so the
+link doesn't read as part of the Notion Test Suite section. Do this **before ending
 the run**: decision items may be deferred to a different human who picks up the work later, and
 the report is where the decisions live. Do **not** post the report link to the tracker card; the
 team keeps bot comments on cards to a minimum, and the card already links the PR. If the
