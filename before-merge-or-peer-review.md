@@ -58,6 +58,12 @@ Then check all of the following. **Any failure → go no further** (see "Not cle
   saying nothing would. Like the bullet above, this does not bounce: fix it, or offer to. Keep
   both terse while you're at it: a commit body is what changed and why in a few lines, not a log
   of how it was verified.
+- **Nothing in the PR description is still waiting on a decision the developer has made.**
+  Search the description for "waiting on", "decision", "open question" and links to review
+  threads, and compare each with the thread: a thread that is resolved, or that carries a reply
+  recording the developer's decision, means the text has to say what was decided. Fix it in the
+  preflight-written part of the description at once; it is not a bounce. A reviewer who reads
+  "waiting on a decision" in a PR handed to them has been handed unfinished work (PR #8566).
 
 ### Not clean → bounce to preflight
 
@@ -115,6 +121,32 @@ Consequences of the new SHA:
   say in the report that a review from that bot may still arrive.
 
 If the branch is already a single commit, skip this step silently.
+
+## Taking the PR out of draft wakes the review bots
+
+Greptile reviews a PR when it opens and again when it leaves draft, but not on pushes to a draft.
+So the skill's own `gh pr ready` starts a review of code that preflight's gauntlet may never have
+shown it, and that review lands minutes after the handoff. On PR #8566 it found a real bug three
+minutes after `request-peer-review` had reported the PR clean, and the peer reviewer was the one
+who pointed at it.
+
+So, whenever the skill marks the PR ready (or finds it already ready while a comment-posting bot
+has not yet reviewed HEAD), it waits for that review before it reports done or merges:
+
+1. Note the time, run `gh pr ready <n>`.
+2. Wait for each comment-posting bot that has reviewed this PR before (Greptile today) to post a
+   review dated after that time. Use a background waiter with a 15-minute cap, not a sleep loop.
+   Greptile has taken about three minutes.
+3. Read what it posted: the summary comment (it is edited in place, so re-read it), and any new
+   inline comments.
+   - **No findings** → go on.
+   - **Findings** → the PR is not clean. Put it back in draft (`gh pr ready <n> --undo`), leave
+     the card where it was before this skill ran, and bounce to preflight, naming the findings.
+     The developer runs this skill again once preflight has dealt with them.
+   - **Nothing by the cap** → go on, and say in the report that a review from that bot may still
+     arrive.
+
+Each skill says where in its own stages this wait falls.
 
 ## Step 3 — Make the card accurate
 

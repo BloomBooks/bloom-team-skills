@@ -36,7 +36,10 @@ preflight), Step 2 (squash), and Step 3 (make the card accurate).
 
 ## Stage 4 — Merge
 
-1. **Mark the PR ready**: `gh pr ready <n>`, unless it already is.
+1. **Mark the PR ready**: `gh pr ready <n>`, unless it already is. Then **wait for the review
+   bots that leaving draft wakes**, as "Taking the PR out of draft wakes the review bots" in
+   `before-merge-or-peer-review.md` describes. Merging straight away would land code that a bot
+   is reviewing at that moment, and its findings would arrive on a merged PR.
 2. **Merge it**: `gh pr merge <n> --merge`. The team lands PRs with a merge commit. Do not pass
    `--delete-branch`: the worktree still has the branch checked out. Then confirm
    `gh pr view <n> --json state,mergeCommit` reports `MERGED`. If GitHub refuses, report its

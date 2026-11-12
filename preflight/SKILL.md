@@ -906,6 +906,18 @@ deliberate non-fix, so the tester doesn't file the known behavior as a new bug. 
 The next run's report then says nothing about the decision at all: the record is in those
 places, where the person who needs it is already looking.
 
+**And take out every word that says it is still open.** A run that sends an item to the
+developer usually also writes it into the PR description as pending: a "Known gap, waiting on a
+decision" line in Risk Evaluation, a `Test of the change: none — awaiting the developer's
+decision` line, an "open" note in the Ecosystem Impact section. Those lines stay true only until
+the answer comes back, and nothing else rewrites them unless the developer re-runs preflight. So
+in the same step that records the decision, search the preflight-written part of the PR
+description for each decided item (its thread link, "waiting", "awaiting", "decision") and
+rewrite it to say what was decided, even for `Leave as is`, which changes nothing else. Do the
+same for the "Consulted Devin" comment if it calls the finding open. Done when no text on the PR
+calls a decided item open. (On PR #8566 a "waiting on a decision" line went to the peer reviewer
+after the developer had answered it.)
+
 ## Rules
 
 - Every report links to the PR's own page from its header, and every chat summary prints the PR

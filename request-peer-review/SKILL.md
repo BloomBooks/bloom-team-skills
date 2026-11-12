@@ -22,12 +22,7 @@ This is **step 3** of the review sequence:
 
 Follow `before-merge-or-peer-review.md` at the root of the bloom-team-skills clone (reached via
 this file's real path, not a `../` hop): Step 1 (verify the PR is clean, or bounce to
-preflight), Step 2 (squash), and Step 3 (make the card accurate). Then:
-
-- **Move the card to the project's "ready for peer review" state**, through the tracker skill,
-  and confirm the tracker echoes the new state back. Ask for it *semantically* — the tracker skill
-  owns the concrete vocabulary (in Bloom's YouTrack, `Ready For Code Review`). Never move it
-  backwards (that file's Step 3).
+preflight), Step 2 (squash), and Step 3 (make the card accurate).
 
 ## Stage 4 — Hand off
 
@@ -35,13 +30,20 @@ preflight), Step 2 (squash), and Step 3 (make the card accurate). Then:
    The team usually doesn't assign one, so un-drafting is the whole handoff: don't list "choose a
    reviewer" as something left to do. If Stage 1
    already found `isDraft: false` (the author un-drafted it by hand), skip the call and say so —
-   but still do step 2, which is precisely the case that leaves a stale report behind.
-2. **Correct the published preflight report's PR-state chip** to `ready`, as
+   but still do the steps below, which is precisely the case that leaves a stale report behind.
+2. **Wait for the review bots that leaving draft wakes**, as "Taking the PR out of draft wakes
+   the review bots" in `before-merge-or-peer-review.md` describes. Findings put the PR back in
+   draft and bounce to preflight; the card has not moved yet, so nothing else needs undoing.
+3. **Move the card to the project's "ready for peer review" state**, through the tracker skill,
+   and confirm the tracker echoes the new state back. Ask for it *semantically* — the tracker skill
+   owns the concrete vocabulary (in Bloom's YouTrack, `Ready For Code Review`). Never move it
+   backwards (that file's Step 3).
+4. **Correct the published preflight report's PR-state chip** to `ready`, as
    `before-merge-or-peer-review.md` describes.
-3. **Personal board**: if a `personal-board` skill is available, invoke it to record that the
+5. **Personal board**: if a `personal-board` skill is available, invoke it to record that the
    developer has explicitly handed this to peer review (the user running this skill is the
    explicit command that skill requires). Skip silently if unavailable.
-4. **Report**: "PR #<n> is now marked ready for review; the tracker card is in its
+6. **Report**: "PR #<n> is now marked ready for review; the tracker card is in its
    ready-for-peer-review state (name it). PR: <URL>" plus whether the published preflight report's
    PR-state chip was updated (with its URL), which stacked PRs Stage 2 reconnected, and anything
    skipped (e.g. the tracker was unreachable).
