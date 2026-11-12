@@ -17,7 +17,7 @@
 //     checkout (from the session transcripts in ~/.claude/projects), which covers work that has
 //     not reached a file yet;
 //   a card finished that day is listed only as finished;
-// - reviewed: the developer commented on or reviewed someone else's PR that day (reviewed.mjs,
+// - reviewed: the developer commented on, reviewed or merged someone else's PR that day (reviewed.mjs,
 //   which also leaves out comments that agents posted for them).
 // A line is a card when its PR's title or branch, its worktree's branch, or its commit's message
 // names one; a PR that names no card is the line "<repo>#<number>", and other work in a repo is the
