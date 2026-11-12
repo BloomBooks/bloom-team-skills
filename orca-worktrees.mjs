@@ -8,6 +8,8 @@
 // Each function reports what it did through the function given to setLog (nothing by default).
 import { exec, execFile, spawn } from "node:child_process";
 import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execP = promisify(exec);
@@ -85,9 +87,17 @@ export async function typePrompt(handle, text) {
 }
 
 let orcaExe = null;
+const raiseWindowScript = path.join(path.dirname(fileURLToPath(import.meta.url)), "dashboard", "raise-window.ps1");
 export async function bringOrcaToFront() {
-  // Launching Orca.exe again makes the running Orca bring its window to the front (its
-  // second-instance handler); the CLI calls only change what it shows.
+  // The CLI calls only change what Orca shows. Windows lets only the foreground program raise a
+  // window, so Orca raising its own (from its second-instance handler, when Orca.exe is launched
+  // again) mostly flashes its taskbar button; raise-window.ps1 taps Alt first, which gets through.
+  if (process.platform === "win32") {
+    try {
+      await execFileP("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", raiseWindowScript, "-Process", "Orca"], { windowsHide: true });
+      return;
+    } catch {}   // exit 1: Orca shows no main window (hidden to the tray), so launch it again
+  }
   if (!orcaExe && process.platform === "win32") {
     const { stdout } = await execFileP("powershell.exe", ["-NoProfile", "-Command",
       "(Get-Process -Name Orca -ErrorAction SilentlyContinue | Where-Object Path | Select-Object -First 1).Path"], { windowsHide: true });

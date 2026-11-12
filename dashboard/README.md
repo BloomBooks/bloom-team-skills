@@ -96,7 +96,8 @@ Preflight is the next step and the report lists no decisions, it reads "old repo
   to `events.log`.
 - **Refresh** runs the server's gather now and writes its changes to `events.log`.
 
-Every Orca button then launches `Orca.exe` again, which brings Orca's window to the front. The
+Every Orca button then brings Orca's window to the front with `raise-window.ps1 -Process Orca`,
+or launches `Orca.exe` again when Orca shows no main window. The
 server logs each click in `server.log`, and refuses any request without the token it wrote into
 the page it served.
 
