@@ -134,9 +134,11 @@ So, whenever the skill marks the PR ready (or finds it already ready while a com
 has not yet reviewed HEAD), it waits for that review before it reports done or merges:
 
 1. Note the time, run `gh pr ready <n>`.
-2. Wait for each comment-posting bot that has reviewed this PR before (Greptile today) to post a
-   review dated after that time. Use a background waiter with a 15-minute cap, not a sleep loop.
-   Greptile has taken about three minutes.
+2. Wait for each comment-posting bot that has reviewed this PR before (Greptile today) to review
+   HEAD. Use a background waiter with a 15-minute cap, not a sleep loop. Greptile has taken
+   three to ten minutes. When it has nothing new to say it posts no review at all: it only edits
+   its summary comment, whose last line reads `Reviews (N) · Last reviewed commit: [...](…/commit/<sha>)`.
+   So wait for that sha to be HEAD, not for a new review or comment.
 3. Read what it posted: the summary comment (it is edited in place, so re-read it), and any new
    inline comments.
    - **No findings** → go on.
