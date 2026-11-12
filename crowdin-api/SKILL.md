@@ -136,9 +136,42 @@ has `es`, and the editor URL uses the editor code:
 `languagesApi.getLanguage(id)` instead of guessing.
 
 The project's target languages include `es-ES` and `pt-PT`, with **no** `pt-BR` and no plain
-`es` or `pt`. The region halves of those codes do not describe Bloom's actual readership:
-Portuguese is read in both Brazil and Lusophone Africa, and French mostly in Africa. Do not
-translate to a region because the code names it.
+`es` or `pt`. The region halves of those codes do not describe Bloom's actual readership; the
+next section says which variety to write.
+
+## One string, several suggestions
+
+A string takes any number of suggestions in each language, and the approver picks one. So when
+you know more than one good way to render a string (two regional forms, two words for the same
+command, a literal and a freer phrasing), upload each as its own suggestion. Then post one comment
+on the string, scoped to that language, that explains the suggestions: how they differ and who
+each one suits, giving each equal weight. The approver chooses; the comment gives her what she
+needs to choose. A suggestion that you had no reason to doubt needs no comment.
+
+A file upload carries one translation per string, so upload the first rendering in the file
+(see "Uploading translations") and add each further one with
+`POST /projects/{id}/translations` (`stringId`, `languageId`, `text`), after listing the
+string's suggestions so a re-run doesn't add the same text twice.
+
+## Which regional variety to write
+
+Before you upload suggestions, or review someone's, check every string for words that differ by
+region, and write for Bloom's readers rather than for the region in the language code:
+
+- **French (`fr`): African French.** Most of Bloom's French readers are in Africa.
+- **Spanish (`es-ES`): Latin American Spanish**, despite the code: *Agregar* rather than
+  *Añadir*, *Video* rather than *Vídeo*, *computadora* rather than *ordenador*.
+- **Portuguese (`pt-PT`): stay neutral, and give the human approver both forms.** The readers
+  are in Brazil, Lusophone Africa and Timor-Leste, and Africa and Timor-Leste follow European
+  usage. Bloom's approved Portuguese leans Brazilian (*Arquivo*, *Tela*, *Excluir*), most likely
+  because its most active approver is Brazilian; that lean is no decision about Bloom's readers,
+  so it is no reason to choose a form. On every string where the varieties differ, upload both
+  forms as suggestions, with a comment as the previous section describes: "There are two
+  suggestions here. One uses *Excluir*, usual in Brazilian Portuguese; the other uses
+  *Eliminar*, usual in European Portuguese and in Lusophone Africa and Timor-Leste." The approver
+  then chooses with that in front of her, and may well pick the form common in Africa.
+
+In the report to the developer, list the strings where a regional choice came up.
 
 ## Uploading translations
 
@@ -220,6 +253,9 @@ await stringCommentsApi.addStringComment(PROJECT_ID, {
 
 A comment sits quietly in the comments panel. An issue is pushed at the translator and appears
 in the project's issue list. Use issues sparingly, for a handful of strings.
+
+**Find your own comments by `userId`**, compared with the `id` from `GET /user`; matching on
+`user.id` in the comment listing finds none.
 
 **The response field is `languageId`, not `targetLanguageId`.** Reading back the field you sent
 makes a correctly scoped comment look unscoped, which invites deleting and reposting something
