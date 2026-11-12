@@ -185,12 +185,23 @@ function processCell(d) {
   }
   // Your review
   {
-    const text = r && m.left ? `Your review (${m.left} of ${r.files} files left)` : "Your review";
+    // When Reviewable's marks could not be read, only GitHub's Viewed ticks are counted, so the
+    // count says so.
+    const noReviewable = r && !r.reviewable ? "; couldn't read Reviewable" : "";
+    const text = r && m.left ? `Your review (${m.left} of ${r.files} files left${noReviewable})` : "Your review";
     let body = label(text);
     if (m.now === STEP.review && d.pr) {
-      body = link(reviewableUrl(d.pr) || d.pr.replace(/\/$/, "") + "/files", text);
+      const rvUrl = reviewableUrl(d.pr);
+      body = link(rvUrl || d.pr.replace(/\/$/, "") + "/files", text);
       body.className = "btn work";
-      if (r) body.title = "Not yet marked Viewed in GitHub or reviewed in Reviewable:\n" + r.left.join("\n");
+      // The rabbit says the button opens Reviewable.
+      if (rvUrl) {
+        const icon = el("span", { class: "rv-icon", "aria-hidden": "true" });
+        icon.innerHTML = REVIEWABLE_ICON;
+        body.prepend(icon);
+      }
+      if (r) body.title = (r.reviewable ? "" : "Couldn't read your marks in Reviewable, so only files marked Viewed in GitHub count.\n\n")
+        + "Not yet marked Viewed in GitHub or reviewed in Reviewable:\n" + r.left.join("\n");
       if (!m.enabled) { body.removeAttribute("href"); body.style.opacity = "0.45"; }
     }
     steps.push(body);
@@ -202,8 +213,10 @@ function processCell(d) {
     else if (offered) steps.push(el("span", { class: "alts" }, skillButton("request-peer-review", m.enabled), d.approvedPlan ? skillButton("merge-without-peer-review", m.enabled) : null));
     else steps.push(label(d.approvedPlan ? "Request Peer Review, or Merge" : "Request Peer Review"));
   }
-  // Peer review, done by a teammate; orange when it came back with comments.
-  steps.push(label(d.ytState === "Has Comments" ? "Peer review: comments back" : "Peer review"));
+  // Peer review, done by a teammate; orange when it came back with comments, with the rabbit beside
+  // it to go read them in Reviewable.
+  if (d.ytState === "Has Comments") steps.push(el("span", { class: "pr-links" }, label("Peer review: comments back"), d.pr ? reviewableLink(d.pr) : null));
+  else steps.push(label("Peer review"));
 
   const ol = el("ol", { class: "steps" });
   const icon = { done: "check", now: "dot", running: "spin", later: "empty", comments: "bubble" };
@@ -318,17 +331,23 @@ function reviewableUrl(url) {
   const m = String(url || "").match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
   return m ? `https://reviewable.io/reviews/${m[1]}/${m[2]}/${m[3]}` : null;
 }
-function prLinks(url, tone) {
-  const pr = toned(url, "PR " + url.split("/").pop(), tone);
-  if (tone === PR_TONE.merged) markMerged(pr, "merged");
+// Reviewable's rabbit, linking to the PR (a GitHub PR URL) in Reviewable, or null for a URL that
+// is not a GitHub PR.
+function reviewableLink(url, tone) {
   const rvUrl = reviewableUrl(url);
-  if (!rvUrl) return pr;
+  if (!rvUrl) return null;
   const rv = toned(rvUrl, null, tone);
   rv.classList.add("reviewable");
   rv.title = "Open this PR in Reviewable";
   rv.setAttribute("aria-label", "Open this PR in Reviewable");
   rv.innerHTML = REVIEWABLE_ICON;
-  return el("span", { class: "pr-links" }, pr, rv);
+  return rv;
+}
+function prLinks(url, tone) {
+  const pr = toned(url, "PR " + url.split("/").pop(), tone);
+  if (tone === PR_TONE.merged) markMerged(pr, "merged");
+  const rv = reviewableLink(url, tone);
+  return rv ? el("span", { class: "pr-links" }, pr, rv) : pr;
 }
 
 // Orca's live agent states override the Status that Claude last wrote: a waiting agent means

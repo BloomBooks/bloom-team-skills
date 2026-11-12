@@ -194,10 +194,12 @@ a.st-done { color: var(--accent); }
 /* The merge symbol before a merged PR's number, in the link's colour. */
 .merged-icon { display: inline-flex; vertical-align: -2px; margin-right: 4px; }
 .merged-icon svg { width: 14px; height: 14px; fill: currentColor; stroke: none; }
-/* An icon takes no text-decoration, so hover draws the underline that a text link gets. */
-a.reviewable { display: inline-flex; padding-bottom: 1px; }
-a.reviewable:hover { box-shadow: inset 0 -1px 0 currentColor; }
-a.reviewable svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+/* A link that is only an icon gets no underline on hover; it brightens instead. */
+a.reviewable { display: inline-flex; }
+a.reviewable:hover { text-decoration: none; filter: brightness(1.25); }
+a.reviewable svg, .rv-icon svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+/* The rabbit inside a button that opens Reviewable. */
+.rv-icon { display: inline-flex; vertical-align: -3px; margin-right: 5px; }
 /* A standup day: its date, then a labelled list for each kind of work that has lines. */
 .day { margin-bottom: 14px; }
 .day h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--fg); }

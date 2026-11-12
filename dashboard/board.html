@@ -124,6 +124,8 @@ const FOLLOW_UP = {
   forgot: { text: "Move to Has Comments?", title: "In Ready For Code Review, but the author hasn't responded since your last comment on this PR" },
   merged: { text: "Move to Ready For Testing?", title: "You merged the card's last PR and it has no open one, but the card is still in Ready For Code Review" },
 };
+// The follow-ups whose next step is reviewing the PR, rather than moving the card.
+const REVIEW_NEXT = new Set(["responded", "new"]);
 // One line of a list: the card's title and State, its id (a PR that names no card links the PR
 // itself, a repo's line its commits), its PR at the far right, and, when given, a time.
 function lineItem(f, time, timeTitle) {
@@ -135,7 +137,8 @@ function lineItem(f, time, timeTitle) {
     f.followUp ? el("span", { class: "fu", title: FOLLOW_UP[f.followUp].title }, FOLLOW_UP[f.followUp].text) : null,
     el("span", { class: "title", title: f.summary }, f.summary),
     el("span", { class: "id" }, stateIcon(f.state), !f.url ? f.id : isPr ? markMerged(toned(f.url, f.id, PR_TONE[prState]), prState) : toned(f.url, f.id, CARD_TONE[f.state])),
-    f.pr && !isPr ? el("span", { class: "id" }, markMerged(toned(f.pr, "PR " + f.pr.split("/").pop(), PR_TONE[prState]), prState)) : null,
+    // A PR back with you to review carries Reviewable's rabbit too.
+    f.pr && !isPr ? el("span", { class: "id" }, REVIEW_NEXT.has(f.followUp) ? prLinks(f.pr, PR_TONE[prState]) : markMerged(toned(f.pr, "PR " + f.pr.split("/").pop(), PR_TONE[prState]), prState)) : null,
     time ? el("span", { class: "when", title: timeTitle + " " + new Date(time).toLocaleString() }, localTime(time)) : null);
 }
 function renderBack(items) {
