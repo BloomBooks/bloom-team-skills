@@ -67,6 +67,13 @@ catches these, so the walkaround always covers the whole PR, never the latest fi
    it only when the fixes made since then added or restructured code; skip it when they were
    small edits.
 
+   Every agent that the walkaround starts to read the code and judge it, for `/simplify` or to
+   review the PR in any other way, runs on the model of the session that invoked the
+   walkaround, so that a walkaround run from the strongest model gets that model's judgment.
+   Name that model when you start each agent; leaving it out can give the agent a weaker
+   default. This is about agents that judge code; the typecheck, lint and tests of step 6 are
+   commands, and any model can run them.
+
 5. **Read every change made in steps 3 and 4** (`git diff`). Keep a change that leaves behavior
    the same. A change that alters what a user sees or can do is one of three kinds:
    - a side effect of a refactoring, which nobody intended: undo it;
