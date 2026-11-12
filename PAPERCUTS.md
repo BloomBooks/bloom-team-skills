@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-11-11 — work-on-youtrack can't hand the new Claude a task in Orca's chat mode
+
+- **Cut:** `work-on-youtrack.mjs` starts Claude in the worktree with no prompt. When Orca opens agents as native chats, that chat has no terminal handle and the Orca CLI has no command to type into an existing chat, so a caller with a brief to hand off has to launch a second agent with `orca agent launch --prompt`, leaving an empty chat tab behind.
+- **Idea:** Give the script a `--prompt <text>` that it passes to the agent launch.
+- **Context:** handing off BL-17109, Claude Opus 5.5 following a prompt from Hatton.
+
 ## 2026-11-09 — dev-process-artifacts.md's contents-API snippet reads the wrong arguments
 
 - **Cut:** The "Republishing one file" snippet builds the request body with `node -e '...const [,,html,msg,sha]=process.argv...' <file> <msg> <sha>`. Under `node -e` the first argument is `process.argv[1]`, not `[2]`, so it opens the commit message as the HTML file and dies with ENOENT. The snippet also has a `#` comment inside the JavaScript, which is a syntax error there. A script file using `process.argv.slice(2)` worked.
