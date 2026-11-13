@@ -313,8 +313,9 @@ phase says "each reviewer" and means this list:
 1. **The local review** (Phase 1) — runs in-session at the user's chosen level. Its outcome
  (level ran, findings raised / fixed / escalated / dismissed, or "clean", or "skipped at
  user request") is captured and reported as a reviewer row like any other — never silently
- omitted. The walkaround (Phase 1) gets a row of its own: what it changed, what went to the
- decision report, or "nothing to change".
+ omitted. The walkaround (Phase 1) gets a row of its own, written from the walkaround's report
+ in this run: what it changed, what went to the decision report, or "nothing to change". With no
+ walkaround run on this PR's checkout in this run, the row says "not run", never a result.
 2. **Devin** — available for **every** GitHub PR via its review page
  (`https://devinreview.com/<owner>/<repo>/pull/<n>`, alias of `app.devin.ai/review/…` —
  literally the PR's `github.com` URL with the host swapped). It needs **no GitHub app, no CI
@@ -539,9 +540,13 @@ Cap the loop at **4 cycles** to avoid churn; note in the report if capped.
 behind. Its proposals that would change behavior go to the decision report. Then run the fast
 gate.
 
-**Progress:** `progress walkaround running` as it starts; `progress walkaround done "<n> changes,
-<n> proposals"` when it reports (`failed` instead when a proposal waits on the developer), or
-`progress walkaround skipped "without review"`.
+**Progress:** `progress walkaround running` as it starts; `progress walkaround done` with no note
+when it reports (`failed` instead when a proposal waits on the developer), or `progress walkaround
+skipped "without review"`. `done` takes its note from the record that the walkaround's last step
+writes, and refuses (exit 1) when no walkaround has recorded the code as it stands now. So run it
+straight after the walkaround and its fast gate, before any other edit or the base merge, and
+never type the walkaround's result in yourself. When `done` refuses, the walkaround has not run
+on this code: run it.
 
 ## Phase 2 — Integrate the base (before publishing)
 

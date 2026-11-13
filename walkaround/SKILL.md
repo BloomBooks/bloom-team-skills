@@ -48,6 +48,9 @@ catches these, so the walkaround always covers the whole PR, never the latest fi
      beside `selectedItems`), which every write to that other state must remember to update;
    - temporal coupling: functions that work only when called in a certain order (`init()`
      before `load()`), with nothing in their types or signatures that says so;
+   - a function or file that only passes its arguments on to one other call, or that wraps one
+     call in a guard its caller already has (a run-once flag inside something that already runs
+     once): call the other function directly;
    - a redundant defensive check: a null check or `try`/`catch` for a condition that cannot
      occur there, usually left from a bug whose cause was fixed upstream;
    - more code than the problem needs.
@@ -100,3 +103,10 @@ catches these, so the walkaround always covers the whole PR, never the latest fi
    proposal, make clear what improvement is expected for people on old slow computers, and if you didn't test, offer to test and find out.
 
    Inside `preflight`, proposals go to its decision report. Run on its own, if there are 2 or less proposals, use `AskUserQuestion`. Otherwise use the Decider skill. Afterward offer to commit; this skill never commits.
+
+8. **Record the walkaround**, in the checkout of the PR you walked around, after the fast checks:
+   `node ~/.claude/skills/walkaround/record.mjs "<n> changes, <n> proposals"` (or
+   `"nothing to change"`). It records the code exactly as it stands, committed or not, and
+   preflight cannot mark its walkaround step done without a record that matches the code. A
+   walkaround of another repository, such as a library that the PR bumps, is a walkaround of
+   that repository's change only: the PR that uses the library needs its own.
