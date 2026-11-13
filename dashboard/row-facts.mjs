@@ -370,8 +370,31 @@ export function panelRow({ row, ...facts }) {
 }
 
 /**
+ * The developer's cards in Ready For Code Review, for the page's "In peer review" list: each as
+ * { card, cardUrl, title, ytState, pr, prState, worktree, prComments }. The PR is the card's open
+ * one and the worktree the one on that PR's branch (or any of the card's), each null when there
+ * is none; `prComments` is pr-comments.mjs's answer for the PR (`prComments`, PR URL -> answer),
+ * or null before it has been read. Such a card has no row (SKILL.md, step 3).
+ */
+export const IN_REVIEW = "Ready For Code Review";
+export function cardsInReview(facts, prComments = new Map()) {
+  return (facts?.cards || []).filter(c => c.state === IN_REVIEW && c.assignedToDeveloper).map(c => {
+    const pr = (facts.prs || []).find(p => p.card === c.id);
+    const own = (facts.worktrees || []).filter(w => w.card === c.id);
+    const worktree = own.find(w => pr && w.branch === pr.headRefName) || own[0];
+    return {
+      card: c.id, cardUrl: c.url, title: c.summary, ytState: c.state,
+      pr: pr?.url ?? null, prState: pr ? (pr.isDraft ? "draft" : "open") : null,
+      worktree: worktree?.path ?? null, prComments: (pr && prComments.get(pr.url)) || null,
+    };
+  });
+}
+
+/**
  * Adds to each row what the page draws besides what the session wrote: the PR's state
  * (`prState`, "draft" or "open"), mergeability and CI (`prMergeable`, `prChecks`) from `facts.prs`,
+ * the card's State (`ytState`) from `facts.cards` over the one in the session's row (the card
+ * moves to Ready For Code Review before the session's row catches up),
  * and its preflight report (`report`, `reportDecisions`) from there too when the facts have one (a
  * later preflight run publishes a new report before the session's row catches up with it),
  * whether the card has the "Approved Plan" tag (`approvedPlan`) from `facts.cards`, the
@@ -387,7 +410,9 @@ export function panelRow({ row, ...facts }) {
 export function enrichRows(rows, facts, ownReviews = new Map(), runs = readProgress(), checkouts = new Map(), now = Date.now(), prComments = new Map()) {
   const prFacts = new Map((facts?.prs || []).map(p => [p.url, p]));
   const approved = new Set((facts?.cards || []).filter(c => c.approvedPlan).map(c => c.id));
+  const cardState = new Map((facts?.cards || []).filter(c => c.state).map(c => [c.id, c.state]));
   for (const r of rows) {
+    if (cardState.has(r.card)) r.ytState = cardState.get(r.card);
     const p = prFacts.get(r.pr);
     if (p) {
       r.prState = p.isDraft ? "draft" : "open"; r.prMergeable = p.mergeable; r.prChecks = p.checks;

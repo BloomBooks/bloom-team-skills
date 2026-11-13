@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  agentEventLines, agentStates, cardOf, changeSincePreflight, checksState, codeChangedSincePreflight, countDecisions, enrichRows, liveAgents,
+  agentEventLines, agentStates, cardOf, cardsInReview, changeSincePreflight, checksState, codeChangedSincePreflight, countDecisions, enrichRows, liveAgents,
   nextFromFacts, norm, panelRow, questionOf, readRowFiles, REPORT_HOME as REPORT, reportDecisions, reportOf, reportReadable,
   rowOfWorktree, rowProblems, RUN_FRESH_MS, runShowing, skillOf,
 } from "./row-facts.mjs";
@@ -278,6 +278,32 @@ test("enrichRows finds the run and checkout of a row whose path has a trailing s
   assert.equal(r.prState, "draft");
   assert.equal(r.approvedPlan, true);
   assert.equal(r.runShowing, false);
+});
+
+test("enrichRows takes the card's State from the facts over the one in the session's row", () => {
+  const facts = { cards: [{ id: "BL-1", state: "Ready For Code Review" }, { id: "BL-2" }] };
+  const rows = enrichRows([{ card: "BL-1", ytState: "In Progress" }, { card: "BL-2", ytState: "In Progress" }, { card: "BL-3", ytState: "Has Comments" }], facts, new Map(), new Map(), new Map(), NOW);
+  assert.deepEqual(rows.map(r => r.ytState), ["Ready For Code Review", "In Progress", "Has Comments"]);
+});
+
+test("cardsInReview lists the developer's cards in Ready For Code Review with their PR, worktree and comments", () => {
+  const url = "https://github.com/BloomBooks/BloomDesktop/pull/7";
+  const facts = {
+    cards: [
+      { id: "BL-1", url: "yt/BL-1", summary: "one", state: "Ready For Code Review", assignedToDeveloper: true },
+      { id: "BL-2", url: "yt/BL-2", summary: "two", state: "Ready For Code Review", assignedToDeveloper: true },
+      { id: "BL-3", state: "Ready For Code Review", assignedToDeveloper: false },
+      { id: "BL-4", state: "In Progress", assignedToDeveloper: true },
+    ],
+    prs: [{ url, card: "BL-1", isDraft: false, headRefName: "BL-1-b" }],
+    worktrees: [{ card: "BL-1", path: "D:/BL-1-a", branch: "BL-1-a" }, { card: "BL-1", path: "D:/BL-1-b", branch: "BL-1-b" }],
+  };
+  const waiting = { total: 2, from: [{ who: "you", you: true, count: 2 }] };
+  assert.deepEqual(cardsInReview(facts, new Map([[url, waiting]])), [
+    { card: "BL-1", cardUrl: "yt/BL-1", title: "one", ytState: "Ready For Code Review", pr: url, prState: "open", worktree: "D:/BL-1-b", prComments: waiting },
+    { card: "BL-2", cardUrl: "yt/BL-2", title: "two", ytState: "Ready For Code Review", pr: null, prState: null, worktree: null, prComments: null },
+  ]);
+  assert.deepEqual(cardsInReview(null), []);
 });
 
 test("enrichRows takes a newer preflight report from the facts over the one in the session's row", () => {

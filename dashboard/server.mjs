@@ -58,7 +58,7 @@ import { prComments } from "./pr-comments.mjs";
 import { STANDUP } from "./standup.mjs";
 import { changeTask, readTasks, TASK_ACTIONS } from "./tasks.mjs";
 import { unconfirmed } from "./stale-worktrees.mjs";
-import { agentEventLines, agentStates, cardOf, checkoutState, dataDir, enrichRows, liveAgents, readJson, readProgress, readRowFiles, rowsDir } from "./row-facts.mjs";
+import { agentEventLines, agentStates, cardOf, cardsInReview, checkoutState, dataDir, enrichRows, liveAgents, readJson, readProgress, readRowFiles, rowsDir } from "./row-facts.mjs";
 import { orca, norm, setLog, bringOrcaToFront, openWorktree, createWorktree, runSkill, openInVsCode } from "../orca-worktrees.mjs";
 
 const execFileP = promisify(execFile);
@@ -146,15 +146,21 @@ let agents = {};          // norm(worktree path) -> liveAgents() of its agents
 let lastStates = null;    // worktree path -> { card, s }, for agentEventLines
 const workingSeen = new Map();
 // norm(worktree path) -> checkoutState(), for each worktree whose last preflight run has ended, so
-// the page can tell when the code changed after it.
+// the page can tell when the code changed after it. Read every CHECKOUT_MS, not on every poll:
+// each read starts three or four git processes per worktree.
 let checkouts = new Map();
+const CHECKOUT_MS = 30000;
+let checkoutsAt = 0;
 const orcaOutage = outage("orca", "orca answers again");
 async function pollAgents() {
   try {
     const ps = (await orca("worktree", "ps")).worktrees;
     const runs = readProgress();
     const ended = ps.filter(w => runs.get(norm(w.path))?.endedAt);
-    checkouts = new Map((await Promise.all(ended.map(async w => [norm(w.path), await checkoutState(w.path, runs.get(norm(w.path)).head)]))).filter(([, c]) => c));
+    if (Date.now() - checkoutsAt >= CHECKOUT_MS) {
+      checkoutsAt = Date.now();
+      checkouts = new Map((await Promise.all(ended.map(async w => [norm(w.path), await checkoutState(w.path, runs.get(norm(w.path)).head)]))).filter(([, c]) => c));
+    }
     const next = {};
     const states = new Map();
     for (const w of ps) {
@@ -235,8 +241,8 @@ async function checkOwnReviews() {
 }
 
 // ---- the comments waiting on each PR ---------------------------------------------------------
-// For each row with an open PR, the comments that wait to be processed (pr-comments.mjs), checked
-// once a minute. PR URL -> { total, from }.
+// For each row with an open PR, and each card in peer review with one, the comments that wait to
+// be processed (pr-comments.mjs), checked once a minute. PR URL -> { total, from }.
 const commentsOfPr = new Map();
 let checkingComments = false;
 async function checkComments() {
@@ -246,8 +252,9 @@ async function checkComments() {
     let login = "";
     try { login = readJson(developerFile).github || ""; } catch {}
     if (!login) return;
-    const open = new Set((readFacts()?.prs || []).map(p => p.url));
-    const prs = new Set(readRowFiles().rows.map(r => r.pr).filter(pr => pr && open.has(pr)));
+    const facts = readFacts();
+    const open = new Set((facts?.prs || []).map(p => p.url));
+    const prs = new Set([...readRowFiles().rows, ...cardsInReview(facts)].map(r => r.pr).filter(pr => pr && open.has(pr)));
     for (const pr of [...commentsOfPr.keys()]) if (!prs.has(pr)) commentsOfPr.delete(pr);
     for (const pr of prs) {
       try {
@@ -277,8 +284,11 @@ function readState() {
   try { developer = (readJson(developerFile).name || "").split(" ")[0]; } catch {}
   const facts = readFacts();
   enrichRows(rows, facts, ownReviews, readProgress(), checkouts, Date.now(), commentsOfPr);
+  // A card in peer review shows in its own list, not in a row that the session has yet to delete.
+  const inReview = cardsInReview(facts, commentsOfPr);
+  const reviewing = new Set(inReview.map(c => c.card));
   return {
-    serverPid: process.pid, board, developer, rows, problems, agents, tasks: readTasks(tasksFile),
+    serverPid: process.pid, board, developer, rows: rows.filter(r => !reviewing.has(r.card)), inReview, problems, agents, tasks: readTasks(tasksFile),
     standup: facts?.standup || null, standupAt: STANDUP, backForReview: facts?.backForReview || null, gatheredAt: facts?.gatheredAt || "",
     staleWorktrees: facts?.staleWorktrees?.filter(w => !removedWorktrees.has(norm(w.path))) ?? null,
   };

@@ -11,7 +11,7 @@
 //
 // The `reviewable` CLI is signed in as an agent identity, so its own `reviewed` flag is the
 // agent's; `review files view` lists everyone's marks (`lastReviewMarks`), and the developer's
-// are the ones under their GitHub login.
+// are the ones under their GitHub login. reviewable.mjs asks the CLI.
 //
 // Usage: node own-review.mjs <PR URL>
 // Prints { files, reviewed, left: [paths], github, reviewable }; github and reviewable say whether
@@ -19,20 +19,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
+import * as reviewable from "./reviewable.mjs";
 
 const exec = promisify(execFile);
-export async function out(cmd, args) {
-  // On Windows the `reviewable` CLI is a .cmd shim (Volta and npm install it that way), which
-  // execFile cannot start without a shell, so cmd.exe runs it.
-  if (process.platform === "win32" && cmd === "reviewable") [cmd, args] = ["cmd.exe", ["/d", "/c", cmd, ...args]];
+async function out(cmd, args) {
   const { stdout } = await exec(cmd, args, { encoding: "utf8", maxBuffer: 64 << 20, windowsHide: true, timeout: 120000 });
   return stdout;
-}
-// The CLI can print a notice before or after its JSON.
-export function json(text) {
-  const start = text.search(/[[{]/);
-  const end = Math.max(text.lastIndexOf("]"), text.lastIndexOf("}"));
-  return JSON.parse(text.slice(start, end + 1));
 }
 // Runs fn over items, at most `limit` at a time.
 export async function pool(items, limit, fn) {
@@ -61,12 +53,11 @@ async function githubFiles(owner, repo, number) {
 }
 
 // path -> the commit of the revision at which the developer last marked the file reviewed.
-async function reviewableMarks(slug, login, paths) {
-  const pr = "--pr=" + slug;
-  const listed = json(await out("reviewable", ["review", "files", "list", pr])).filter(f => !f.virtual && paths.has(f.path));
+async function reviewableMarks(pr, login, paths) {
+  const listed = (await reviewable.files(pr)).filter(f => !f.virtual && paths.has(f.path));
   const marks = new Map();
   await pool(listed, 6, async f => {
-    const view = json(await out("reviewable", ["review", "files", "view", pr, "--key=" + f.key]));
+    const view = await reviewable.file(pr, f.key);
     const mine = (view.lastReviewMarks || []).find(m => m.username?.toLowerCase() === login);
     if (mine?.revision?.headCommitSha) marks.set(f.path, mine.revision.headCommitSha);
   });
@@ -78,10 +69,16 @@ async function headBlobs(owner, repo, number) {
   const files = JSON.parse(await out("gh", ["api", "--paginate", "--slurp", `repos/${owner}/${repo}/pulls/${number}/files?per_page=100`]));
   return new Map(files.flat().map(f => [f.filename, f.sha]));
 }
-// The blob of a file in a commit, or null when GitHub cannot give it.
+// The blob of a file in a commit, or null when GitHub cannot give it. A commit's content never
+// changes, so each answer is kept: the server asks again every minute.
+const blobs = new Map();   // "owner/repo sha file" -> blob
 async function blobAt(owner, repo, sha, file) {
+  const key = `${owner}/${repo} ${sha} ${file}`;
+  if (blobs.has(key)) return blobs.get(key);
   try {
-    return (await out("gh", ["api", `repos/${owner}/${repo}/contents/${file.split("/").map(encodeURIComponent).join("/")}?ref=${sha}`, "--jq", ".sha"])).trim() || null;
+    const blob = (await out("gh", ["api", `repos/${owner}/${repo}/contents/${file.split("/").map(encodeURIComponent).join("/")}?ref=${sha}`, "--jq", ".sha"])).trim() || null;
+    if (blob) blobs.set(key, blob);
+    return blob;
   } catch { return null; }
 }
 
@@ -99,7 +96,7 @@ export async function ownReview(prUrl, githubLogin) {
   const rest = new Set(gh.files.map(f => f.path).filter(p => !reviewed.has(p)));
   if (rest.size) {
     try {
-      const marks = await reviewableMarks(`${owner}/${repo}/${number}`, login, rest);
+      const marks = await reviewableMarks({ owner, repo, number }, login, rest);
       const blobs = marks.size ? await headBlobs(owner, repo, number) : new Map();
       await pool([...marks], 6, async ([path, sha]) => {
         const now = blobs.get(path);

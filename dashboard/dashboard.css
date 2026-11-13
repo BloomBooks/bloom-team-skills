@@ -186,6 +186,9 @@ ul.lines li { display: flex; align-items: center; gap: 12px; padding: 7px 12px; 
 ul.lines li:last-child { border-bottom: 0; }
 ul.lines .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 ul.lines .id { font-family: var(--font-mono); font-size: 12.5px; flex: none; }
+ul.lines .review-comments { display: inline-flex; align-items: center; gap: 10px; flex: none; }
+ul.lines button.orca-icon { position: static; flex: none; width: 34px; height: 26px; }
+ul.lines button.orca-icon svg { width: 24px; height: 14px; }
 ul.lines .when { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
 ul.lines .yt { flex: none; }
 /* Card and PR link colours, everywhere on the page: green is work for the developer to do, blue

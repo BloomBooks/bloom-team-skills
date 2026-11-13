@@ -11,7 +11,8 @@
 // Prints { total, from: [{ who, you, count }] }, the developer first, or null when Reviewable
 // could not be read.
 import { pathToFileURL } from "node:url";
-import { json, out, pool } from "./own-review.mjs";
+import { pool } from "./own-review.mjs";
+import { discussion, discussionKeys, reviewState } from "./reviewable.mjs";
 
 // A comment that starts with a bracketed tag, which is no Markdown link.
 const TAGGED = /^\s*\[[^\]\n]+\](?!\()/;
@@ -37,7 +38,7 @@ export function waitingComments(discussions, login) {
 }
 
 // The answer for each PR and the counters of Reviewable's `review state` it was made at. Reading
-// every discussion takes a CLI call each, so an answer is kept while those counters stay the
+// every discussion takes a request each, so an answer is kept while those counters stay the
 // same, for up to KEEP_MS.
 const KEEP_MS = 5 * 60000;
 const kept = new Map();   // PR URL -> { at, counters, value }
@@ -45,13 +46,13 @@ const kept = new Map();   // PR URL -> { at, counters, value }
 export async function prComments(prUrl, githubLogin, now = Date.now()) {
   const m = String(prUrl).match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
   if (!m) throw new Error("not a GitHub PR URL: " + prUrl);
-  const pr = `--pr=${m[1]}/${m[2]}/${m[3]}`;
+  const pr = { owner: m[1], repo: m[2], number: m[3] };
   try {
-    const counters = JSON.stringify(json(await out("reviewable", ["review", "state", pr])).discussions ?? null);
+    const counters = JSON.stringify((await reviewState(pr)).discussions ?? null);
     const k = kept.get(prUrl);
     if (k && k.counters === counters && now - k.at < KEEP_MS) return k.value;
-    const keys = json(await out("reviewable", ["review", "discussions", "list", pr]));
-    const discussions = await pool(keys, 6, async key => json(await out("reviewable", ["review", "discussions", "view", pr, "--key=" + key])));
+    const keys = await discussionKeys(pr);
+    const discussions = await pool(keys, 6, key => discussion(pr, key));
     const value = waitingComments(discussions, githubLogin);
     kept.set(prUrl, { at: now, counters, value });
     return value;

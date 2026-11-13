@@ -109,6 +109,12 @@ test("a card back with comments marks the peer review", () => {
   assert.equal(model({ pr, nextSkill: "preflight", ytState: "Has Comments" }).states[4], "comments");
 });
 
+test("a card in Ready For Code Review is at the peer review, whatever the row's next skill says", () => {
+  const m = model({ pr, nextSkill: "request-peer-review", ownReview: review(5, 2), codeChanged: true, ytState: "Ready For Code Review" });
+  assert.equal(m.now, 4);
+  assert.deepEqual([...m.states], ["done", "done", "done", "done", "now"]);
+});
+
 test("the report is the old one while Preflight is next, unless it lists decisions", () => {
   assert.equal(model({ pr, nextSkill: "preflight", report: "r" }).oldReport, true);
   assert.equal(model({ pr, nextSkill: "preflight", report: "r", reportDecisions: 2 }).oldReport, false);

@@ -36,6 +36,11 @@
 
   <div id="groups"></div>
 
+  <section class="group" id="in-review" hidden>
+    <h2>In peer review <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="in-review-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="in-review-tip">Your cards in Ready For Code Review, waiting on a teammate. A card whose PR has comments waiting on you says how many, with a button that has the worktree's agent process them.</span></span></h2>
+    <ul class="lines" id="in-review-list"></ul>
+  </section>
+
   <section class="group" id="standup">
     <form id="task-form" class="task-form"><input id="task-text" type="text" placeholder="Add a task" aria-label="New task" autocomplete="off"><button type="submit" class="refresh">Add</button></form>
     <p id="task-note" class="task-note" role="alert" hidden></p>
@@ -151,6 +156,34 @@ function renderBack(items) {
   const ul = document.getElementById("back-list");
   ul.replaceChildren(...(items || []).map(f => lineItem(f, f.commentedAt, "You last commented")));
   document.getElementById("back").hidden = !ul.childNodes.length;
+}
+// One card in peer review (cardsInReview in row-facts.mjs): its title, the comments waiting on
+// its PR with the Process PR Comments button, the card's State and id, and its PR with
+// Reviewable's rabbit. An agent working in its worktree shows in place of the button.
+function reviewItem(d) {
+  const c = d.prComments;
+  const waiting = c?.total > 0;
+  let comments = null;
+  if (d.who === "agent") comments = el("span", { class: "fu" }, SKILL_STATUS[d.skill] || STATUS.agent);
+  else if (d.who === "asking") comments = el("span", { class: "fu" }, STATUS.asking);
+  else if (waiting) {
+    const button = d.worktree
+      ? action("orca skill", "Have this worktree's Claude session process the comments", SKILL_BUTTON["process-pr-comments"],
+        async () => { if (await post("/api/run-skill", { path: d.worktree, skill: "process-pr-comments" })) { launched.set(normPath(d.worktree), { skill: "process-pr-comments", at: Date.now() }); lastJson = ""; refresh(); } }, "skill:" + d.worktree)
+      : null;
+    comments = el("span", { class: "review-comments" }, el("span", { class: "fu" }, commentsText(c)), button);
+  } else if (c) comments = el("span", { class: "when" }, "no comments waiting");
+  return el("li", waiting || d.who === "asking" ? { class: "fu-responded" } : {},
+    el("span", { class: "title", title: d.title }, d.title || ""),
+    comments,
+    el("span", { class: "id" }, stateIcon(d.ytState), cardLabel(d)),
+    d.pr ? el("span", { class: "id" }, prLinks(d.pr, PR_TONE[d.prState])) : null,
+    d.worktree ? orcaButton(d) : null);
+}
+function renderInReview(items) {
+  const ul = document.getElementById("in-review-list");
+  ul.replaceChildren(...items.map(reviewItem));
+  document.getElementById("in-review").hidden = !items.length;
 }
 // A History day's heading: "Today", the weekday within the last week ("Friday"), or the weekday
 // and date before that ("Thursday, Oct 29").
@@ -331,13 +364,14 @@ async function refresh() {
   // also told the session in events.log.
   const problems = (state.problems || []).map(p => `${p.card} ${p.problem}`);
   showNote(problems.length ? "Claude wrote rows the dashboard can't draw right: " + problems.join("; ") + "."
-    : state.rows.length ? "" : "No cards yet. Claude adds them after gathering.");
+    : state.rows.length || state.inReview?.length ? "" : "No cards yet. Claude adds them after gathering.");
   const version = (state.board || "").replace(/^Bloom\s+/i, "");
   document.getElementById("bar-who").textContent = (state.developer ? state.developer + "'s work" : "Your work")
     + (version ? " on version " + version + " board" : " on every board");
   gatheredAt = state.gatheredAt ? new Date(state.gatheredAt) : null;
   showChecked();
   render(withLiveAgents(state.rows, state.agents));
+  renderInReview(withLiveAgents(state.inReview || [], state.agents));
   renderBack(state.backForReview);
   lastStandup = state.standup;
   lastTasks = state.tasks || [];

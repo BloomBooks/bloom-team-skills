@@ -113,7 +113,8 @@ function commentsText(c) {
  * it has started: Code once there is a PR or the session names a next skill; Preflight once the
  * session names request-peer-review, the PR is neither conflicting nor failing CI, and the code has
  * not changed since the last preflight run ended (`codeChanged`); the review once every file is
- * reviewed. The first unfinished step is `now`, the only one offered; when the review cannot be
+ * reviewed. A card in Ready For Code Review has finished all four, and the peer review is its
+ * step. The first unfinished step is `now`, the only one offered; when the review cannot be
  * read, the review and Request Peer Review are offered together. An agent started on a step's skill
  * shows on that step (`running`); any other agent shows on Code. A question or decision for the
  * developer (`blocked`) and a working agent disable every step.
@@ -136,9 +137,11 @@ function processModel(d) {
   const r = d.ownReview;
   const left = r ? r.files - r.reviewed : null;
   const preflightDone = d.nextSkill === "request-peer-review" && !broken && !d.codeChanged;
-  const done = [!!(d.pr || d.nextSkill), preflightDone, preflightDone && left === 0, false, false];
+  const inPeerReview = d.ytState === "Ready For Code Review";
+  const done = inPeerReview ? [true, true, true, true, false]
+    : [!!(d.pr || d.nextSkill), preflightDone, preflightDone && left === 0, false, false];
   const now = done.indexOf(false);
-  const reviewUnknown = preflightDone && !r;
+  const reviewUnknown = preflightDone && !r && !inPeerReview;
   const running = !working ? -1 : SKILL_STEP[d.skill] ?? STEP.code;
   const waiting = d.prComments?.total > 0;
   const offered = i => waiting ? i === now && i === STEP.review : i === now || (i === STEP.request && reviewUnknown);
