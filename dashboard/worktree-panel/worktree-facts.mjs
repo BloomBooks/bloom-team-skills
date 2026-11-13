@@ -16,6 +16,7 @@ import { pathToFileURL } from "node:url";
 import { agentState, cardOf, checkoutState, checksState, enrichRows, liveAgents, norm, panelRow, questionOf, readJson, readProgress, readRows, reportDecisions, reportOf, rowOfWorktree, skillOf } from "../row-facts.mjs";
 import { oneLine, promptText, typedPrompt } from "../transcripts.mjs";
 import { ownReview } from "../own-review.mjs";
+import { prComments } from "../pr-comments.mjs";
 import { orca, openWorktree, openInVsCode as openFolder, runSkill as runSkillIn, sendPrompt as sendPromptTo } from "../../orca-worktrees.mjs";
 
 const execFileP = promisify(execFile);
@@ -170,20 +171,24 @@ async function slowFacts(wt, cardId) {
   return s;
 }
 
-// How much of the PR the developer has marked reviewed (own-review.mjs, as the server counts it
-// once a minute). It reads every file's marks, which takes a while, so this answers with the last
-// count and counts again in the background.
-const reviews = new Map();  // PR URL -> { at, value, pending }
-function ownReviewOf(prUrl) {
-  let r = reviews.get(prUrl);
-  if (!r) { r = { at: 0, value: null, pending: false }; reviews.set(prUrl, r); }
+// How much of the PR the developer has marked reviewed (own-review.mjs) and the comments on it
+// that wait to be processed (pr-comments.mjs), as the server reads them once a minute. Each reads
+// Reviewable many times, which takes a while, so these answer with the last value and read again
+// in the background.
+const reviews = new Map();   // PR URL -> { at, value, pending }
+const comments = new Map();  // the same, for the comments
+function lastValue(kept, prUrl, read) {
+  let r = kept.get(prUrl);
+  if (!r) { r = { at: 0, value: null, pending: false }; kept.set(prUrl, r); }
   if (!r.pending && Date.now() - r.at > OWN_REVIEW_MS) {
     r.pending = true;
-    Promise.resolve().then(() => ownReview(prUrl, readJson(path.join(home, ".claude", "bloom-developer.json")).github))
+    Promise.resolve().then(() => read(prUrl, readJson(path.join(home, ".claude", "bloom-developer.json")).github))
       .then(v => { r.value = v; }, () => {}).finally(() => { r.at = Date.now(); r.pending = false; });
   }
   return r.value;
 }
+const ownReviewOf = prUrl => lastValue(reviews, prUrl, ownReview);
+const prCommentsOf = prUrl => lastValue(comments, prUrl, prComments);
 
 // ---- the session's transcript ----------------------------------------------------------------
 
@@ -278,15 +283,17 @@ export async function worktreeState({ displayName, branch, paneKey, terminalIds,
   const cardId = cardOf(row?.card) ?? branchCard;
   const runs = readProgress();
   const run = runs.get(norm(wt));
-  const [gitState, checkout, { card, pr }] = await Promise.all([gitFacts(wt), checkoutState(wt), slowFacts(wt, cardId)]);
+  const [gitState, checkout, { card, pr }] = await Promise.all([gitFacts(wt), checkoutState(wt, run?.head), slowFacts(wt, cardId)]);
 
   const d = panelRow({ row, cardId, card, pr, run, checkout, worktree: wt, title: w.displayName || b });
   // The card's State and the PR are read live here, where the server reads them from facts.json.
   if (card?.state) d.ytState = card.state;
   const openPr = pr && pr.state === "OPEN" ? [{ url: pr.url, isDraft: pr.isDraft, mergeable: pr.mergeable, checks: pr.checks, report: pr.report, reportDecisions: pr.reportDecisions }] : [];
   const reviewed = d.pr && d.nextSkill === "request-peer-review" ? ownReviewOf(d.pr) : null;
+  const waiting = openPr.length && d.pr === pr.url ? prCommentsOf(d.pr) : null;
   enrichRows([d], { prs: openPr, cards: card ? [{ id: card.id, approvedPlan: card.approvedPlan }] : [] },
-    new Map(reviewed ? [[d.pr, reviewed]] : []), runs, new Map(checkout ? [[norm(wt), checkout]] : []));
+    new Map(reviewed ? [[d.pr, reviewed]] : []), runs, new Map(checkout ? [[norm(wt), checkout]] : []), Date.now(),
+    new Map(waiting ? [[d.pr, waiting]] : []));
   if (pr && pr.state !== "OPEN" && pr.url === d.pr) d.prState = pr.state.toLowerCase();
 
   const sessions = sessionsOf(w);

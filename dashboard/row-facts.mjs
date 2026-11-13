@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { agentState, DASHBOARD_SKILLS, norm } from "../orca-worktrees.mjs";
+import { agentState, COMMENTS_PROMPT_START, DASHBOARD_SKILLS, norm } from "../orca-worktrees.mjs";
 
 export { agentState, DASHBOARD_SKILLS, norm };
 
@@ -35,7 +35,13 @@ export const readJson = file => JSON.parse(fs.readFileSync(file, "utf8").trimSta
 // The skill an agent was started on, from its prompt. A skill started with
 // `claude --continue /<skill>` in Git Bash arrives with the slash rewritten into a Windows path
 // ("C:/Program Files/Git/preflight").
-export const skillOf = a => (String(a?.prompt || "").match(/^(?:\/|[A-Za-z]:\/Program Files\/Git\/)([\w-]+)/) || [])[1] || "";
+// The Process PR Comments button types a prompt, COMMENTS_PROMPT, which counts as the skill
+// "process-pr-comments".
+export const skillOf = a => {
+  const prompt = String(a?.prompt || "");
+  if (prompt.startsWith(COMMENTS_PROMPT_START)) return "process-pr-comments";
+  return (prompt.match(/^(?:\/|[A-Za-z]:\/Program Files\/Git\/)([\w-]+)/) || [])[1] || "";
+};
 
 // The question a waiting agent asks in its terminal, or "".
 export const questionOf = a =>
@@ -182,15 +188,19 @@ export async function reportDecisions(report) {
 // What `codeChangedSincePreflight` needs from a checkout: HEAD's commit, its tree and its commit
 // time, and the number of tracked files with uncommitted changes. Untracked files are left out:
 // a checkout collects ones that are never committed (.claude/, scratch output). null when git fails.
-export async function checkoutState(wt) {
+// With `since`, the commit that the last preflight run ended on, also `commitsSince`: the number
+// of commits on the branch after that one (a merge counts as one), or null when git cannot count
+// them (a rebase or a squash left that commit out of the branch's history).
+export async function checkoutState(wt, since = null) {
   const git = async (...a) => (await execFileP("git", ["-C", wt, ...a], { windowsHide: true })).stdout.trim();
   try {
-    const [head, status] = await Promise.all([
+    const [head, status, count] = await Promise.all([
       git("log", "-1", "--format=%H %T %cI"),
       git("status", "--porcelain", "--untracked-files=no"),
+      since ? git("merge-base", "--is-ancestor", since, "HEAD").then(() => git("rev-list", "--count", "--first-parent", since + "..HEAD")).catch(() => null) : null,
     ]);
     const [sha, tree, time] = head.split(" ");
-    return { head: sha, tree, headTime: time, uncommitted: status.split(/\r?\n/).filter(Boolean).length };
+    return { head: sha, tree, headTime: time, uncommitted: status.split(/\r?\n/).filter(Boolean).length, commitsSince: count == null ? null : Number(count) };
   } catch { return null; }
 }
 
@@ -210,6 +220,21 @@ export function codeChangedSincePreflight(run, checkout) {
   if (run.tree && checkout.tree) return checkout.tree !== run.tree;
   if (run.head) return checkout.head !== run.head;
   return !!checkout.headTime && Date.parse(checkout.headTime) > Date.parse(run.endedAt);
+}
+
+/**
+ * How the code has changed since the last preflight run ended, for the line under the Preflight
+ * button: "1 commit since preflight", "uncommitted changes since preflight", both, or "code
+ * changed since preflight" when the commits cannot be counted. "" when it has not changed.
+ */
+export function changeSincePreflight(run, checkout) {
+  if (!codeChangedSincePreflight(run, checkout)) return "";
+  const committed = codeChangedSincePreflight(run, { ...checkout, uncommitted: 0 });
+  const n = committed ? checkout.commitsSince : 0;
+  const parts = [];
+  if (n > 0) parts.push(n === 1 ? "1 commit" : n + " commits");
+  if (checkout.uncommitted > 0) parts.push("uncommitted changes");
+  return (parts.join(" and ") || "code changed") + " since preflight";
 }
 
 // ---- files the dashboard keeps ---------------------------------------------------------------
@@ -244,7 +269,7 @@ export const SESSION_WHO = ["you", "idle"];
 export const NEXT_SKILLS = ["preflight", "request-peer-review"];
 // The fields that the server adds to a row (enrichRows) and the page adds from Orca
 // (withLiveAgents), which the session leaves out.
-export const DERIVED_FIELDS = ["prState", "prMergeable", "prChecks", "approvedPlan", "ownReview", "progress", "codeChanged", "runShowing", "skill", "since", "tool", "question"];
+export const DERIVED_FIELDS = ["prState", "prMergeable", "prChecks", "approvedPlan", "ownReview", "prComments", "progress", "codeChanged", "codeChangedWhy", "runShowing", "skill", "since", "tool", "question"];
 
 /** What is wrong with a row the session wrote, as short phrases; [] for none. */
 export function rowProblems(row) {
@@ -354,10 +379,12 @@ export function panelRow({ row, ...facts }) {
  * answer), the worktree's latest preflight run (`progress`), whether that run shows as going with
  * no agent working there (`runShowing`; withLiveAgents in row.js takes the live answer when one
  * works), and whether the code has changed since that run (`codeChanged`, from `checkouts`,
- * norm() of the worktree path -> checkoutState). A PR not among `facts.prs` (merged or closed) is
- * left to the page.
+ * norm() of the worktree path -> checkoutState) and how (`codeChangedWhy`,
+ * changeSincePreflight), and the comments on the PR that wait to be processed (`prComments`, from
+ * `prComments`, PR URL -> pr-comments.mjs's answer). A PR not among `facts.prs` (merged or
+ * closed) is left to the page.
  */
-export function enrichRows(rows, facts, ownReviews = new Map(), runs = readProgress(), checkouts = new Map(), now = Date.now()) {
+export function enrichRows(rows, facts, ownReviews = new Map(), runs = readProgress(), checkouts = new Map(), now = Date.now(), prComments = new Map()) {
   const prFacts = new Map((facts?.prs || []).map(p => [p.url, p]));
   const approved = new Set((facts?.cards || []).filter(c => c.approvedPlan).map(c => c.id));
   for (const r of rows) {
@@ -372,7 +399,10 @@ export function enrichRows(rows, facts, ownReviews = new Map(), runs = readProgr
     const key = norm(r.worktree);
     if (r.worktree && runs.has(key)) r.progress = runs.get(key);
     r.runShowing = runShowing(r.progress, null, now);
-    r.codeChanged = codeChangedSincePreflight(r.progress, r.worktree ? checkouts.get(key) : null);
+    if (prComments.has(r.pr)) r.prComments = prComments.get(r.pr);
+    const checkout = r.worktree ? checkouts.get(key) : null;
+    r.codeChanged = codeChangedSincePreflight(r.progress, checkout);
+    r.codeChangedWhy = changeSincePreflight(r.progress, checkout);
   }
   return rows;
 }

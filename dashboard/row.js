@@ -7,9 +7,9 @@
 // agent in the worktree is waiting on a question in its terminal, "agent" while an agent works,
 // labelled with the skill it was started on when that skill is one of these.
 const STATUS = { you: "Needs your decision", asking: "Claude has a question", agent: "Agent working" };
-const SKILL_STATUS = { "preflight": "Preflighting", "request-peer-review": "Requesting peer review", "merge-without-peer-review": "Merging" };
-// The skills a row's nextSkill may name, and the button that runs each in the worktree's session.
-const SKILL_BUTTON = { "preflight": "Preflight", "request-peer-review": "Request Peer Review", "merge-without-peer-review": "Merge without Peer Review" };
+const SKILL_STATUS = { "preflight": "Preflighting", "request-peer-review": "Requesting peer review", "merge-without-peer-review": "Merging", "process-pr-comments": "Processing PR comments" };
+// The button that runs each of the server's skills in the worktree's session.
+const SKILL_BUTTON = { "preflight": "Preflight", "request-peer-review": "Request Peer Review", "merge-without-peer-review": "Merge without Peer Review", "process-pr-comments": "Process PR Comments" };
 
 function el(tag, attrs, ...kids) {
   const e = document.createElement(tag);
@@ -98,7 +98,16 @@ function statusPill(d) {
 // developer's own review of the PR (files not yet marked Viewed in GitHub or reviewed in
 // Reviewable); Request Peer Review, which squashes and checks the PR, with Merge without Peer
 // Review beside it when the card has the "Approved Plan" tag; then the peer review itself.
-const STEP = { code: 0, preflight: 1, review: 2, request: 3, peer: 4 };
+// Between the review and Request Peer Review, a row whose PR has comments waiting to be processed
+// (`prComments`, from pr-comments.mjs) shows one more step, Process PR Comments. It is outside
+// the five: `comments` in the model, and STEP.comments for an agent running on it.
+const STEP = { code: 0, preflight: 1, review: 2, request: 3, peer: 4, comments: 5 };
+// The step an agent started on each skill shows on; an agent on anything else shows on Code.
+const SKILL_STEP = { "preflight": STEP.preflight, "request-peer-review": STEP.request, "merge-without-peer-review": STEP.request, "process-pr-comments": STEP.comments };
+// "3 comments from you, 1 from Andrew Polk", from pr-comments.mjs's { total, from }.
+function commentsText(c) {
+  return c.from.map((f, i) => (i ? f.count : f.count + (c.total === 1 ? " comment" : " comments")) + " from " + f.who).join(", ");
+}
 /**
  * The Process column as data, which processCell draws. A step is finished when what comes after
  * it has started: Code once there is a PR or the session names a next skill; Preflight once the
@@ -109,9 +118,16 @@ const STEP = { code: 0, preflight: 1, review: 2, request: 3, peer: 4 };
  * shows on that step (`running`); any other agent shows on Code. A question or decision for the
  * developer (`blocked`) and a working agent disable every step.
  *
+ * While comments wait on the PR, Process PR Comments is the step offered, whatever else is
+ * unfinished: answering them changes the code, so Preflight and Request Peer Review come after.
+ * Only the developer's review stays offered beside it, since they may still be reviewing.
+ *
  * Returns { blocked, working, broken, now, running, reviewUnknown, left, enabled, since, oldReport,
- * states }, where `states` holds each step's "done", "now", "running", "later" or, for a peer
- * review that came back with comments, "comments".
+ * why, comments, states }. `states` holds each of the five steps' "done", "now", "running",
+ * "later" or, for a peer review that came back with comments, "comments". `why` says under the
+ * Preflight button why Preflight is unfinished ("1 commit since preflight"), or is "". `comments`
+ * is null when the row has no Process PR Comments step, or { state: "now" or "running", text },
+ * the text being "3 comments from you".
  */
 function processModel(d) {
   const blocked = d.who === "asking" || d.who === "you";
@@ -123,14 +139,20 @@ function processModel(d) {
   const done = [!!(d.pr || d.nextSkill), preflightDone, preflightDone && left === 0, false, false];
   const now = done.indexOf(false);
   const reviewUnknown = preflightDone && !r;
-  // Preflight runs on its step; the two review-request skills on Request Peer Review.
-  const skill = Object.keys(SKILL_STATUS).indexOf(d.skill);
-  const running = !working ? -1 : skill === 0 ? STEP.preflight : skill > 0 ? STEP.request : STEP.code;
-  const offered = i => i === now || (i === STEP.request && reviewUnknown);
+  const running = !working ? -1 : SKILL_STEP[d.skill] ?? STEP.code;
+  const waiting = d.prComments?.total > 0;
+  const offered = i => waiting ? i === now && i === STEP.review : i === now || (i === STEP.request && reviewUnknown);
   const states = done.map((isDone, i) => i === running ? "running" : isDone ? "done" : offered(i) ? "now" : "later");
   if (d.ytState === "Has Comments") states[STEP.peer] = "comments";
+  const comments = running === STEP.comments ? { state: "running", text: "" }
+    : waiting ? { state: "now", text: commentsText(d.prComments) } : null;
+  const why = now !== STEP.preflight ? "" : [
+    d.prMergeable === "CONFLICTING" && "PR conflicts with its base branch",
+    d.prChecks === "FAILURE" && "CI is failing",
+    d.codeChangedWhy,
+  ].filter(Boolean).join("; ");
   return {
-    blocked, working, broken, now, running, reviewUnknown, left, states,
+    blocked, working, broken, now, running, reviewUnknown, left, states, why, comments,
     enabled: !blocked && !working,
     // How long the agent has worked: a preflight run's own start, when progress.mjs recorded one,
     // beats when the server first saw the agent working.
@@ -150,6 +172,8 @@ function processCell(d) {
     return b;
   };
   const label = text => el("span", { class: "lbl" }, text);
+  // A step with a line of small text under it: why the step is the next one.
+  const withNote = (body, text) => el("span", { class: "noted" }, body, el("small", {}, text));
   // The running step: its name, how long the agent has worked, and what it is doing now.
   const runningLabel = text => el("span", { class: "lbl" }, text,
     m.since ? el("span", { class: "elapsed", "data-since": String(m.since) }, elapsedText(m.since)) : null,
@@ -173,13 +197,14 @@ function processCell(d) {
     let body;
     if (m.running === STEP.preflight) body = runningLabel("Preflighting");
     else {
-      body = m.now === STEP.preflight ? skillButton("preflight", m.enabled) : label(m.broken && d.pr ? "Preflight (conflict or CI failing)" : "Preflight");
+      body = m.states[STEP.preflight] === "now" ? skillButton("preflight", m.enabled) : label("Preflight");
       if (d.report) {
         const a = link(d.report, (m.oldReport ? "old report" : "report") + (n > 0 && !m.oldReport ? ` (${n} decision${n > 1 ? "s" : ""})` : ""));
         a.className = "report" + (n > 0 && !m.oldReport ? " you" : "");
         a.title = m.oldReport ? "Open the report of an earlier preflight, from before the latest changes" : "Open the preflight report";
         body = el("span", { class: "alts" }, body, a);
       }
+      if (m.why) body = withNote(body, m.why);
     }
     steps.push(body);
   }
@@ -190,7 +215,7 @@ function processCell(d) {
     const noReviewable = r && !r.reviewable ? "; couldn't read Reviewable" : "";
     const text = r && m.left ? `Your review (${m.left} of ${r.files} files left${noReviewable})` : "Your review";
     let body = label(text);
-    if (m.now === STEP.review && d.pr) {
+    if (m.states[STEP.review] === "now" && d.pr) {
       const rvUrl = reviewableUrl(d.pr);
       body = link(rvUrl || d.pr.replace(/\/$/, "") + "/files", text);
       body.className = "btn work";
@@ -206,9 +231,16 @@ function processCell(d) {
     }
     steps.push(body);
   }
+  // Process PR Comments, only while comments wait or an agent processes them; its place among the
+  // steps is kept in `commentsAt`.
+  const commentsAt = steps.length;
+  if (m.comments) {
+    steps.push(m.comments.state === "running" ? runningLabel(SKILL_STATUS["process-pr-comments"])
+      : withNote(skillButton("process-pr-comments", m.enabled), m.comments.text));
+  }
   // Request Peer Review (squash and checks), or merge
   {
-    const offered = m.now === STEP.request || m.reviewUnknown;
+    const offered = m.states[STEP.request] === "now";
     if (m.running === STEP.request) steps.push(runningLabel(SKILL_STATUS[d.skill]));
     else if (offered) steps.push(el("span", { class: "alts" }, skillButton("request-peer-review", m.enabled), d.approvedPlan ? skillButton("merge-without-peer-review", m.enabled) : null));
     else steps.push(label(d.approvedPlan ? "Request Peer Review, or Merge" : "Request Peer Review"));
@@ -220,7 +252,9 @@ function processCell(d) {
 
   const ol = el("ol", { class: "steps" });
   const icon = { done: "check", now: "dot", running: "spin", later: "empty", comments: "bubble" };
-  steps.forEach((body, i) => ol.append(withIcon(el("li", { class: m.states[i] }, body), icon[m.states[i]])));
+  const states = [...m.states];
+  if (m.comments) states.splice(commentsAt, 0, m.comments.state);
+  steps.forEach((body, i) => ol.append(withIcon(el("li", { class: states[i] + (body.classList.contains("noted") ? " two-line" : "") }, body), icon[states[i]])));
   const badge = m.blocked ? statusPill(d) : null;
   if (badge) badge.classList.add("process-badge");
   return el("div", {}, badge ? el("div", {}, badge) : null, ol);

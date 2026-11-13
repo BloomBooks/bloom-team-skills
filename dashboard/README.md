@@ -10,7 +10,7 @@ plugins, for a developer or an agent changing this folder's code.
 | --- | --- | --- |
 | The session | each row's judgement: `group`, `order`, `who`, `status`, `comments`, `next`, `nextSkill` | `rows/<card>.json` (SKILL.md, step 4) |
 | `gather.mjs` | cards, worktrees, PRs, History and "Back with you for review" from YouTrack, GitHub, git and Orca | `facts.json` |
-| `server.mjs` | what it adds to a row from facts, git, own-review.mjs and progress files (`enrichRows`), Orca's live agents (`liveAgents`), what is wrong with a row (`rowProblems`) | `/api/state`, `events.log` |
+| `server.mjs` | what it adds to a row from facts, git, own-review.mjs, pr-comments.mjs and progress files (`enrichRows`), Orca's live agents (`liveAgents`), what is wrong with a row (`rowProblems`) | `/api/state`, `events.log` |
 | `row.js` | how a row merges the live agents (`withLiveAgents`), the Process column (`processModel`), drawing | the page and the panel |
 
 Every rule that more than one of these applies lives in one place: `row-facts.mjs` for rows,
@@ -60,7 +60,10 @@ a tick, the first unfinished step is the one enabled button, and later steps are
 1. **Code**: finished once the row has a PR or a `nextSkill`. Its button opens the worktree in
    Orca, or creates one.
 2. **Preflight**: finished once `nextSkill` is `request-peer-review`, the PR is neither conflicting
-   nor failing CI, and the code has not changed since the last run ended (above).
+   nor failing CI, and the code has not changed since the last run ended (above). While one of
+   those makes it unfinished, a line under it says which: "PR conflicts with its base branch", "CI
+   is failing", "1 commit since preflight" (`changeSincePreflight` counts the commits after the one
+   that the run ended on, and names uncommitted changes).
 3. **Your review (n of m files left)**: links to the PR in Reviewable until the developer has
    reviewed every file. `own-review.mjs` counts a file as reviewed when the developer marked it
    Viewed on GitHub or reviewed it in Reviewable, for the file's current content; the server runs
@@ -70,6 +73,19 @@ a tick, the first unfinished step is the one enabled button, and later steps are
    together with the review.
 5. **Peer review**: done by a teammate, so never a button. On a card in Has Comments it is orange
    and reads "comments back".
+
+A sixth step, **Process PR Comments**, shows between the review and Request Peer Review only while
+comments wait on the PR, with a line under it such as "3 comments from you, 1 from Andrew Polk".
+`pr-comments.mjs` reads the PR's discussions from Reviewable, which include GitHub's review
+threads; the server runs it once a minute for every row with an open PR. A discussion waits when
+it is unresolved and its last comment was written by a person: the developer in their own review,
+or a teammate. A bot's comment does not count, nor one that an agent wrote (posted by Reviewable's
+agent identity, or under a person's GitHub login with the bracketed attribution tag first), so a
+discussion stops waiting once an agent has replied to it. While comments wait, this is the step
+offered, whatever else is unfinished, because answering them changes the code; only the
+developer's review stays offered beside it. No skill is named for it: the button types
+`COMMENTS_PROMPT` (`orca-worktrees.mjs`) into the worktree's session, and an agent whose prompt
+starts that way shows on this step.
 
 A working agent started on `/preflight` shows on step 2, one on `/request-peer-review` or
 `/merge-without-peer-review` on step 4, and any other on step 1, as a green band with a spinning

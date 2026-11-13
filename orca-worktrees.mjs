@@ -24,7 +24,14 @@ export function setLog(fn) { log = fn; }
 export const norm = p => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
 // The skills that the dashboard's and the panel's buttons run in a worktree's Claude session.
-export const DASHBOARD_SKILLS = ["preflight", "request-peer-review", "merge-without-peer-review"];
+export const DASHBOARD_SKILLS = ["preflight", "request-peer-review", "merge-without-peer-review", "process-pr-comments"];
+// No skill is named process-pr-comments: its button types this prompt. An agent whose prompt
+// starts with COMMENTS_PROMPT_START counts as running it (skillOf in dashboard/row-facts.mjs).
+// The prompt holds no quote, so that it can sit inside a quoted argument of `claude`.
+export const COMMENTS_PROMPT_START = "Process the PR comments";
+export const COMMENTS_PROMPT = COMMENTS_PROMPT_START + ": read every unresolved discussion on the PR of this branch (reviewable-replies skill), make the changes that they ask for, and reply to each one.";
+// What a button types into the session to run one of DASHBOARD_SKILLS.
+const skillPrompt = skill => skill === "process-pr-comments" ? COMMENTS_PROMPT : "/" + skill;
 
 // An agent's state as the dashboard counts it. Orca calls an agent "working" while a background
 // Monitor runs in it (workingMode "monitoring"), though it sits at its prompt; that counts as done.
@@ -170,20 +177,22 @@ export async function openWorktree(p, paneKey = null) {
 }
 
 // Runs one of DASHBOARD_SKILLS in the worktree's Claude session (the `paneKey` one when given):
-// typed into its terminal when Claude is there and idle, or in a new Claude terminal when there is
-// none. Returns what it did, in a few words.
+// its slash command, or for process-pr-comments COMMENTS_PROMPT, typed into its terminal when
+// Claude is there and idle, or in a new Claude terminal when there is none. Returns what it did,
+// in a few words.
 export async function runSkill(p, skill, paneKey = null) {
   if (!DASHBOARD_SKILLS.includes(skill)) throw new Error("not a skill the dashboard runs: " + skill);
   const wt = await knownWorktree(p);
   const target = await agentTerminal(wt, paneKey);
   if (target) {
-    const started = await promptAgent(target, "/" + skill);
-    log(`sent /${skill} to ${target.handle} in ${wt}${started ? "" : " (its turn not seen starting yet)"}`);
-    return `Sent /${skill} to Claude.`;
+    const started = await promptAgent(target, skillPrompt(skill));
+    log(`sent ${skill} to ${target.handle} in ${wt}${started ? "" : " (its turn not seen starting yet)"}`);
+    return `Sent ${skill} to Claude.`;
   }
-  await startClaude(wt, "claude --continue /" + skill);
-  log(`started Claude with /${skill} in ${wt}`);
-  return `Started Claude with /${skill}.`;
+  const text = skillPrompt(skill);
+  await startClaude(wt, "claude --continue " + (text.includes(" ") ? `"${text}"` : text));
+  log(`started Claude with ${skill} in ${wt}`);
+  return `Started Claude with ${skill}.`;
 }
 
 // Types `text` into the worktree's Claude session (the `paneKey` one when given). Refuses while

@@ -134,6 +134,8 @@ developer has reviewed the PR yet: the page's Process column works out the rest.
 five steps of Bloom's process (Code, Preflight, Your review, Request Peer Review, Peer review)
 and sends the row back to Preflight by itself when the PR conflicts, CI fails, or the code changes
 after the last preflight run, so leave `nextSkill` at `request-peer-review` when new commits arrive.
+It also adds a Process PR Comments step by itself while comments from the developer or a teammate
+wait on the PR.
 
 ## 4. Write the rows
 

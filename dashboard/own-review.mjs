@@ -21,7 +21,7 @@ import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 
 const exec = promisify(execFile);
-async function out(cmd, args) {
+export async function out(cmd, args) {
   // On Windows the `reviewable` CLI is a .cmd shim (Volta and npm install it that way), which
   // execFile cannot start without a shell, so cmd.exe runs it.
   if (process.platform === "win32" && cmd === "reviewable") [cmd, args] = ["cmd.exe", ["/d", "/c", cmd, ...args]];
@@ -29,13 +29,13 @@ async function out(cmd, args) {
   return stdout;
 }
 // The CLI can print a notice before or after its JSON.
-function json(text) {
+export function json(text) {
   const start = text.search(/[[{]/);
   const end = Math.max(text.lastIndexOf("]"), text.lastIndexOf("}"));
   return JSON.parse(text.slice(start, end + 1));
 }
 // Runs fn over items, at most `limit` at a time.
-async function pool(items, limit, fn) {
+export async function pool(items, limit, fn) {
   const results = new Array(items.length);
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {

@@ -6,10 +6,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  agentEventLines, agentStates, cardOf, checksState, codeChangedSincePreflight, countDecisions, enrichRows, liveAgents,
+  agentEventLines, agentStates, cardOf, changeSincePreflight, checksState, codeChangedSincePreflight, countDecisions, enrichRows, liveAgents,
   nextFromFacts, norm, panelRow, questionOf, readRowFiles, REPORT_HOME as REPORT, reportDecisions, reportOf, reportReadable,
   rowOfWorktree, rowProblems, RUN_FRESH_MS, runShowing, skillOf,
 } from "./row-facts.mjs";
+import { COMMENTS_PROMPT } from "../orca-worktrees.mjs";
 
 const NOW = Date.parse("2026-11-10T12:00:00Z");
 const ago = minutes => new Date(NOW - minutes * 60000).toISOString();
@@ -150,6 +151,31 @@ test("a run recorded without its tree compares the commit, and one without eithe
 test("the code never counts as changed while a run is going or with nothing to compare", () => {
   assert.equal(codeChangedSincePreflight(openRun(1), { head: "x", uncommitted: 3 }), false);
   assert.equal(codeChangedSincePreflight(endedRun({ head: "a" }), null), false);
+});
+
+test("changeSincePreflight counts the commits and names uncommitted changes", () => {
+  const run = endedRun({ head: "aaa", tree: "t1" });
+  const why = checkout => changeSincePreflight(run, { head: "bbb", tree: "t2", uncommitted: 0, ...checkout });
+  assert.equal(why({ commitsSince: 1 }), "1 commit since preflight");
+  assert.equal(why({ commitsSince: 3, uncommitted: 2 }), "3 commits and uncommitted changes since preflight");
+  assert.equal(why({ commitsSince: null }), "code changed since preflight");
+  assert.equal(why({ tree: "t1", commitsSince: 1, uncommitted: 2 }), "uncommitted changes since preflight", "a squash that kept the tree is no commit");
+  assert.equal(why({ tree: "t1", commitsSince: 1 }), "");
+});
+
+test("the prompt of the Process PR Comments button counts as the skill process-pr-comments", () => {
+  assert.equal(skillOf({ prompt: COMMENTS_PROMPT }), "process-pr-comments");
+  assert.equal(skillOf({ prompt: "Process the report" }), "");
+});
+
+test("enrichRows adds the comments waiting on the PR and how the code changed", () => {
+  const rows = [{ card: "BL-1", worktree: "D:/BL-1-x", pr: pr.url }];
+  const runs = new Map([["d:/bl-1-x", endedRun({ head: "aaa", tree: "t1" })]]);
+  const checkouts = new Map([["d:/bl-1-x", { head: "bbb", tree: "t2", uncommitted: 0, commitsSince: 2 }]]);
+  const waiting = { total: 1, from: [{ who: "you", you: true, count: 1 }] };
+  const [r] = enrichRows(rows, null, new Map(), runs, checkouts, NOW, new Map([[pr.url, waiting]]));
+  assert.equal(r.prComments, waiting);
+  assert.equal(r.codeChangedWhy, "2 commits since preflight");
 });
 
 // ---- the rows the session writes -----------------------------------------------------------------

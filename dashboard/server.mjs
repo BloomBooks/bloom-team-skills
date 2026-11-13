@@ -54,6 +54,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { diffFacts } from "./diff-facts.mjs";
 import { ownReview } from "./own-review.mjs";
+import { prComments } from "./pr-comments.mjs";
 import { STANDUP } from "./standup.mjs";
 import { changeTask, readTasks, TASK_ACTIONS } from "./tasks.mjs";
 import { agentEventLines, agentStates, cardOf, checkoutState, dataDir, enrichRows, liveAgents, readJson, readProgress, readRowFiles, rowsDir } from "./row-facts.mjs";
@@ -152,7 +153,7 @@ async function pollAgents() {
     const ps = (await orca("worktree", "ps")).worktrees;
     const runs = readProgress();
     const ended = ps.filter(w => runs.get(norm(w.path))?.endedAt);
-    checkouts = new Map((await Promise.all(ended.map(async w => [norm(w.path), await checkoutState(w.path)]))).filter(([, c]) => c));
+    checkouts = new Map((await Promise.all(ended.map(async w => [norm(w.path), await checkoutState(w.path, runs.get(norm(w.path)).head)]))).filter(([, c]) => c));
     const next = {};
     const states = new Map();
     for (const w of ps) {
@@ -231,6 +232,30 @@ async function checkOwnReviews() {
   } finally { checkingOwnReviews = false; }
 }
 
+// ---- the comments waiting on each PR ---------------------------------------------------------
+// For each row with an open PR, the comments that wait to be processed (pr-comments.mjs), checked
+// once a minute. PR URL -> { total, from }.
+const commentsOfPr = new Map();
+let checkingComments = false;
+async function checkComments() {
+  if (checkingComments) return;
+  checkingComments = true;
+  try {
+    let login = "";
+    try { login = readJson(developerFile).github || ""; } catch {}
+    if (!login) return;
+    const open = new Set((readFacts()?.prs || []).map(p => p.url));
+    const prs = new Set(readRowFiles().rows.map(r => r.pr).filter(pr => pr && open.has(pr)));
+    for (const pr of [...commentsOfPr.keys()]) if (!prs.has(pr)) commentsOfPr.delete(pr);
+    for (const pr of prs) {
+      try {
+        const c = await prComments(pr, login);
+        if (c) commentsOfPr.set(pr, c); else commentsOfPr.delete(pr);
+      } catch (e) { log(`comments of ${pr} failed: ${e.message}`); }
+    }
+  } finally { checkingComments = false; }
+}
+
 // ---- state for the page ---------------------------------------------------------------------
 // The problems with the session's rows that events.log has already been told about, as
 // "<file>: <problem>". One that goes away and comes back is told again.
@@ -249,7 +274,7 @@ function readState() {
   let developer = "";
   try { developer = (readJson(developerFile).name || "").split(" ")[0]; } catch {}
   const facts = readFacts();
-  enrichRows(rows, facts, ownReviews, readProgress(), checkouts);
+  enrichRows(rows, facts, ownReviews, readProgress(), checkouts, Date.now(), commentsOfPr);
   return {
     serverPid: process.pid, board, developer, rows, problems, agents, tasks: readTasks(tasksFile),
     standup: facts?.standup || null, standupAt: STANDUP, backForReview: facts?.backForReview || null, gatheredAt: facts?.gatheredAt || "",
@@ -527,6 +552,8 @@ server.on("listening", async () => {
   setInterval(pollAgents, 5000);
   checkOwnReviews();
   setInterval(checkOwnReviews, 60000);
+  checkComments();
+  setInterval(checkComments, 60000);
   setInterval(regather, gatherMinutes * 60000);
   // Chrome slows the timers of a minimized window to one run a minute, which IDLE_MINUTES allows for.
   setInterval(() => {

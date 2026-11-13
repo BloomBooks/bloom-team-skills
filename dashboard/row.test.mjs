@@ -121,6 +121,51 @@ test("the running time is the run's own start while it shows, else when the agen
   assert.equal(model({ who: "agent", skill: "preflight", since: NOW - 60000, runShowing: false, progress }).since, NOW - 60000);
 });
 
+// ---- Process PR Comments and the line under Preflight ----------------------------------------
+
+const waiting = (...from) => ({ total: from.reduce((n, f) => n + f.count, 0), from });
+const you = count => ({ who: "you", you: true, count });
+
+test("a row with no comments waiting has no Process PR Comments step", () => {
+  assert.equal(model({ pr, nextSkill: "request-peer-review", ownReview: review(1, 1) }).comments, null);
+  assert.equal(model({ pr, nextSkill: "request-peer-review", prComments: waiting() }).comments, null);
+});
+
+test("comments waiting are the step offered, ahead of Preflight and Request Peer Review", () => {
+  const changed = model({ pr, nextSkill: "request-peer-review", codeChanged: true, prComments: waiting(you(3)) });
+  assert.deepEqual({ ...changed.comments }, { state: "now", text: "3 comments from you" });
+  assert.deepEqual([...changed.states], ["done", "later", "later", "later", "later"]);
+  const reviewed = model({ pr, nextSkill: "request-peer-review", ownReview: review(2, 2), prComments: waiting(you(1)) });
+  assert.equal(reviewed.comments.text, "1 comment from you");
+  assert.deepEqual([...reviewed.states], ["done", "done", "done", "later", "later"]);
+});
+
+test("the developer's unfinished review stays offered beside the comments", () => {
+  const m = model({ pr, nextSkill: "request-peer-review", ownReview: review(5, 2), prComments: waiting(you(2)) });
+  assert.deepEqual([...m.states], ["done", "done", "now", "later", "later"]);
+  assert.equal(m.comments.state, "now");
+});
+
+test("comments from several people are counted by who wrote them", () => {
+  const m = model({ pr, nextSkill: "request-peer-review", prComments: waiting(you(3), { who: "Andrew Polk", you: false, count: 1 }) });
+  assert.equal(m.comments.text, "3 comments from you, 1 from Andrew Polk");
+});
+
+test("an agent processing the comments shows on that step", () => {
+  const m = model({ pr, nextSkill: "request-peer-review", who: "agent", skill: "process-pr-comments" });
+  assert.equal(m.comments.state, "running");
+  assert.ok(![...m.states].includes("running"));
+});
+
+test("the line under Preflight says why it is the next step", () => {
+  const next = d => model({ pr, nextSkill: "request-peer-review", ...d }).why;
+  assert.equal(next({ codeChanged: true, codeChangedWhy: "1 commit since preflight" }), "1 commit since preflight");
+  assert.equal(next({ prMergeable: "CONFLICTING" }), "PR conflicts with its base branch");
+  assert.equal(next({ prChecks: "FAILURE", codeChanged: true, codeChangedWhy: "2 commits since preflight" }), "CI is failing; 2 commits since preflight");
+  assert.equal(next({ ownReview: review(1, 1) }), "");
+  assert.equal(model({ pr, nextSkill: "preflight" }).why, "");
+});
+
 // ---- the lists row.js shares with the server -------------------------------------------------
 
 test("row.js has a button and a status for every skill the server runs", () => {
