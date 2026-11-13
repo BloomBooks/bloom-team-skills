@@ -174,6 +174,10 @@ worktree Orca has focused, with its checkout and its Claude session. `worktree-p
 covers it. The plugin's folder is this whole folder because Orca lets a panel load only files
 inside its plugin's folder.
 
+`orca-plugins.mjs` loads both into Orca (`orca plugin dev load`), and with `--approve` approves the
+access that Orca lists for each. `update-team-skills` and step 0 of `SKILL.md` run it, and
+`update-team-skills/auto-update.mjs` runs its load each day.
+
 ## Tests
 
 ```sh

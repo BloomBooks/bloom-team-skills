@@ -40,16 +40,17 @@ overwrites an existing link or touches skills that aren't part of this repo.
    It adds a SessionStart hook to `~/.claude/settings.json` (or reports it is already there). From
    then on, the first Claude Code session each day starts a background `git pull --ff-only` and links
    new skill folders, without delaying the session. It pulls only when the clone is on `main` with no
-   uncommitted changes to tracked files. Results go to `~/.claude/bloom-team-skills-update.log`.
-6. **Check the Bloom Dashboard button.** When `orca` is installed, run `orca plugin list`. If it
-   does not list `local.bloom-dashboard` as `running` (missing, or waiting for approval after a
-   pull changed its access or its button), say so in the report: the `dashboard` skill has an Orca
-   plugin in `dashboard/orca-plugin/` that puts a Bloom Dashboard button in Orca's status bar, and
-   `/dashboard` offers to load it. Load it here only if the developer asks; approving it is theirs
-   to do, since the plugin runs code under their account (`dashboard/SKILL.md`, step 0, has the
-   steps).
+   uncommitted changes to tracked files. It also loads the Orca plugins of step 6, without
+   approving them. Results go to `~/.claude/bloom-team-skills-update.log`.
+6. **Load the Orca plugins.** Run `node <repo>/dashboard/orca-plugins.mjs`. It loads the
+   dashboard's two Orca plugins from the clone: the Bloom Dashboard button in Orca's status bar and
+   the Worktree panel in its right sidebar. It says so when `orca` is not installed; then skip this
+   step. Exit code 3 means that Orca has not approved one of them (a first load, or a pull changed
+   its access, its button or its panel), and the output lists the access each one asks for. Show
+   the developer that list and ask once whether to approve it, since the plugins run code under
+   their account. On a yes, run the same command with `--approve`.
 7. **Report.** Summarise: pull result, which links were newly created, which already existed, any
-   removed, whether the hook was installed, and the Bloom Dashboard button's state from step 6. A running session notices changed and newly linked
+   removed, whether the hook was installed, and each Orca plugin's state from step 6. A running session notices changed and newly linked
    skills within a few seconds, so no restart is needed.
 
 ## Commands

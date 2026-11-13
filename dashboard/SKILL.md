@@ -42,14 +42,14 @@ whatever that file lacks. If it exits with code 2, it could not settle a login; 
 which candidate is theirs and save it with `node ../developer.mjs --set youtrack=<login>`.
 Address the developer by the record's `name` in what you write to them.
 
-Then check for the Bloom Dashboard button: `orca plugin list` should list `local.bloom-dashboard`
-as `running`. When it is missing, or Orca says it needs approval (a pull changed its access or
-its button), offer it in the message that ends step 4, not before, so the dashboard opens first:
-say in one line that a status-bar button in Orca opens the dashboard and ends its session when the
-window closes, and ask whether to load it. On a yes, run `orca plugin dev load <this
-folder>/orca-plugin`, show the developer the access it prints, and only when they agree run it
-again with `--approve <fingerprint>`. The approval is the developer's to give: the plugin runs code
-under their account. Offer it once per session, and skip all this when `orca` is not installed.
+Then load the dashboard's Orca plugins: run `node <this folder>/orca-plugins.mjs`. It loads the
+Bloom Dashboard button (Orca's status bar; it opens the dashboard and ends its session when the
+window closes) and the Worktree panel (Orca's right sidebar; the dashboard's row for the focused
+worktree). Exit code 3 means that Orca has not approved one of them, and the output lists the
+access each one asks for. Ask about that in the message that ends step 4, not before, so the
+dashboard opens first: show the list and ask whether to approve it. On a yes, run the same command
+with `--approve`. The approval is the developer's to give: the plugins run code under their
+account. Ask once per session, and skip all this when the script says `orca` is not installed.
 
 ## 1. Start the server
 

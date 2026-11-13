@@ -175,39 +175,33 @@ different directory can be linked the same way.)
 
 </details>
 
-### Optional: a Bloom Dashboard button in Orca
+### The Orca plugins
 
-The `dashboard` skill comes with an Orca plugin, in [`dashboard/orca-plugin/`](dashboard/orca-plugin),
-that puts a **Bloom Dashboard** button in Orca's status bar. Pressing it opens the dashboard,
-starting a Claude session for it in your bloom-team-skills checkout when none is running, and
-closing the dashboard window ends that session again. `/dashboard` offers to load it; to load it
-yourself:
+The `dashboard` skill comes with two Orca plugins, which run from your clone, so pulls update them:
 
-```bash
-orca plugin dev load <your clone>/dashboard/orca-plugin
-```
+- **Bloom Dashboard button**, in [`dashboard/orca-plugin/`](dashboard/orca-plugin), in Orca's
+  status bar. Pressing it opens the dashboard, starting a Claude session for it in your
+  bloom-team-skills checkout when none is running, and closing the dashboard window ends that
+  session again.
+- **Worktree panel**, in [`dashboard/worktree-panel/`](dashboard/worktree-panel) (its manifest is
+  `dashboard/orca-plugin.json`), a tab in Orca's right sidebar. It shows the dashboard's row for
+  the worktree that Orca has focused (card, PR, Process steps with the next skill's button, where
+  the work stands), then the checkout's git state, its Claude session, and your last three prompts
+  in that session. It needs no dashboard running.
 
-That prints what the plugin may do (read your workspaces, open them, type into the terminal it
-starts, keep its own storage) and a fingerprint; run the same command with
-`--approve <fingerprint>` to accept. The plugin loads from your clone, so pulls update it; Orca asks
-again only when an update changes its access or its button.
-
-### Optional: a Worktree panel in Orca
-
-A second Orca plugin, in [`dashboard/worktree-panel/`](dashboard/worktree-panel) (its manifest is
-`dashboard/orca-plugin.json`), adds a **Worktree** tab to Orca's right sidebar. It shows the
-dashboard's row for the worktree Orca has focused, drawn by the dashboard's own code (card, PR,
-Process steps with the next skill's button, where the work stands), then the checkout's git state,
-its Claude session, and your last three prompts in that session. It needs no dashboard running.
-Load the `dashboard` folder itself:
+`/update-team-skills` and `/dashboard` load both and ask you to approve the access they need. The
+daily auto-update loads them too, and leaves the approval to you. To do it yourself:
 
 ```bash
-orca plugin dev load <your clone>/dashboard
+node <your clone>/dashboard/orca-plugins.mjs            # load both, and list the access each asks for
+node <your clone>/dashboard/orca-plugins.mjs --approve  # approve that access
 ```
 
-It may read your focused workspace and its agents' status, and its worker runs git, `gh`, `orca`
-and YouTrack calls as you, and types `/preflight` (or the review skills) into the worktree's Claude
-when you press those buttons.
+The button may read your workspaces, open them, type into the terminal that it starts, and keep
+its own storage. The panel may read your focused workspace and its agents' status; its worker runs
+git, `gh`, `orca` and YouTrack calls as you, and types `/preflight` (or the review skills) into the
+worktree's Claude when you press those buttons. Orca asks again only when a pull changes a
+plugin's access, its button or its panel.
 
 ### Load the team-wide agent rules
 

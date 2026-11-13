@@ -12,6 +12,9 @@
 // Any skill folder that has no link in ~/.claude/skills gets one. A running Claude Code session
 // notices changed and newly linked skills within a few seconds, so the session that started the
 // pull gets the new text too.
+// When Orca is installed, the dashboard's two Orca plugins are loaded from the clone
+// (dashboard/orca-plugins.mjs). Orca runs neither until the developer approves its access, which
+// /update-team-skills and /dashboard ask for.
 //
 // ~/.claude/bloom-team-skills-update.json records the last successful update day; each run's
 // result is appended to ~/.claude/bloom-team-skills-update.log.
@@ -20,7 +23,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repo = path.dirname(path.dirname(scriptPath));
@@ -100,10 +103,22 @@ function linkNewSkills() {
     return linked;
 }
 
-function runNow() {
+// Imported after the pull, so that the day's new version of the loader is the one that runs.
+async function loadOrcaPlugins() {
+    try {
+        const { loadOrcaPlugins, describe } = await import(pathToFileURL(path.join(repo, "dashboard", "orca-plugins.mjs")).href);
+        const result = loadOrcaPlugins();
+        return result.orca ? describe(result).join("; ") : "";
+    } catch (e) {
+        return `Orca plugins not loaded: ${e.message}`;
+    }
+}
+
+async function runNow() {
     const result = pull();
     const linked = linkNewSkills();
-    log(`${result.msg}${linked.length ? `; linked ${linked.join(", ")}` : ""}`);
+    const plugins = await loadOrcaPlugins();
+    log(`${result.msg}${linked.length ? `; linked ${linked.join(", ")}` : ""}${plugins ? `; ${plugins}` : ""}`);
     // A skipped or failed pull leaves the day unrecorded, so the next session tries again.
     if (result.ok) fs.writeFileSync(stampFile, JSON.stringify({ day: today() }) + "\n");
 }
@@ -146,7 +161,7 @@ const arg = process.argv[2];
 if (arg === "--install") {
     install();
 } else if (arg === "--now") {
-    runNow();
+    await runNow();
 } else if (!updatedToday()) {
     spawn(process.execPath, [scriptPath, "--now"], { detached: true, stdio: "ignore", windowsHide: true }).unref();
 }
