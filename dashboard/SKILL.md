@@ -96,7 +96,9 @@ with this file (step 5), so write it there. It writes:
   read);
 - `board`: the board it kept, or `null` for every board;
 - `backForReview` and `standup`, which the page shows as "Back with you for review" and History
-  with nothing from you.
+  with nothing from you;
+- `staleWorktrees`, the worktrees of resolved cards from every board, which the page's last
+  section offers to remove, with nothing from you (README.md says how).
 
 It needs Orca running and `gh` signed in as the developer; it reaches YouTrack as the Bot through
 `bloom-services`. The search for the developer's cards relies on the Bot holding YouTrack's "Read User

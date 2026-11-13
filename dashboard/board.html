@@ -41,6 +41,12 @@
     <p id="task-note" class="task-note" role="alert" hidden></p>
     <div id="standup-days"></div>
   </section>
+
+  <section class="group" id="stale" hidden>
+    <h2>Worktrees you can probably remove <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="stale-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="stale-tip">Orca worktrees whose card YouTrack has resolved, from every board. Amber lines are signs that work may be left: uncommitted files, commits not pushed or in no merged PR, the card's open PRs, Claude at work, or use in Orca after the card was resolved. Remove keeps the branch unless Orca can tell it is merged, so only uncommitted files are lost.</span></span></h2>
+    <p id="stale-note" class="stale-note" role="alert" hidden></p>
+    <ul class="lines stale" id="stale-list"></ul>
+  </section>
 </div>
 
 <script src="row.js"></script>
@@ -268,6 +274,38 @@ document.getElementById("task-form").addEventListener("submit", async e => {
   if (await changeTask("create", { text: input.value })) input.value = "";
 });
 
+// The worktrees of resolved cards (stale-worktrees.mjs): each card's State, id and title, the
+// worktree's folder (opens in VS Code), its merged PR, a Remove button, and under them in amber
+// any signs that work is left there. null (the gather could not check GitHub) hides the section.
+function renderStale(items) {
+  const ul = document.getElementById("stale-list");
+  ul.replaceChildren(...(items || []).map(w => {
+    const remove = action("refresh", "Remove this worktree from Orca and disk", "Remove", () => removeStale(w), "remove:" + w.path);
+    return el("li", { class: w.warnings.length ? "warned" : "" },
+      el("div", { class: "stale-main" },
+        el("span", { class: "id" }, stateIcon(w.state), toned(w.cardUrl, w.card, CARD_TONE[w.state])),
+        el("span", { class: "title", title: w.title }, w.title),
+        w.pr ? el("span", { class: "id" }, markMerged(toned(w.pr, "PR " + w.pr.split("/").pop(), PR_TONE.merged), "merged")) : null,
+        action("orca wt", "Open this folder in VS Code", w.path.split("/").pop(), () => post("/api/vscode", { path: w.path }), "vscode:" + w.path),
+        remove),
+      w.warnings.length ? el("ul", { class: "warnings" }, ...w.warnings.map(x => el("li", {}, x.url ? link(x.url, x.text) : x.text))) : null);
+  }));
+  document.getElementById("stale").hidden = !ul.childNodes.length;
+}
+async function removeStale(w) {
+  const lines = [`Remove the worktree ${w.path} (${w.card}, ${w.state})?`, "",
+    "Its branch stays unless Orca can tell it is merged."];
+  if (w.warnings.length) lines.push("", "But work may be left there:", ...w.warnings.map(x => "  • " + x.text));
+  if (!confirm(lines.join("\n"))) return;
+  await request("/api/remove-worktree", { path: w.path, confirmed: w.warnings.map(x => x.kind) }, "Couldn't remove the worktree", showStaleNote);
+  refresh();
+}
+function showStaleNote(text) {
+  const n = document.getElementById("stale-note");
+  n.textContent = text || "";
+  n.hidden = !text;
+}
+
 function showNote(text) {
   const n = document.getElementById("note");
   n.textContent = text || "";
@@ -305,6 +343,7 @@ async function refresh() {
   lastTasks = state.tasks || [];
   if (state.standupAt) standupAt = state.standupAt;
   renderStandup(lastStandup, lastTasks);
+  renderStale(state.staleWorktrees);
 }
 // When the server last gathered YouTrack, GitHub and git facts (every 15 minutes, or on Refresh),
 // shown as "Checked 5 minutes ago". Agents' states come every few seconds and are not part of it.

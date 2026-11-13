@@ -246,3 +246,15 @@ ul.lines .fu { font-size: 12px; font-weight: 600; flex: none; white-space: nowra
 ul.lines li.fu-responded .fu, ul.lines li.fu-new .fu { color: var(--you); }
 ul.lines li.fu-forgot .fu, ul.lines li.fu-merged .fu { color: var(--you); }
 @media (max-width: 640px) { ul.lines li { flex-wrap: wrap; } ul.lines .title { flex-basis: 100%; white-space: normal; } }
+/* Worktrees of resolved cards: each line is the card, its folder and a Remove button, with the
+   signs that work is left there listed under it in amber. */
+ul.lines.stale > li { display: grid; gap: 4px; }
+ul.lines.stale > li.warned { box-shadow: inset 3px 0 0 var(--you); }
+.stale-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+ul.lines.stale .orca { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+ul.lines.stale .warnings { margin: 0; padding: 0 0 0 18px; font-size: 13px; color: var(--you); }
+ul.lines.stale .warnings li { display: list-item; padding: 0; border: 0; }
+ul.lines.stale .warnings a { color: inherit; }
+.stale-note { margin: 0; font-size: 13px; color: var(--you); }
+.stale-note[hidden] { display: none; }
+@media (max-width: 640px) { .stale-main { flex-wrap: wrap; } }

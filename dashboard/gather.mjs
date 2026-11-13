@@ -4,14 +4,16 @@
 // board: a YouTrack "Kanban Board" value such as "Bloom 6.6" (or just "6.6"); only cards on that
 // board are kept, and worktrees and PRs whose card is not on it are dropped. "all" keeps every
 // board. With no board, the current version's board is used (see currentVersionBoard).
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import { writeFileSync } from "node:fs";
 import { developer } from "../developer.mjs";
 import { callService } from "../bloom-services/sources.mjs";
 import { reviewedCards, backForReview as cardsBackForReview } from "./reviewed.mjs";
 import { bloomRepos, standupDays } from "./standup.mjs";
 import { cardOf, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
-import { orca as orcaCli } from "../orca-worktrees.mjs";
+import { agentState, orca as orcaCli } from "../orca-worktrees.mjs";
+import { removalWarnings } from "./stale-worktrees.mjs";
 
 const out = process.argv[2];
 if (!out) throw new Error("usage: node gather.mjs <out.json> [board|all]");
@@ -76,10 +78,18 @@ for (const w of list) {
     path: w.path,
     repo: w.projectId,
     branch,
+    // A repo's main checkout, which the page never offers to remove.
+    main: !!w.isMainWorktree,
+    name: w.displayName || "",
     orcaComment: w.comment || "",
     modified: status.filter(l => !l.startsWith("??")).map(l => l.slice(3)),
     untracked: status.filter(l => l.startsWith("??")).length,
     hasUpstream: git("rev-parse", "--abbrev-ref", "@{u}") != null,
+    // The branch's name on origin, which its PRs name, from git's config: it stays there after
+    // GitHub deletes a merged PR's branch, when @{u} no longer resolves.
+    upstreamBranch: git("config", "--get", `branch.${branch}.merge`)?.replace(/^refs\/heads\//, "") || null,
+    // When Orca last saw anything happen in the worktree.
+    lastActivity: w.lastActivityAt ? new Date(w.lastActivityAt).toISOString() : null,
     unpushed: Number(git("rev-list", "--count", "@{u}..HEAD") ?? -1),
     base,
     behindBase: Number(git("rev-list", "--count", `HEAD..${base}`) ?? -1),
@@ -100,7 +110,7 @@ const dev = await developer();
 let board = null, boardActivity = null;
 if (!boardArg) ({ board, activity: boardActivity } = await currentVersionBoard());
 else if (boardArg.toLowerCase() !== "all") board = /^\d/.test(boardArg) ? "Bloom " + boardArg : boardArg;
-const FIELDS = "idReadable,summary,updated,customFields(name,value(name)),tags(name)";
+const FIELDS = "idReadable,summary,updated,resolved,customFields(name,value(name)),tags(name)";
 // Searching by assignee needs the Bot's global "Read User Basic Role".
 const assigned = await yt("/issues", { query: `Assignee: {${dev.youtrack.login}} #Unresolved`, fields: FIELDS, $top: "500" });
 const ids = new Set([...assigned.map(i => i.idReadable), ...worktrees.map(w => w.card)]);
@@ -118,6 +128,8 @@ for (const id of ids) {
     // A card tagged "Approved Plan" may be merged without peer review (merge-without-peer-review).
     approvedPlan: (i.tags || []).some(t => t.name === "Approved Plan"),
     updated: new Date(i.updated).toISOString().slice(0, 10),
+    // Done, Closed, Won't Fix and the like: its worktrees are offered for removal (staleWorktrees).
+    resolved: i.resolved ? new Date(i.resolved).toISOString() : null,
   });
 }
 
@@ -167,7 +179,49 @@ try {
   standup = await standupDays({ yt, githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: bloomRepos((await orca("repo", "list")).repos), reviewed: reviewed || [] });
 } catch (e) { console.warn("could not list the standup days: " + e.message); }
 
-const result = { gatheredAt: new Date().toISOString(), board, boardActivity, cards: kept, standup, backForReview, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };
+// The worktrees whose card is resolved, from every board, with the signs of work left in each
+// (stale-worktrees.mjs); the page's last section offers to remove them. null when GitHub would not
+// say, so the page offers none on facts it could not check.
+let staleWorktrees = null;
+try { staleWorktrees = await listStaleWorktrees(); }
+catch (e) { console.warn("could not list the worktrees of resolved cards: " + e.message); }
+
+async function listStaleWorktrees() {
+  const execFileP = promisify(execFile);
+  const ghJson = async args => JSON.parse((await execFileP("gh", args, { maxBuffer: 64 << 20, windowsHide: true })).stdout);
+  const resolved = new Map(cards.filter(c => c.resolved).map(c => [c.id, c]));
+  const stale = worktrees.filter(w => resolved.has(w.card) && !w.main);
+  const repoOf = w => w.repo?.startsWith("github:") ? w.repo.slice(7) : null;
+  // Every open PR, by anyone, in the repos these worktrees belong to; a card's are those that name it.
+  const open = new Map(await Promise.all([...new Set(stale.map(repoOf).filter(Boolean))].map(async repo =>
+    [repo, await ghJson(["pr", "list", "-R", repo, "--state", "open", "--limit", "500", "--json", "url,title,headRefName,isDraft,author"])])));
+  const list = await Promise.all(stale.map(async w => {
+    const repo = repoOf(w), card = resolved.get(w.card);
+    const prs = (open.get(repo) || []).filter(p => cardOf(p.headRefName, p.title) === w.card)
+      .map(p => ({ url: p.url, title: p.title, headRefName: p.headRefName, isDraft: p.isDraft, author: p.author?.login === dev.github ? "" : p.author?.login || "" }));
+    // The newest merged PR from the branch, and the commits the branch has beyond it and its base.
+    let branchPr = null, afterMerge = null;
+    if (repo && w.upstreamBranch) {
+      const merged = (await ghJson(["pr", "list", "-R", repo, "--head", w.upstreamBranch, "--state", "merged", "--json", "url,headRefOid,baseRefName,mergedAt"]))
+        .sort((a, b) => b.mergedAt.localeCompare(a.mergedAt))[0];
+      if (merged) {
+        branchPr = { url: merged.url };
+        const n = run("git", ["-C", w.path, "rev-list", "--count", "--no-merges", "HEAD", "^" + merged.headRefOid, "^origin/" + merged.baseRefName]);
+        afterMerge = n == null ? null : Number(n);
+      }
+    }
+    const agents = (ps.get(w.path)?.agents || []).map(a => ({ state: agentState(a) }));
+    return {
+      card: w.card, cardUrl: card.url, title: card.summary, state: card.state,
+      path: w.path, name: w.name, branch: w.branch, orcaComment: w.orcaComment, lastCommit: w.lastCommit, pr: branchPr?.url || null,
+      warnings: removalWarnings(w, { prs, branchPr, afterMerge, agents, resolvedAt: card.resolved }),
+    };
+  }));
+  // The ones with nothing left in them first.
+  return list.sort((a, b) => a.warnings.length - b.warnings.length || a.card.localeCompare(b.card, undefined, { numeric: true }));
+}
+
+const result = { gatheredAt: new Date().toISOString(), board, boardActivity, cards: kept, standup, backForReview, staleWorktrees, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };
 writeFileSync(out, JSON.stringify(result, null, 2));
 if (boardActivity) console.log(`chose ${board}, the board with the most cards updated in the last 14 days: ${Object.entries(boardActivity).map(([b, n]) => `${b} ${n}`).join(", ")}`);
-console.log(`wrote ${out}${board ? ` for ${board}` : " for every board"}:${result.cards.length} cards, ${result.worktrees.length} worktrees, ${result.prs.length} PRs`);
+console.log(`wrote ${out}${board ? ` for ${board}` : " for every board"}:${result.cards.length} cards, ${result.worktrees.length} worktrees, ${result.prs.length} PRs, ${staleWorktrees?.length ?? "?"} worktrees of resolved cards`);

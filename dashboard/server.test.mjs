@@ -8,7 +8,7 @@
 // started would outlive it and hold the home folder open.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -92,6 +92,37 @@ test("a row the session wrote wrongly reaches the page, and events.log once", as
     const told = fs.readFileSync(path.join(data, "events.log"), "utf8").split("\n").filter(l => l.includes(" row: "));
     assert.equal(told.length, 1);
     assert.match(told[0], /^BL-2 row: has group "nearly".*\(rows\/BL-2\.json\)$/);
+  } finally {
+    s.child.kill();
+    await s.exit;
+    cleanup();
+  }
+});
+
+test("Remove refuses a worktree the facts don't list, and one that gained uncommitted files", async () => {
+  const { home, data, cleanup } = makeHome();
+  // A real checkout with a file git has not seen, which the facts said nothing about.
+  const wt = path.join(home, "wt");
+  fs.mkdirSync(wt);
+  spawnSync("git", ["init", "-q", wt]);
+  fs.writeFileSync(path.join(wt, "new.txt"), "x");
+  const stale = { card: "BL-3", title: "Done", state: "Closed", path: wt.replace(/\\/g, "/"), warnings: [] };
+  fs.writeFileSync(path.join(data, "facts.json"), JSON.stringify({ cards: [], prs: [], worktrees: [], staleWorktrees: [stale] }));
+  const port = await freePort();
+  const s = start(home, port);
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    await within(s.first, 15000, "DASHBOARD_URL");
+    assert.deepEqual((await (await fetch(base + "/api/state")).json()).staleWorktrees.map(w => w.card), ["BL-3"]);
+    const token = await tokenOf(base);
+    const remove = async body => (await postJson(base, "/api/remove-worktree", body, { "x-dashboard-token": token })).json();
+    const unlisted = await remove({ path: "D:/elsewhere", confirmed: [] });
+    assert.equal(unlisted.ok, false);
+    assert.match(unlisted.error, /does not list/);
+    const dirty = await remove({ path: stale.path, confirmed: [] });
+    assert.equal(dirty.ok, false);
+    assert.match(dirty.error, /now has 1 uncommitted file; nothing was removed/);
+    assert.ok(fs.existsSync(path.join(wt, "new.txt")));
   } finally {
     s.child.kill();
     await s.exit;

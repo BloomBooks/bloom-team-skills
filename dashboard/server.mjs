@@ -57,6 +57,7 @@ import { ownReview } from "./own-review.mjs";
 import { prComments } from "./pr-comments.mjs";
 import { STANDUP } from "./standup.mjs";
 import { changeTask, readTasks, TASK_ACTIONS } from "./tasks.mjs";
+import { unconfirmed } from "./stale-worktrees.mjs";
 import { agentEventLines, agentStates, cardOf, checkoutState, dataDir, enrichRows, liveAgents, readJson, readProgress, readRowFiles, rowsDir } from "./row-facts.mjs";
 import { orca, norm, setLog, bringOrcaToFront, openWorktree, createWorktree, runSkill, openInVsCode } from "../orca-worktrees.mjs";
 
@@ -193,6 +194,7 @@ async function gatherOnce() {
     // The session may have replaced facts.json while gather ran; compare with what is there now.
     const lines = diffFacts(readFacts() || prev, next);
     fs.renameSync(tmp, factsFile);
+    removedWorktrees.clear();   // the new facts no longer list them
     gatherOutage.ok();
     event(lines);
     log(`regathered: ${lines.length} changes`);
@@ -278,7 +280,33 @@ function readState() {
   return {
     serverPid: process.pid, board, developer, rows, problems, agents, tasks: readTasks(tasksFile),
     standup: facts?.standup || null, standupAt: STANDUP, backForReview: facts?.backForReview || null, gatheredAt: facts?.gatheredAt || "",
+    staleWorktrees: facts?.staleWorktrees?.filter(w => !removedWorktrees.has(norm(w.path))) ?? null,
   };
+}
+
+// ---- removing the worktrees of resolved cards -------------------------------------------------
+// The worktrees removed since the last gather, which the page stops showing at once.
+const removedWorktrees = new Set();
+// Removes one of the facts' staleWorktrees (stale-worktrees.mjs) with `orca worktree rm`, which
+// also deletes its branch when Orca can prove it merged and keeps it otherwise. `confirmed` names
+// the kinds of warning the developer saw and accepted. The facts can be 15 minutes old, so it looks
+// again at the two things that removal can harm (uncommitted files, a Claude session at work) and
+// refuses when either has appeared since; it forces the removal only past uncommitted files the
+// developer accepted.
+async function removeStaleWorktree({ path: p, confirmed = [] }) {
+  const w = readFacts()?.staleWorktrees?.find(s => norm(s.path) === norm(p));
+  if (!w) throw new Error("the dashboard does not list " + p + " as the worktree of a resolved card; press Refresh");
+  let dirty;
+  try { dirty = (await execFileP("git", ["-C", w.path, "status", "--porcelain"], { windowsHide: true })).stdout.split("\n").filter(Boolean).length; }
+  catch (e) { throw new Error("could not read git status in " + w.path + ": " + String(e.message).split("\n")[0]); }
+  const fresh = unconfirmed({ dirty, agents: agents[norm(w.path)] }, confirmed);
+  if (fresh.length) {
+    const what = { uncommitted: `${dirty} uncommitted file${dirty === 1 ? "" : "s"}`, agent: "a Claude session at work" };
+    throw new Error(`${w.path} now has ${fresh.map(k => what[k]).join(" and ")}; nothing was removed. Press Refresh and look again`);
+  }
+  const r = await orca("worktree", "rm", "--worktree", "path:" + w.path, "--delete-branch", ...(dirty ? ["--force"] : []));
+  removedWorktrees.add(norm(w.path));
+  log(`removed ${w.path} (${w.card}, resolved): ${JSON.stringify(r).slice(0, 300)}`);
 }
 
 // Makes a worktree for a card (createWorktree) and names it in events.log.
@@ -313,6 +341,7 @@ const ACTIONS = {
   "/api/run-skill": { front: true, run: b => runSkill(String(b.path || ""), String(b.skill || "")) },
   "/api/create": { front: true, run: b => createForCard({ card: String(b.card || ""), title: String(b.title || ""), pr: String(b.pr || "") }) },
   "/api/vscode": { run: b => openInVsCode(String(b.path || "")) },
+  "/api/remove-worktree": { run: b => removeStaleWorktree({ path: String(b.path || ""), confirmed: Array.isArray(b.confirmed) ? b.confirmed.map(String) : [] }) },
   "/api/gather": { run: async () => { const error = await regather(); if (error) throw new Error(error); } },
   ...Object.fromEntries(TASK_ACTIONS.map(a => ["/api/task/" + a, { run: b => ({ tasks: changeTask(tasksFile, a, b) }) }])),
 };

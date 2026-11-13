@@ -136,6 +136,23 @@ worktree) or **Reviewed**, from `standup.mjs`. A line at the stand-up's time (8:
 MST or MDT, `STANDUP`; shown in the developer's own time) splits a weekday, with the work before it below the line. The developer's tasks live in `tasks.json`
 (`tasks.mjs`), the one file here that nothing can work out again.
 
+## Worktrees you can probably remove
+
+The page's last section lists the Orca worktrees whose card YouTrack has resolved (Done, Closed,
+Won't Fix...), from every board, but never a repo's main checkout. `gather.mjs` lists them as
+`staleWorktrees`, and `stale-worktrees.mjs` works out the amber warnings under each, signs that
+work may be left: uncommitted files, commits not pushed, commits made after the branch's PR merged
+(or pushed commits in no merged PR), the card's open PRs by anyone, Claude working or asking a
+question there, and activity in Orca more than a day after the card was resolved (a worktree reused
+for something else). A worktree with no warnings sorts first.
+
+**Remove** asks the developer to confirm, listing the warnings, then the server runs `orca worktree
+rm --delete-branch`, which keeps the branch unless Orca can prove it merged, so only uncommitted
+files are lost. The facts can be 15 minutes old, so the server first looks again at the worktree's
+git status and its live agents, and refuses when uncommitted files or a Claude at work have
+appeared that the developer did not confirm. It passes `--force` only past uncommitted files the
+developer confirmed.
+
 Card links, PR links and State icons share four colours: green for work the developer still has
 to do, orange for Has Comments, purple for ready for review, blue for presumed done.
 
