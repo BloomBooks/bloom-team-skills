@@ -12,7 +12,8 @@ human review/merge; it does not ship or promote anything itself.
 
 **Core principle:** front-load all autonomous work. Batch every human decision into the final
 report. When the user's attention returns, the only things left should be ones that genuinely
-need them. Do **not** stop mid-run to ask.
+need them. Do **not** stop mid-run to ask, except where "A required step that did not run"
+below says to.
 
 If the branch turns out to have nothing new (no uncommitted work, no commits beyond the base,
 or a PR already clean), still run the gauntlet against the current HEAD — preflight is
@@ -276,6 +277,29 @@ work around it: surface the item in the decision report and note that the write 
 one-time settings change. See the repo README's **"Making the review skills actually autonomous"**
 for the `autoMode.allow` / `permissions.allow` setup that unblocks it.
 
+## A required step that did not run
+
+These steps are required: the local review (unless the user asked for "without review"), the
+walkaround and its `/simplify` (on the same terms), Devin (unless Phase 4 step 5 substitutes a
+reviewer for it), and the related tests of Phase 4 step 4. A required step that did not run,
+because a tool was missing, an agent could not be started, or the step failed before it finished,
+makes the run incomplete. So does a required reviewer recorded as "timed out after N min" under
+the terminal-state rule: it never finished reviewing the code, so the code has not had that review.
+
+An incomplete run:
+
+- marks that step `failed` in the progress file, with what did not run as its note;
+- opens the chat summary and the report with the line `INCOMPLETE: <step> did not run, <why>`,
+  above the narrative, one line per step that did not run;
+- leaves the board in its "needs response" state, and the report offers no merge, no hand-off
+  to peer review, and no other promotion.
+
+The developer learns of it from that first line and from the walkaround's own question
+(`walkaround` step 4), never from a row or a note further down. Doing a step's work some other
+way does not count as running it, with one exception: the light local review may be done inline
+after its sub-agent stalls (Phase 1), because it is a single read of the diff. `/simplify` has no
+such fallback.
+
 ## Autonomy line — when to REPORT instead of act
 
 Do it yourself when it's safe and clear. Put it in the decision report (and keep going on
@@ -458,8 +482,14 @@ When the script is not there (`$HOME/.claude/skills/dashboard` missing), skip th
 
 ## Phase 0 — Discover
 
-**Progress:** `progress start` and `progress discover running` first, before anything else;
-`progress discover done` when the phase ends.
+**First, confirm that this session can start sub-agents**: the Agent tool is in your tool list.
+The local review, the walkaround's `/simplify` and a substitute for Devin all start agents, so a
+session without the Agent tool (a fork, or a sub-agent that cannot start agents of its own)
+cannot run preflight. If the Agent tool is missing, stop at once, before any other step, and tell
+the developer with `AskUserQuestion` that preflight cannot run in this session and why.
+
+**Progress:** `progress start` and `progress discover running` once that check passes, before
+anything else; `progress discover done` when the phase ends.
 
 - Identify branch, base (default `master`/`main` — confirm via remote HEAD), and `owner/repo`
 from `git remote get-url origin`.
@@ -546,7 +576,9 @@ skipped "without review"`. `done` takes its note from the record that the walkar
 writes, and refuses (exit 1) when no walkaround has recorded the code as it stands now. So run it
 straight after the walkaround and its fast gate, before any other edit or the base merge, and
 never type the walkaround's result in yourself. When `done` refuses, the walkaround has not run
-on this code: run it.
+on this code, or its record does not say that `/simplify` ran or was not needed: run it. When the
+walkaround stops because `/simplify` could not run, run `progress walkaround failed "/simplify did
+not run: <why>"`; the run is incomplete ("A required step that did not run").
 
 ## Phase 2 — Integrate the base (before publishing)
 
@@ -827,7 +859,7 @@ instead, prefixed with an identifier of which model you are; check the PR's comm
 URL first so a re-run doesn't post it twice.
 - **If decision items remain** → (via the board skill) a "needs response / ball in the user's
 court" state, and deliver the **decision report**.
-- **If nothing remains** → (via the board skill) the user's **"ready for my own final review
+- **If nothing remains** and the run is complete → (via the board skill) the user's **"ready for my own final review
 before handing to a colleague"** state; leave the PR **draft**; deliver the summary. Never
 request a teammate's review and never mark the PR ready.
 
@@ -840,6 +872,9 @@ request a teammate's review and never mark the PR ready.
 - **Already done:** anything preflight changed related to it, if applicable.
 
 ### Final summary (always)
+
+When the run is incomplete, its `INCOMPLETE:` lines come first, above everything else ("A
+required step that did not run").
 
 **Open with the narrative, compressed to two or three sentences:** the problem (with the cause
 where it isn't obvious) or the purpose, and what the whole PR does about it. That is the first thing the user
@@ -928,7 +963,8 @@ after the developer had answered it.)
 - Every report links to the PR's own page from its header, and every chat summary prints the PR
 URL bare on its own line. A PR number in plain text, or a link only to the files view or a commit,
 is not that link (`references/report-artifact.md`, block 0 and the render check).
-- Every report and chat summary **opens with the current narrative for the whole PR** (problem /
+- Every report and chat summary **opens with the current narrative for the whole PR**, below the
+`INCOMPLETE:` lines of an incomplete run (problem /
 cause / fix, or purpose / what the PR does), maintained across runs — never replaced by notes on the latest run, and never
 omitted because "the user knows what this PR is" (someone else may pick up the card).
 - What changed *this run* is a **brief** note, not the report's substance. A settled decision or
@@ -951,5 +987,6 @@ auto-dismiss. A **bot** → auto-reply is always fine (documenting a fix, or ref
 - Idempotent & re-entrant: safe to re-run; it re-cycles from wherever the branch currently is
 (new commits restart the bot gauntlet).
 - Degrade gracefully: if a board skill / `gh` / a bot / the Devin trigger is unavailable, note it
-and continue with everything else.
+and continue with everything else. A required step that cannot run is not degraded: the run is
+incomplete ("A required step that did not run").
 

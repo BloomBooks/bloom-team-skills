@@ -30,6 +30,11 @@ Then check all of the following. **Any failure → go no further** (see "Not cle
   `devin-ai-integration` post covering HEAD, or the caller's durable marker — see the
   `personal-board` skill's Devin marker if available). Never go on without Devin having run.
 - **Mergeable** with the base branch.
+- **A finished walkaround has read this code**: `node "$HOME/.claude/skills/walkaround/record.mjs"
+  --check`, from the worktree, exits 0. It exits 1 when no walkaround record matches the code as
+  it stands (a base merge that git made with no hand edits does not count as a change), or the
+  record does not say that `/simplify` ran or was not needed. Never go on
+  without it, and never run the walkaround here.
 - **The test decision was made** (preflight's "The test decision"). Read the `Test of the
   change:` line in the Automated Tests section, or in a PR comment for a human-written
   description. Pass when it names a test, says `test-only change` (and the diff

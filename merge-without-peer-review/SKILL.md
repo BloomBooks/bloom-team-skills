@@ -66,7 +66,8 @@ preflight), Step 2 (squash), and Step 3 (make the card accurate).
 
 - Never merge without the "Approved Plan" tag on the card, and never merge a stacked PR into
   the PR beneath it.
-- Never merge with failing CI, unanswered bot comments, without Devin having run, or without the
+- Never merge with failing CI, unanswered bot comments, without Devin having run, without a
+  finished walkaround of the code as it stands (`record.mjs --check`), or without the
   test decision — bounce to preflight instead. No exceptions except an explicit user override
   ("skip the checks, merge anyway"), which must be noted in the report and in the PR comment.
 - Anything posted under the user's account (the tracker or GitHub) starts with an identifier of

@@ -111,6 +111,15 @@ An existing test is one already on the base branch; tests your branch added are 
 until it merges. No approval is needed to add new tests, or for mechanical updates that leave what a test checks
 unchanged: a rename, a moved file, a changed method signature.
 
+## A required quality step that cannot run stops the work
+
+The developer relies on knowing that the reviews, the walkaround, `/simplify` and the test suites
+that a workflow requires have run, and they do not read every line an agent prints. So when one of
+these steps cannot run (no way to start agents, a missing tool, an error), stop and tell the
+developer with `AskUserQuestion` which step did not run and why, before recording, pushing or
+reporting the work as done. Doing the step's work some other way counts only where the workflow
+names that fallback. A line in a report, a table row or a footnote is not telling the developer.
+
 ## Two agents in one tree overwrite each other, and it never looks like that
 
 This has cost real work three times, and **not once did it present as a conflict**. Nothing in

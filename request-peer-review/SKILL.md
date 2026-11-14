@@ -50,7 +50,8 @@ preflight), Step 2 (squash), and Step 3 (make the card accurate).
 
 ## Rules
 
-- Never hand off with failing CI, unanswered bot comments, without Devin having run, or without
+- Never hand off with failing CI, unanswered bot comments, without Devin having run, without a
+  finished walkaround of the code as it stands (`record.mjs --check`), or without
   the test decision —
   bounce to preflight instead. No exceptions except an explicit user override ("skip the
   checks, hand it off anyway"), which must be noted in the report.

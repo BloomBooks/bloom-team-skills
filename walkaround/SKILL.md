@@ -66,9 +66,17 @@ catches these, so the walkaround always covers the whole PR, never the latest fi
    it runs), with the target
    `every change on this branch: git diff origin/<base>...HEAD plus the staged changes`. Write the
    diff to a file and point its review agents at it, giving each the read-only rule: the tree is
-   live, so only you edit it. On a pass over a PR that an earlier walkaround already covered, run
-   it only when the fixes made since then added or restructured code; skip it when they were
-   small edits.
+   live, so only you edit it.
+
+   `/simplify` is required on every walkaround, with one exception: on a pass over a PR that an
+   earlier walkaround already covered, when the fixes made since then were small edits that added
+   or restructured no code, skip it and say so in the report, with the reason.
+
+   When `/simplify` cannot run (this session cannot start agents, the Skill tool is missing, or it
+   fails), the walkaround is incomplete. Stop there: record nothing, go no further, and ask the
+   developer with `AskUserQuestion`, saying that the walkaround is incomplete because `/simplify`
+   did not run, and why. Reading the diff yourself in place of its agents is not a run of
+   `/simplify`.
 
    Every agent that the walkaround starts to read the code and judge it, for `/simplify` or to
    review the PR in any other way, runs on the model of the session that invoked the
@@ -105,8 +113,10 @@ catches these, so the walkaround always covers the whole PR, never the latest fi
    Inside `preflight`, proposals go to its decision report. Run on its own, if there are 2 or less proposals, use `AskUserQuestion`. Otherwise use the Decider skill. Afterward offer to commit; this skill never commits.
 
 8. **Record the walkaround**, in the checkout of the PR you walked around, after the fast checks:
-   `node ~/.claude/skills/walkaround/record.mjs "<n> changes, <n> proposals"` (or
-   `"nothing to change"`). It records the code exactly as it stands, committed or not, and
-   preflight cannot mark its walkaround step done without a record that matches the code. A
+   `node ~/.claude/skills/walkaround/record.mjs --simplify ran "<n> changes, <n> proposals"` (or
+   `"nothing to change"`), or `--simplify not-needed "<reason>"` before the summary when step 4's
+   exception applied. It refuses without `--simplify`. It records the code exactly as it stands,
+   committed or not, and preflight cannot mark its walkaround step done without a record that
+   matches the code and says that `/simplify` ran or was not needed. A
    walkaround of another repository, such as a library that the PR bumps, is a walkaround of
    that repository's change only: the PR that uses the library needs its own.

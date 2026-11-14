@@ -118,7 +118,9 @@ per Visual style.)
 
 ### 0. Header — the run summary, the status chips, and the links row
 
-A one-line summary of the run, a row of status chips — **PR state**, mergeability, bots quiet,
+On an incomplete run, the header starts with its `INCOMPLETE: <step> did not run, <why>` lines
+(SKILL.md, "A required step that did not run"), above everything else on the page. Then a
+one-line summary of the run, a row of status chips — **PR state**, mergeability, bots quiet,
 and how many items are waiting on the user — and then a **links row**.
 
 **The links row is required, and the PR link leads it.** Going from the report straight to the

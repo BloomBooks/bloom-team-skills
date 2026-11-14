@@ -431,6 +431,3 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Idea:** Compare `fs.realpathSync(process.argv[1])` with the module's path, or print the usage
   line when the branch is skipped. Meanwhile, run it by its real path (`readlink -f`).
 - **Context:** BL-17109 preflight, building the report for PR 8567.
-- **Seen again 2026-11-14:** `walkaround/record.mjs` has the same check. Through the symlink it
-  exits 0 with no record, and `progress.mjs walkaround done` then refuses as if no walkaround ran
-  (saymore-plugin PR 4 preflight). Worth fixing in every skill script with this check at once.
