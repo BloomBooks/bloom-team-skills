@@ -12,12 +12,7 @@ does not count as new work; it changes no content.)
 
 ## Step 1 — Verify the PR is actually clean
 
-First, from the worktree, run `node "$HOME/.claude/skills/dashboard/progress.mjs" end` (skip it
-when that file is missing). It closes a preflight run that ended without recording its end, which
-the dashboard would otherwise show as preflight still going; a run that did record its end is
-left as it was.
-
-Then check all of the following. **Any failure → go no further** (see "Not clean" below).
+Check all of the following. **Any failure → go no further** (see "Not clean" below).
 
 - **Everything committed & pushed**: `git status` clean, no unpushed commits
   (`git log --branches --not --remotes --oneline`).
@@ -142,7 +137,8 @@ has not yet reviewed HEAD), it waits for that review before it reports done or m
 3. Read what it posted: the summary comment (it is edited in place, so re-read it), and any new
    inline comments.
    - **No findings** → go on.
-   - **Findings** → the PR is not clean. Put it back in draft (`gh pr ready <n> --undo`), leave
+   - **Findings** → the PR is not clean. Put it back in draft (`gh pr ready <n> --undo`, then
+     `node "$HOME/.claude/skills/dashboard/tell.mjs" pr-changed` when that file exists), leave
      the card where it was before this skill ran, and bounce to preflight, naming the findings.
      The developer runs this skill again once preflight has dealt with them.
    - **Nothing by the cap** → go on, and say in the report that a review from that bot may still

@@ -434,8 +434,8 @@ no CI.
 
 ## Progress for the dashboard
 
-The developer's dashboard shows which phase of a run is happening, read from a file that
-`dashboard/progress.mjs` in the bloom-team-skills clone writes. Each phase below opens with a
+The developer's dashboard shows which phase of a run is happening, from what
+`dashboard/progress.mjs` in the bloom-team-skills clone records. Each phase below opens with a
 **Progress** line naming its commands; `progress <args>` there means this, run from the worktree:
 
 ```
@@ -444,9 +444,10 @@ node "$HOME/.claude/skills/dashboard/progress.mjs" <args>
 
 Run each one as the change happens and go on at once: it is quick and never fails the run.
 
-- `progress start` forgets the last run; `progress end` closes this one. A run that stops early
-  still runs `progress end` before its last message: a run left without an end shows on the
-  dashboard as preflight still going.
+- `progress start` forgets the last run; `progress end` closes this one and records the commit
+  it ended on, which the dashboard compares the code with from then on. A run that stops early
+  marks the step it stopped on `failed` and still runs `progress end` before its last message;
+  without it the dashboard shows the run as paused, and Preflight as the step to run again.
 - `progress <step> <state> [short note]`: `<state>` is `running` when the step starts, then
   `done`, `failed` (it needs the developer) or `skipped`. Every step ends in one of those three
   before `end`, including a step that this run had nothing to do for (`skipped`, with the reason

@@ -1,6 +1,6 @@
 // Opens and creates Orca worktrees for YouTrack cards, and drives the Claude sessions in them.
-// dashboard/server.mjs (the page's buttons), the Worktree panel's worker
-// (dashboard/worktree-panel/worktree-facts.mjs) and work-on-youtrack/work-on-youtrack.mjs share
+// dashboard/service/service.mjs (the buttons of the dashboard page and the Worktree panel),
+// dashboard/plugin/panel-facts.mjs and work-on-youtrack/work-on-youtrack.mjs share
 // these.
 //
 //   import { orca, openWorktree, createWorktree, bringOrcaToFront } from "<repo>/orca-worktrees.mjs";

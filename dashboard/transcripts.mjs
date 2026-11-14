@@ -1,6 +1,6 @@
 // The developer's own prompts in Claude Code's session transcripts (~/.claude/projects/<folder>/
 // <session id>.jsonl, one JSON object per line). History (standup.mjs) counts them as work on a
-// card, and the Worktree panel (worktree-panel/worktree-facts.mjs) shows the last few, so both
+// card, and the Worktree panel (plugin/panel-facts.mjs) shows the last few, so both
 // read them here.
 
 export const oneLine = text => String(text).replace(/\s+/g, " ").trim();

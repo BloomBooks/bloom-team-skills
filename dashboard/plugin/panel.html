@@ -20,6 +20,11 @@
 #note[hidden] { display: none; }
 /* The project the worktree belongs to, as large as the dashboard's page heading. */
 h1.project { margin: 0; font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; overflow-wrap: anywhere; }
+/* The project's name with the service indicator in the upper right; its list opens under them. */
+.panel-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.panel-top h1 { min-width: 0; }
+.panel-top .service-chip { flex: none; margin-top: 3px; }
+.service-pop { top: 46px; left: 12px; right: 12px; width: auto; box-sizing: border-box; max-height: calc(100vh - 60px); overflow-y: auto; }
 section.group { gap: 10px; }
 /* The row's cells, which the dashboard lays out as table columns, one under another. */
 .row-box { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
@@ -62,7 +67,11 @@ ul.prompts .title { flex-basis: auto; }
 </head>
 <body>
 <div class="panel">
-  <h1 class="project" id="project"></h1>
+  <div class="panel-top">
+    <h1 class="project" id="project"></h1>
+    <button type="button" class="service-chip" id="service" title="The dashboard service: what it reads, the code it runs, and Restart"><span class="service-dot" aria-hidden="true"></span><span class="service-label">Service</span></button>
+  </div>
+  <div class="service-pop" id="service-pop" hidden></div>
   <p id="note" hidden></p>
   <div id="main"><p class="quiet">Reading the worktree…</p></div>
 </div>

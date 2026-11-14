@@ -175,26 +175,29 @@ different directory can be linked the same way.)
 
 </details>
 
-### The Orca plugins
+### The dashboard service and its Orca plugin
 
-The `dashboard` skill comes with two Orca plugins, which run from your clone, so pulls update them:
+The `dashboard` skill is a service that runs on your machine while Orca does, from your clone, so
+pulls update it. Orca's Bloom plugin starts it, and it exits once Orca has quit. It serves the dashboard page at http://127.0.0.1:47600/ and one Orca
+plugin ([`dashboard/orca-plugin.json`](dashboard/orca-plugin.json) with
+[`dashboard/plugin/`](dashboard/plugin)):
 
-- **Bloom Dashboard button**, in [`dashboard/orca-plugin/`](dashboard/orca-plugin), in Orca's
-  status bar. Pressing it opens the dashboard, starting a Claude session for it in your
-  bloom-team-skills checkout when none is running, and closing the dashboard window ends that
-  session again.
-- **Worktree panel**, in [`dashboard/worktree-panel/`](dashboard/worktree-panel) (its manifest is
-  `dashboard/orca-plugin.json`), a tab in Orca's right sidebar. It shows the dashboard's row for
-  the worktree that Orca has focused (card, PR, Process steps with the next skill's button, where
-  the work stands), then the checkout's git state, its Claude session, and your last three prompts
-  in that session. It needs no dashboard running.
+- **Bloom Dashboard button**, in Orca's status bar. Pressing it shows the dashboard window. It
+  also says how many cards wait for you.
+- **Worktree panel**, a tab in Orca's right sidebar. It shows the dashboard's row for the worktree
+  that Orca has focused (card, PR, Process steps with the next step's button, where the work
+  stands), then the checkout's git state, its Claude session, and your last three prompts in that
+  session.
 
-`/update-team-skills` and `/dashboard` load both and ask you to approve the access they need. The
-daily auto-update loads them too, and leaves the approval to you. To do it yourself:
+[`dashboard/README.md`](dashboard/README.md) says how it works.
+
+`/update-team-skills` and `/dashboard` set it up and ask you to approve the access the plugin needs. The
+daily auto-update sets it up too, and leaves the approval to you. To do it yourself:
 
 ```bash
-node <your clone>/dashboard/orca-plugins.mjs            # load both, and list the access each asks for
-node <your clone>/dashboard/orca-plugins.mjs --approve  # approve that access
+node <your clone>/dashboard/service/install.mjs            # hooks, the service, the plugin
+node <your clone>/dashboard/service/install.mjs --approve  # the same, and approve the plugin's access
+node <your clone>/dashboard/service/start.mjs --show       # show the dashboard window
 ```
 
 The button may read your workspaces, open them, type into the terminal that it starts, and keep

@@ -53,7 +53,9 @@ preflight), Step 2 (squash), and Step 3 (make the card accurate).
 4. **Move the card to the project's "ready for testing" state**, through the tracker skill, and
    confirm the tracker echoes the new state back. Ask for it *semantically* — in Bloom's
    YouTrack it is `Ready For Testing`. Never move it backwards (`before-merge-or-peer-review.md`,
-   Step 3). No ticket id → skip and note it.
+   Step 3). No ticket id → skip and note it. Then run
+   `node "$HOME/.claude/skills/dashboard/tell.mjs" card-changed` (skip it when that file is
+   missing), so the developer's dashboard drops the card's row at once.
 5. **Correct the published preflight report's PR-state chip** to `merged`, as
    `before-merge-or-peer-review.md` describes.
 6. **Personal board**: if a `personal-board` skill is available, invoke it to record that the work

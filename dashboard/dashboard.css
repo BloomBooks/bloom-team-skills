@@ -1,4 +1,4 @@
-/* The dashboard's styles. board.html and the Worktree panel in Orca (worktree-panel/panel.html)
+/* The dashboard's styles. board.html and the Worktree panel in Orca (plugin/panel.html)
    both load this file. */
 /* Layout: the cards grouped by how close they are to review. Dark, to sit beside the
    developer's editor and terminals. */
@@ -261,3 +261,37 @@ ul.lines.stale .warnings a { color: inherit; }
 .stale-note { margin: 0; font-size: 13px; color: var(--you); }
 .stale-note[hidden] { display: none; }
 @media (max-width: 640px) { .stale-main { flex-wrap: wrap; } }
+
+/* The service indicator in the top bar: a dot and a word, green when every source answered its
+   last read, amber when one did not, red when the page has lost the service. Its panel lists each
+   source with the age of its last read. */
+button.service-chip { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13px; color: #C9C5BC; background: none; border: 1px solid #4A4946; border-radius: 999px; padding: 2px 10px; cursor: pointer; }
+button.service-chip:hover { border-color: #8b95a5; }
+.service-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--agent); flex: none; }
+.service-chip.warn .service-dot { background: var(--you); }
+.service-chip.warn { color: var(--you); }
+.service-chip.down .service-dot { background: #ff6b6b; }
+.service-chip.down { color: #ff8f8f; border-color: #ff6b6b; }
+.service-pop { position: fixed; top: 54px; right: max(16px, env(safe-area-inset-right, 0px)); z-index: 30; width: min(560px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); font-size: 13px; }
+.service-pop dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0 0 12px; }
+.service-pop dt { color: var(--muted); }
+.service-pop dd { margin: 0; overflow-wrap: anywhere; }
+.service-pop dd.bad { color: #ff8f8f; }
+.service-pop dd.warn { color: var(--you); }
+
+/* "Where it stands": what the service computed, prose written by a model (dimmed while it is
+   older than the facts), a source that could not be read, and "Why?". */
+.stands .prose, .stands .computed { display: block; }
+.stands .computed { color: var(--muted); }
+.stands .prose.stale { opacity: 0.55; font-style: italic; }
+.stands .unknown { display: block; margin-top: 3px; font-size: 12px; color: var(--you); }
+.failed { margin: 4px 0 0; font-size: 12px; color: #ff8f8f; }
+details.why { margin-top: 6px; font-size: 12px; color: var(--muted); }
+details.why summary { cursor: pointer; width: max-content; color: var(--muted); }
+details.why summary:hover { color: var(--fg); }
+details.why dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin: 6px 0; }
+details.why dt { color: var(--muted); }
+details.why dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
+details.why dd small { color: var(--muted); }
+details.why ul.events { list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: 1px solid var(--line); }
+details.why ul.events time { color: var(--muted); font-variant-numeric: tabular-nums; }

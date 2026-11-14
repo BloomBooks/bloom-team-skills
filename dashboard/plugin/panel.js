@@ -1,11 +1,15 @@
 // The Worktree panel: the dashboard's row for the worktree that Orca has focused, drawn by the
-// dashboard's own code (../row.js), then the checkout and the worktree's Claude session with the
-// developer's last prompts in it. The worker (worker.ts, worktree-facts.mjs) answers
-// "worktree.state" with the row and the worktree's live agents, as the dashboard server gives
-// them to its page.
-const POLL_MS = 5000;
+// dashboard's own code (../row.js) from what the dashboard service computed, then the checkout
+// and the worktree's Claude session with the developer's last prompts in it. The plugin's worker
+// (worker.ts) answers "worktree.state" and passes "action" on to the service.
+//
+// The panel reads again when the worker says that the service's state changed ("state"), when Orca
+// says that the focused workspace or an agent's status changed, and every SLOW_MS, which is what
+// notices the developer moving to another pane of the same worktree.
+const FRONT = false;
+const SLOW_MS = 5000;
 
-let current = null;      // the focused workspace: { displayName, branch }
+let current = null;      // the focused workspace: { displayName, branch, terminalIds }
 let paneKey = null;      // the Claude session picked, when the worktree runs several
 let lastJson = "";
 let lastState = null;
@@ -17,33 +21,37 @@ function showNote(text) {
   n.hidden = !text;
 }
 
-// The page's buttons post to its server; here the same paths go to the worker.
-const ACTIONS = { "/api/run-skill": "worktree.runSkill", "/api/open": "worktree.open", "/api/vscode": "worktree.vscode", "/api/prompt": "worktree.prompt" };
-async function post(path, body, failure = "Orca couldn't do that") {
+// The same actions as the dashboard page's buttons, sent through the worker to the service, on
+// the session the selector shows: the one picked, or else the one the worker chose to follow.
+async function act(body, failure = "Couldn't do that") {
   showNote("");
   try {
-    if (!ACTIONS[path]) throw new Error("the panel has no " + path);
-    // The session the selector shows: the one picked, or else the one the worker chose to follow.
-    await orca.plugin.request(ACTIONS[path], { ...body, paneKey: paneKey ?? lastState?.followed ?? null }, { timeoutMs: 60000 });
-    return true;
+    const answer = await orca.plugin.request("action", { ...body, paneKey: paneKey ?? lastState?.followed ?? null }, { timeoutMs: 90000 });
+    refresh();
+    return answer;
   } catch (e) {
     showNote(failure + ": " + (e.message || e.code || e));
-    return false;
+    return null;
   }
 }
 
+let reading = false, again = false;
 async function refresh() {
+  if (reading) { again = true; return; }
   const c = current;
   if (!c) return;
+  reading = true;
   let s;
   try {
-    s = await orca.plugin.request("worktree.state", { ...c, paneKey }, { timeoutMs: 90000 });
+    s = await orca.plugin.request("worktree.state", { ...c, paneKey }, { timeoutMs: 60000 });
   } catch (e) {
     if (c === current) showNote("Couldn't read this worktree: " + (e.message || e.code || e));
     return;
+  } finally {
+    reading = false;
+    if (again) { again = false; setTimeout(refresh, 0); }
   }
   if (c !== current) return;
-  // A read that failed (the worker restarting, say) stops being news once one succeeds.
   if (document.getElementById("note").textContent.startsWith("Couldn't read this worktree")) showNote("");
   // Moving to another pane in the worktree supersedes a session picked earlier: the panel follows
   // the pane the developer is looking at.
@@ -57,8 +65,9 @@ async function refresh() {
     }
   }
   lastState = s;
+  renderService();
   const json = JSON.stringify(s);
-  if (json === lastJson && !launched.size) return;
+  if (json === lastJson) return;
   lastJson = json;
   render(s);
 }
@@ -66,20 +75,6 @@ async function refresh() {
 // ---- drawing ---------------------------------------------------------------------------------
 
 const cell = (name, ...kids) => el("div", {}, el("p", { class: "cell-name" }, name), ...kids);
-
-// What the page's "Where it stands" cell holds: a preflight run's phases while one runs, or the
-// row's status, comments, question and next step.
-function standsCell(s, d) {
-  if (d.runShowing) return preflightSteps(d.progress);
-  if (!s.hasRow && !d.question) return el("p", { class: "quiet" }, "The dashboard has no row for this card; /dashboard writes one.");
-  return el("div", { class: "stands" }, d.status || "",
-    d.comments ? commentsLine(d.comments) : null,
-    d.question ? el("span", { class: "question" }, el("b", {}, "Claude asks: "), d.question) : null,
-    d.next ? el("span", { class: "next" }, el("b", {}, "Next: "), d.next) : null);
-}
-
-// The worktree's folder, which opens in VS Code, as the dashboard's row shows it.
-const folderButton = p => action("orca wt", "Open this folder in VS Code", p, () => post("/api/vscode", { path: p }), "vscode:" + p);
 
 // The project's name from its repo's: "bloom" (BloomDesktop) reads "Bloom", "bloom-team-skills"
 // "Bloom Team Skills", "bloom-bot-repo" "Bloom Bot", "BloomLibrary" "Bloom Library".
@@ -89,20 +84,22 @@ function projectName(repo) {
   return words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
+// A button for a worktree that has no row: the service still opens its folder and types prompts.
+const plainButton = { enabled: true, reason: "" };
+
 // The row, as the dashboard draws its cells (without its Orca button: this is Orca), stacked for
 // the sidebar. Only a card's worktree has one.
 function rowBox(s) {
-  const [d] = withLiveAgents([s.d], { [normPath(s.d.worktree)]: s.live });
+  const d = s.row;
   const links = el("span", { class: "links" });
   if (d.pr) links.append(prLinks(d.pr, PR_TONE[d.prState]));
-  links.append(folderButton(d.worktree));
+  links.append(folderButton(d));
   const card = el("div", { class: "card-cell" },
     el("span", { class: "title" }, d.title || ""),
-    d.card ? el("span", { class: "meta" }, el("span", { class: "id" }, stateIcon(d.ytState), cardLabel(d))) : null,
+    el("span", { class: "meta" }, el("span", { class: "id" }, stateIcon(d.ytState), cardLabel(d))),
     links);
-  const box = el("section", { class: "row-box" + (d.who === "agent" ? " agent-row" : "") },
-    el("div", { class: "head" }, card, el("div", { class: "upd" }, s.hasRow ? localTime(d.updated) : "")));
-  box.append(cell("Process", processCell(d)), cell("Where it stands", standsCell(s, d)));
+  const box = el("section", { class: "row-box" + (d.busy ? " agent-row" : "") }, el("div", { class: "head" }, card));
+  box.append(cell("Process", processCell(d)), cell("Where it stands", standsCell(d)));
   return box;
 }
 
@@ -111,16 +108,18 @@ function checkout(s) {
   const g = s.git;
   const item = (label, value, warn, link) =>
     [el("dt", {}, label), el("dd", {}, el("span", warn ? { class: "warn" } : {}, value), link || null)];
+  if (!g) return el("section", { class: "group" }, el("dl", { class: "kv" }, ...item("Branch", el("code", {}, s.branch)), ...item("Checkout", s.gitError || (s.connected ? "not read yet" : "the dashboard service is not answering"), true)));
   // A link that asks the worktree's Claude session to commit, or to commit and push.
   const ask = (prompt, text) => action("orca ask", `Ask this worktree's Claude session to ${text.toLowerCase()}`, text,
-    () => post("/api/prompt", { path: s.d.worktree, prompt }), prompt + ":" + s.d.worktree);
+    () => act({ action: "prompt", path: s.path, prompt }), prompt + ":" + s.path);
+  const changed = g.uncommitted + g.untracked;
   return el("section", { class: "group" },
     el("dl", { class: "kv" },
       ...item("Branch", el("code", {}, s.branch)),
-      ...(s.d.card ? [] : item("Folder", folderButton(s.d.worktree))),
-      ...item("Uncommitted", g.changed ? plural(g.changed, "file") : "nothing", g.changed > 0, g.changed > 0 ? ask("commit", "Commit") : null),
+      ...(s.row ? [] : item("Folder", serviceButton(plainButton, { action: "vscode", path: s.path }, "orca wt", s.path, "vscode:" + s.path))),
+      ...item("Uncommitted", changed ? plural(changed, "file") : "nothing", changed > 0, changed > 0 ? ask("commit", "Commit") : null),
       ...item("Unpushed", g.unpushed === null ? "branch not pushed" : g.unpushed ? plural(g.unpushed, "commit") : "nothing", g.unpushed !== 0,
-        g.changed > 0 || g.unpushed !== 0 ? ask("commit-push", "Commit and Push") : null),
+        changed > 0 || g.unpushed !== 0 ? ask("commit-push", "Commit and Push") : null),
       ...item("Behind " + g.base, g.behind === null ? "unknown" : g.behind ? plural(g.behind, "commit") : "up to date", g.behind > 0)));
 }
 
@@ -167,12 +166,22 @@ function recentPrompts(s) {
       : el("p", { class: "quiet" }, "No prompts yet."));
 }
 
+// The service indicator, from the last answer: the service's own status, or that it did not answer.
+let lostAt = 0;
+function renderService() {
+  const up = !!lastState?.connected;
+  if (up) lostAt = 0; else lostAt ||= Date.now();
+  drawService(lastState?.service ?? null, up, lostAt);
+}
+
 function render(s) {
   const main = document.getElementById("main");
   const title = document.getElementById("project");
   if (!s.found) { title.textContent = ""; main.replaceChildren(el("p", { class: "quiet" }, s.reason)); return; }
   title.textContent = projectName(s.repo);
-  main.replaceChildren(el("div", { class: "panel-main" }, s.d.card ? rowBox(s) : null, checkout(s), session(s)), recentPrompts(s));
+  const gone = s.connected ? null : el("p", { class: "quiet" }, "The dashboard service is not answering, so this worktree's card and checkout are not shown. The plugin is starting it.");
+  const forms = (s.deciders || []).map(d => { const a = link("http://127.0.0.1:47600" + d.path, "Needs your decision: " + (d.topic || d.name)); a.className = "chip you pill-link"; return a; });
+  main.replaceChildren(el("div", { class: "panel-main" }, gone, ...forms, s.row ? rowBox(s) : null, checkout(s), session(s)), recentPrompts(s));
 }
 
 // ---- wiring ----------------------------------------------------------------------------------
@@ -202,6 +211,12 @@ orca.on("workspace.changed", ({ context }) => {
   }
   refresh();
 });
+wireService(renderService);
 orca.on("agent.status.changed", () => refresh());
-setInterval(refresh, POLL_MS);
-setInterval(() => { for (const e of document.querySelectorAll(".elapsed[data-since]")) e.textContent = elapsedText(Number(e.dataset.since)); }, 15000);
+orca.on("state", () => refresh());
+setInterval(() => { if (document.visibilityState === "visible") refresh(); }, SLOW_MS);
+setInterval(() => {
+  for (const e of document.querySelectorAll(".elapsed[data-since]")) e.textContent = elapsedText(Number(e.dataset.since));
+  for (const e of document.querySelectorAll("small[data-ago]")) e.textContent = ` ${e.dataset.source}, read ${agoText(Number(e.dataset.ago))}`;
+  if (!document.getElementById("service-pop").hidden) renderService();
+}, 15000);

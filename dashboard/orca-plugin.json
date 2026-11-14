@@ -1,15 +1,15 @@
 {
   "manifestVersion": 2,
-  "id": "bloom-worktree",
-  "name": "Bloom Worktree",
-  "version": "0.1.0",
-  "description": "A sidebar panel that shows the Bloom dashboard's view of the focused worktree: its card, PR, where the work stands, the next step of Bloom's process, its Claude session, and your last prompts there.",
+  "id": "bloom",
+  "name": "Bloom",
+  "version": "0.2.0",
+  "description": "The Bloom dashboard inside Orca: a status bar button that shows the dashboard, and a Worktree panel with the dashboard's row for the focused worktree, its checkout, its Claude session and your last prompts there. Both draw what the dashboard service on this machine computes.",
   "engines": {
     "orca": ">=1.4.248"
   },
   "execution": "trusted-worker",
   "pluginApi": 1,
-  "main": "worktree-panel/worker.ts",
+  "main": "plugin/worker.ts",
   "capabilities": [
     {
       "kind": "workspace:read"
@@ -19,12 +19,39 @@
     }
   ],
   "contributes": {
+    "commands": [
+      {
+        "id": "dashboard.show",
+        "title": "Show the Bloom dashboard"
+      }
+    ],
+    "events": [
+      {
+        "on": "agent.status.changed"
+      },
+      {
+        "on": "workspace.created"
+      },
+      {
+        "on": "workspace.removed"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "dashboard",
+        "text": "Bloom Dashboard",
+        "icon": "gauge",
+        "tooltip": "Show the Bloom dashboard",
+        "command": "dashboard.show",
+        "tone": "warning"
+      }
+    ],
     "panels": [
       {
         "id": "worktree",
         "title": "Worktree",
         "icon": "gauge",
-        "entry": "worktree-panel/panel.html"
+        "entry": "plugin/panel.html"
       }
     ]
   }

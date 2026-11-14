@@ -1,7 +1,7 @@
 // The worktrees that the page's last section offers to remove: each Orca worktree (other than a
 // repo's main checkout) whose branch or path names a card that YouTrack has resolved (Done, Closed,
 // Won't Fix and the like). gather.mjs lists them as `staleWorktrees`, with the signs that work may
-// still be left in each, and server.mjs removes one when the developer asks.
+// still be left in each, and service/service.mjs removes one when the developer asks.
 //
 // Removing a worktree with `orca worktree rm --delete-branch` keeps its branch unless Orca can
 // prove the branch merged, so of the warnings only `uncommitted` names something that removal
