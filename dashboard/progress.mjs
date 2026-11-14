@@ -7,17 +7,19 @@
 //
 // <step> is one of RUN_STEPS in row-facts.mjs; <state> is running, done, failed or skipped. The
 // run belongs to the git checkout of the current folder (or --worktree <path>). It writes
-// ~/.claude/bloom-dashboard/progress/<checkout>.json, which the dashboard server reads; row-facts.mjs
-// describes the states a run goes through. `end` also records the commit the run ended on (`head`)
-// and its tree (`tree`), which tell the dashboard whether the code has changed since. `end` leaves
-// a run that already ended alone, so request-peer-review and merge-without-peer-review can close a
-// run that preflight left open without moving its end. It never fails the caller: a problem
+// ~/.claude/bloom-dashboard/progress/<checkout>.json and then tells the dashboard service, which
+// reads the file (service/runs.mjs describes the states a run goes through). The file is the
+// record: a service that is not running reads it when it starts. `start` records the Claude Code
+// session that runs the skill. `end` also records the commit the run ended on (`head`) and its
+// tree (`tree`), which tell the dashboard whether the code has changed since, and leaves a run
+// that already ended alone. It never fails the caller: a problem
 // prints a warning and exits 0. The one exception is `walkaround done`, which exits 1 unless the
 // walkaround skill's record.mjs has recorded the working copy exactly as it stands now; with no
 // note, the step takes the summary from that record.
 import fs from "node:fs";
+import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { RUN_STATES, RUN_STEPS, norm, progressDir, progressFile } from "./row-facts.mjs";
+import { RUN_STATES, RUN_STEPS, dataDir, norm, progressDir, progressFile } from "./row-facts.mjs";
 import { readRecord, workingTree } from "../walkaround/record.mjs";
 
 try {
@@ -32,7 +34,7 @@ try {
   const [step, state, ...noteWords] = args;
   let run = {};
   try { run = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
-  if (step === "start") run = { worktree: key, startedAt: now, steps: {} };
+  if (step === "start") run = { worktree: key, session: process.env.CLAUDE_CODE_SESSION_ID || null, startedAt: now, steps: {} };
   else if (step === "end") {
     if (run.endedAt || !run.startedAt) process.exit(0);
     run.endedAt = now;
@@ -63,6 +65,14 @@ try {
   }
   run.updatedAt = now;
   fs.writeFileSync(file, JSON.stringify(run, null, 2));
+  // The service also watches the folder; this reaches it sooner, and costs at most half a second.
+  try {
+    const key = fs.readFileSync(path.join(dataDir(), "service.key"), "utf8").trim();
+    await fetch(`http://127.0.0.1:${Number(process.env.BLOOM_DASHBOARD_PORT || 47600)}/tell`, {
+      method: "POST", headers: { "content-type": "application/json", "x-bloom-key": key },
+      body: JSON.stringify({ kind: "progress", worktree: run.worktree }), signal: AbortSignal.timeout(500),
+    });
+  } catch {}
 } catch (e) {
   console.warn("progress.mjs: " + e.message);
 }

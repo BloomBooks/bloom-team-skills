@@ -40,17 +40,18 @@ overwrites an existing link or touches skills that aren't part of this repo.
    It adds a SessionStart hook to `~/.claude/settings.json` (or reports it is already there). From
    then on, the first Claude Code session each day starts a background `git pull --ff-only` and links
    new skill folders, without delaying the session. It pulls only when the clone is on `main` with no
-   uncommitted changes to tracked files. It also loads the Orca plugins of step 6, without
-   approving them. Results go to `~/.claude/bloom-team-skills-update.log`.
-6. **Load the Orca plugins.** Run `node <repo>/dashboard/orca-plugins.mjs`. It loads the
-   dashboard's two Orca plugins from the clone: the Bloom Dashboard button in Orca's status bar and
-   the Worktree panel in its right sidebar. It says so when `orca` is not installed; then skip this
-   step. Exit code 3 means that Orca has not approved one of them (a first load, or a pull changed
-   its access, its button or its panel), and the output lists the access each one asks for. Show
-   the developer that list and ask once whether to approve it, since the plugins run code under
-   their account. On a yes, run the same command with `--approve`.
+   uncommitted changes to tracked files. It also sets up the dashboard as in step 6, without
+   approving its Orca plugin. Results go to `~/.claude/bloom-team-skills-update.log`.
+6. **Set up the dashboard.** Run `node <repo>/dashboard/service/install.mjs`. It writes the
+   dashboard service's Claude Code hooks into `~/.claude/settings.json`, starts the service from
+   the clone when Orca is running, and loads its Orca plugin (the Bloom
+   Dashboard button in Orca's status bar and the Worktree panel in its right sidebar). It says so
+   when `orca` is not installed. Exit code 3 means that Orca has not approved the plugin (a first
+   load, or a pull changed its access, its button or its panel), and the output lists the access it
+   asks for. Show the developer that list and ask once whether to approve it, since the plugin runs
+   code under their account. On a yes, run the same command with `--approve`.
 7. **Report.** Summarise: pull result, which links were newly created, which already existed, any
-   removed, whether the hook was installed, and each Orca plugin's state from step 6. A running session notices changed and newly linked
+   removed, whether the hook was installed, and what step 6 printed. A running session notices changed and newly linked
    skills within a few seconds, so no restart is needed.
 
 ## Commands

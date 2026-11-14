@@ -113,7 +113,9 @@ later about: <title>"; notes follow as `Notes: <text>`.
   prints the answers when the user presses Send to Claude, and exits, so the session wakes as soon
   as they do. The bar across the top shows the worktree's branch; pass
   `--topic "<a few words>"` when the form is about something else. The page posts its answers as
-  plain text to `window.DECIDER_ENDPOINT`, which the server sets.
+  plain text to `window.DECIDER_ENDPOINT`, which whoever serves the page sets: the dashboard
+  service when one runs on the machine, which also lists the form on the dashboard beside its card
+  until it is answered, and otherwise the script itself.
 - **A subscriber-only link the developer can open anywhere:** run
   `node <this folder>/build-form.mjs <form.json> <page.html>` and publish the page with the
   Artifact tool, with `capabilities: {"comments": {}}` so that Send to Claude posts a comment that

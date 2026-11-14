@@ -1,11 +1,16 @@
-// Serves one decider page on 127.0.0.1, opens it in the default browser, and waits for the
-// page to POST its answers. Prints the answers to stdout and exits, so the agent that started
-// this in the background is notified the moment the user sends.
+// Shows one decider page to the developer and waits for the page to send its answers. Prints the
+// answers to stdout and exits, so the agent that started this in the background is notified the
+// moment the user sends.
 //
 // Usage: node claude-decider.mjs --name <form-name> <form.json | page.html> [--topic "<few words>"] [--no-open] [--timeout-min N]
 //
+// The page goes to the dashboard service on this machine when one runs (dashboard/service): the
+// service serves it, lists it on the dashboard with the other forms that wait, and hands the
+// answers back here. Any number of sessions can have a form waiting, and this process only waits.
+// With no service, this process serves the page itself on a port of its own.
+//
 // A form.json (see SKILL.md) is built into a page with form.html, whose script POSTs the answers
-// as plain text to window.DECIDER_ENDPOINT, which this server sets.
+// as plain text to window.DECIDER_ENDPOINT, which whoever serves the page sets.
 //
 // The file name and --name are what a person sees in Task Manager's "Command line" column,
 // so keep this file named claude-decider.mjs and pass a short name for the form. The bar and the
@@ -13,6 +18,8 @@
 // (the session's worktree, e.g. "BL-16822-Inline-Fixes"), or --topic's words instead.
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { buildForm } from "./build-form.mjs";
@@ -113,44 +120,80 @@ function focusOrcaTab(done) {
   setTimeout(() => { child.kill(); finish("ORCA_FOCUS timed out"); }, 5000).unref();
 }
 
-const server = http.createServer((req, res) => {
-  if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-    res.end(page());
-    return;
-  }
-  if (req.method === "POST" && req.url === endpoint) {
-    let body = "";
-    req.setEncoding("utf8");
-    req.on("data", c => { body += c; if (body.length > 1e6) req.destroy(); });
-    req.on("end", () => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true }), () => {
-        focusOrcaTab(focusNote => {
-          process.stdout.write(focusNote + "\n=== DECIDER ANSWERS (" + name + ") ===\n" + body + "\n=== END DECIDER ANSWERS ===\n", () => {
-            server.close();
-            process.exit(0);
-          });
-        });
-      });
-    });
-    return;
-  }
-  res.writeHead(404); res.end();
-});
-
-server.listen(0, "127.0.0.1", () => {
-  const url = `http://127.0.0.1:${server.address().port}/`;
-  console.log("DECIDER_URL " + url + " (" + name + ", pid " + process.pid + ")");
-  if (!noOpen) {
-    const [cmd, cmdArgs] = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]]
-      : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
-    spawn(cmd, cmdArgs, { stdio: "ignore", detached: true }).unref();
-  }
-});
-server.on("error", e => { console.error("SERVER_ERROR " + e.message); process.exit(1); });
+// Prints the answers for the session that waits on this process, and exits.
+function deliver(body) {
+  focusOrcaTab(focusNote => {
+    process.stdout.write(focusNote + "\n=== DECIDER ANSWERS (" + name + ") ===\n" + body + "\n=== END DECIDER ANSWERS ===\n", () => process.exit(0));
+  });
+}
+function openInBrowser(url) {
+  if (noOpen) return;
+  const [cmd, cmdArgs] = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]]
+    : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
+  spawn(cmd, cmdArgs, { stdio: "ignore", detached: true }).unref();
+}
 
 setTimeout(() => {
   console.log("DECIDER_TIMEOUT no answers after " + timeoutMin + " minutes");
   process.exit(3);
 }, timeoutMin * 60 * 1000).unref();
+
+// The dashboard service, when one runs: it takes the page and this process asks it for the
+// answers, each request waiting up to 50 seconds. Returns false when no service took the page.
+async function throughService() {
+  const service = `http://127.0.0.1:${Number(process.env.BLOOM_DASHBOARD_PORT || 47600)}`;
+  let key;
+  try { key = fs.readFileSync(path.join(os.homedir(), ".claude", "bloom-dashboard", "service.key"), "utf8").trim(); } catch { return false; }
+  const headers = { "content-type": "application/json", "x-bloom-key": key };
+  let made;
+  try {
+    const r = await fetch(service + "/decider", { method: "POST", headers, signal: AbortSignal.timeout(4000),
+      body: JSON.stringify({ name, topic, html: page(), cwd: process.cwd(), session: process.env.CLAUDE_CODE_SESSION_ID || null }) });
+    made = r.ok ? await r.json() : null;
+  } catch { return false; }
+  if (!made?.ok) return false;
+  console.log("DECIDER_URL " + made.url + " (" + name + ", pid " + process.pid + ", served by the dashboard service)");
+  openInBrowser(made.url);
+  for (let failures = 0; ;) {
+    try {
+      const r = await fetch(`${service}/decider/${made.id}/wait`, { headers, signal: AbortSignal.timeout(70_000) });
+      if (r.status === 404) { console.log("DECIDER_GONE the dashboard service no longer has this form"); process.exit(4); }
+      const j = await r.json();
+      failures = 0;
+      if (j.answered) return void deliver(j.answers);
+    } catch {
+      // The service restarts onto new code within a few seconds and still has the form.
+      if (++failures > 60) { console.log("DECIDER_LOST the dashboard service stopped answering"); process.exit(4); }
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+}
+
+function serveItself() {
+  const server = http.createServer((req, res) => {
+    if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      res.end(page());
+      return;
+    }
+    if (req.method === "POST" && req.url === endpoint) {
+      let body = "";
+      req.setEncoding("utf8");
+      req.on("data", c => { body += c; if (body.length > 1e6) req.destroy(); });
+      req.on("end", () => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }), () => { server.close(); deliver(body); });
+      });
+      return;
+    }
+    res.writeHead(404); res.end();
+  });
+  server.listen(0, "127.0.0.1", () => {
+    const url = `http://127.0.0.1:${server.address().port}/`;
+    console.log("DECIDER_URL " + url + " (" + name + ", pid " + process.pid + ")");
+    openInBrowser(url);
+  });
+  server.on("error", e => { console.error("SERVER_ERROR " + e.message); process.exit(1); });
+}
+
+if ((await throughService()) === false) serveItself();

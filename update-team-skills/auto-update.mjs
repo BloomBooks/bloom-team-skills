@@ -12,9 +12,9 @@
 // Any skill folder that has no link in ~/.claude/skills gets one. A running Claude Code session
 // notices changed and newly linked skills within a few seconds, so the session that started the
 // pull gets the new text too.
-// When Orca is installed, the dashboard's two Orca plugins are loaded from the clone
-// (dashboard/orca-plugins.mjs). Orca runs neither until the developer approves its access, which
-// /update-team-skills and /dashboard ask for.
+// The dashboard service is then set up from the clone (dashboard/service/install.mjs): its Claude
+// Code hooks, the service itself, and its Orca plugin, which starts the service with Orca. Orca does not run the
+// plugin until the developer approves its access, which /update-team-skills and /dashboard ask for.
 //
 // ~/.claude/bloom-team-skills-update.json records the last successful update day; each run's
 // result is appended to ~/.claude/bloom-team-skills-update.log.
@@ -23,7 +23,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repo = path.dirname(path.dirname(scriptPath));
@@ -103,21 +103,21 @@ function linkNewSkills() {
     return linked;
 }
 
-// Imported after the pull, so that the day's new version of the loader is the one that runs.
-async function loadOrcaPlugins() {
-    try {
-        const { loadOrcaPlugins, describe } = await import(pathToFileURL(path.join(repo, "dashboard", "orca-plugins.mjs")).href);
-        const result = loadOrcaPlugins();
-        return result.orca ? describe(result).join("; ") : "";
-    } catch (e) {
-        return `Orca plugins not loaded: ${e.message}`;
-    }
+// Run after the pull, so that the day's new version of the installer is the one that runs. Exit
+// code 3 means that the Orca plugin waits for the developer's approval, which is not a failure.
+function installDashboard() {
+    const script = path.join(repo, "dashboard", "service", "install.mjs");
+    if (!fs.existsSync(script)) return "";
+    const r = spawnSync(process.execPath, [script], { encoding: "utf8", timeout: 120_000, windowsHide: true });
+    if (r.error) return `dashboard not set up: ${r.error.message}`;
+    const lines = `${r.stdout || ""}${r.stderr || ""}`.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    return r.status === 0 || r.status === 3 ? `dashboard: ${lines.filter((l) => !l.startsWith("To approve")).join("; ")}` : `dashboard not set up: ${lines.at(-1) || "exit " + r.status}`;
 }
 
 async function runNow() {
     const result = pull();
     const linked = linkNewSkills();
-    const plugins = await loadOrcaPlugins();
+    const plugins = installDashboard();
     log(`${result.msg}${linked.length ? `; linked ${linked.join(", ")}` : ""}${plugins ? `; ${plugins}` : ""}`);
     // A skipped or failed pull leaves the day unrecorded, so the next session tries again.
     if (result.ok) fs.writeFileSync(stampFile, JSON.stringify({ day: today() }) + "\n");

@@ -1,16 +1,11 @@
-// How the dashboard draws a card's row: its links, its Process steps, a preflight run's phases
-// and the status chips, and how Orca's live agents change it. board.html and the Worktree panel
-// in Orca (worktree-panel/panel.js) both load this file. Each page defines post(path, body),
-// refresh(), showNote(text) and `let lastJson`, which the buttons here call.
-
-// The Status pill: "you" when the row's Next is a decision for the developer, "asking" when an
-// agent in the worktree is waiting on a question in its terminal, "agent" while an agent works,
-// labelled with the skill it was started on when that skill is one of these.
-const STATUS = { you: "Needs your decision", asking: "Claude has a question", agent: "Agent working" };
-const SKILL_STATUS = { "preflight": "Preflighting", "request-peer-review": "Requesting peer review", "merge-without-peer-review": "Merging", "process-pr-comments": "Processing PR comments" };
-// The button that runs each of the server's skills in the worktree's session.
-const SKILL_BUTTON = { "preflight": "Preflight", "request-peer-review": "Request Peer Review", "merge-without-peer-review": "Merge without Peer Review", "process-pr-comments": "Process PR Comments" };
-
+// How the dashboard draws a card's row. board.html and the Worktree panel in Orca
+// (plugin/panel.js) both load this file. It holds no rule about Bloom's process: the service
+// computes each row (service/rows.mjs), with every step's state, every button's enabled state and
+// the reasons, and this file draws what it is given.
+//
+// Each page defines act(body), which posts an action to the service and resolves to its answer or
+// null after showing why it failed, and FRONT, whether Orca's window should come to the front
+// after an action (true on the dashboard page, false inside Orca).
 function el(tag, attrs, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -61,206 +56,121 @@ function orcaIcon(isNew) {
   const sparkle = isNew ? '<svg class="sparkle" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M10 0 Q11.4 8.6 20 10 Q11.4 11.4 10 20 Q8.6 11.4 0 10 Q8.6 8.6 10 0 Z"/></svg>' : "";
   return `<svg viewBox="6.67 88 318.6 186" width="36" height="21" aria-hidden="true"><path fill="currentColor" d="${ORCA_PATH}"/></svg>${sparkle}`;
 }
-// The row's Orca button: opens its worktree, or makes one first when it has none.
+
+// A button that the service described: { id, label, enabled, reason }. `body` is what it posts.
+function serviceButton(b, body, cls, text, key) {
+  const btn = action(cls, b.enabled ? "" : b.reason, text ?? b.label, () => act(body), key ?? b.id + ":" + (body.path || body.card || ""));
+  if (!b.enabled) btn.disabled = true;
+  return btn;
+}
+const bodyOf = (d, id) => id === "create" ? { action: "create", card: d.card, front: FRONT } : { action: id, path: d.worktree, front: FRONT };
+// The row's Orca button: opens its worktree, or makes one first when it has none (the sparkle).
 function orcaButton(d) {
-  const b = rowLink(d);
-  if (!b) return null;
-  restyle(b, "orca-icon");
-  b.setAttribute("aria-label", b.title);
-  b.innerHTML = orcaIcon(!d.worktree);
-  return b;
+  const b = d.worktree ? d.actions.open : d.actions.create;
+  if (!d.worktree && !/^BL-\d+$/.test(d.card || "")) return null;
+  const btn = serviceButton(b, bodyOf(d, b.id), "orca-icon", "");
+  btn.title = b.enabled ? (d.worktree ? "Show this worktree in Orca" : "Make a worktree for this card and start Claude in it") : b.reason;
+  btn.setAttribute("aria-label", btn.title);
+  btn.innerHTML = orcaIcon(!d.worktree);
+  return btn;
 }
-function orcaLink(path, text) {
-  return action("orca", "Show this worktree in Orca", text || "Open in Orca", () => post("/api/open", { path }), "open:" + path);
+// The worktree's folder, which opens in VS Code.
+function folderButton(d) {
+  return serviceButton(d.actions.vscode, { action: "vscode", path: d.worktree }, "orca wt", d.worktree, "vscode:" + d.worktree);
 }
-// A card with no worktree gets a button that makes one and starts Claude in it.
-function createLink(d, text) {
-  return action("orca", d.pr ? "Make a worktree on this PR's branch and start Claude in it" : "Make a worktree on a new branch for this card and start Claude in it",
-    text || "Create & Open Orca Worktree", () => post("/api/create", { card: d.card, title: d.title || "", pr: d.pr || "" }), "create:" + d.card);
+// "Claude has a question" or "Needs your decision", above the steps. The first opens the
+// worktree's terminal; the second opens the decider form or the report that holds the decisions.
+function badgeOf(d) {
+  if (!d.badge) return null;
+  const cls = "chip " + d.badge.kind + " process-badge";
+  let e;
+  if (d.badge.url) { e = link(d.badge.url, d.badge.text); e.className = cls + " pill-link"; }
+  else if (d.worktree) e = serviceButton(d.actions.open, bodyOf(d, "open"), cls + " pill-link", d.badge.text, "badge:" + d.worktree);
+  else e = el("span", { class: cls }, d.badge.text);
+  return withIcon(e, d.badge.kind === "asking" ? "question" : "alert");
 }
-// The link for a row: open its worktree, or create one when the row is a single card without one.
-function rowLink(d, text) {
-  if (d.worktree) return orcaLink(d.worktree, text);
-  if (/^BL-\d+$/.test(d.card || "")) return createLink(d, text);
-  return null;
-}
-// The Status pill opens the row's worktree whenever there is one.
-function statusPill(d) {
-  if (!STATUS[d.who]) return null;
-  const cls = "chip " + d.who;
-  const text = (d.who === "agent" && SKILL_STATUS[d.skill]) || STATUS[d.who];
-  const a = rowLink(d, text);
-  if (!a) return withIcon(el("span", { class: cls }, text), STATUS_ICON[d.who]);
-  restyle(a, cls + " pill-link");
-  return withIcon(a, STATUS_ICON[d.who]);
-}
-// The Process column: the steps of Bloom's development process, in order. Code; Preflight; the
-// developer's own review of the PR (files not yet marked Viewed in GitHub or reviewed in
-// Reviewable); Request Peer Review, which squashes and checks the PR, with Merge without Peer
-// Review beside it when the card has the "Approved Plan" tag; then the peer review itself.
-// Between the review and Request Peer Review, a row whose PR has comments waiting to be processed
-// (`prComments`, from pr-comments.mjs) shows one more step, Process PR Comments. It is outside
-// the five: `comments` in the model, and STEP.comments for an agent running on it.
-const STEP = { code: 0, preflight: 1, review: 2, request: 3, peer: 4, comments: 5 };
-// The step an agent started on each skill shows on; an agent on anything else shows on Code.
-const SKILL_STEP = { "preflight": STEP.preflight, "request-peer-review": STEP.request, "merge-without-peer-review": STEP.request, "process-pr-comments": STEP.comments };
-// "3 comments from you, 1 from Andrew Polk", from pr-comments.mjs's { total, from }.
-function commentsText(c) {
-  return c.from.map((f, i) => (i ? f.count : f.count + (c.total === 1 ? " comment" : " comments")) + " from " + f.who).join(", ");
-}
-/**
- * The Process column as data, which processCell draws. A step is finished when what comes after
- * it has started: Code once there is a PR or the session names a next skill; Preflight once the
- * session names request-peer-review, the PR is neither conflicting nor failing CI, and the code has
- * not changed since the last preflight run ended (`codeChanged`); the review once every file is
- * reviewed. A card in Ready For Code Review has finished all four, and the peer review is its
- * step. The first unfinished step is `now`, the only one offered; when the review cannot be
- * read, the review and Request Peer Review are offered together. An agent started on a step's skill
- * shows on that step (`running`); any other agent shows on Code. A question or decision for the
- * developer (`blocked`) and a working agent disable every step.
- *
- * While comments wait on the PR, Process PR Comments is the step offered, whatever else is
- * unfinished: answering them changes the code, so Preflight and Request Peer Review come after.
- * Only the developer's review stays offered beside it, since they may still be reviewing.
- *
- * Returns { blocked, working, broken, now, running, reviewUnknown, left, enabled, since, oldReport,
- * why, comments, states }. `states` holds each of the five steps' "done", "now", "running",
- * "later" or, for a peer review that came back with comments, "comments". `why` says under the
- * Preflight button why Preflight is unfinished ("1 commit since preflight"), or is "". `comments`
- * is null when the row has no Process PR Comments step, or { state: "now" or "running", text },
- * the text being "3 comments from you".
- */
-function processModel(d) {
-  const blocked = d.who === "asking" || d.who === "you";
-  const working = d.who === "agent";
-  const broken = d.prMergeable === "CONFLICTING" || d.prChecks === "FAILURE";
-  const r = d.ownReview;
-  const left = r ? r.files - r.reviewed : null;
-  const preflightDone = d.nextSkill === "request-peer-review" && !broken && !d.codeChanged;
-  const inPeerReview = d.ytState === "Ready For Code Review";
-  const done = inPeerReview ? [true, true, true, true, false]
-    : [!!(d.pr || d.nextSkill), preflightDone, preflightDone && left === 0, false, false];
-  const now = done.indexOf(false);
-  const reviewUnknown = preflightDone && !r && !inPeerReview;
-  const running = !working ? -1 : SKILL_STEP[d.skill] ?? STEP.code;
-  const waiting = d.prComments?.total > 0;
-  const offered = i => waiting ? i === now && i === STEP.review : i === now || (i === STEP.request && reviewUnknown);
-  const states = done.map((isDone, i) => i === running ? "running" : isDone ? "done" : offered(i) ? "now" : "later");
-  if (d.ytState === "Has Comments") states[STEP.peer] = "comments";
-  const comments = running === STEP.comments ? { state: "running", text: "" }
-    : waiting ? { state: "now", text: commentsText(d.prComments) } : null;
-  const why = now !== STEP.preflight ? "" : [
-    d.prMergeable === "CONFLICTING" && "PR conflicts with its base branch",
-    d.prChecks === "FAILURE" && "CI is failing",
-    d.codeChangedWhy,
-  ].filter(Boolean).join("; ");
-  return {
-    blocked, working, broken, now, running, reviewUnknown, left, states, why, comments,
-    enabled: !blocked && !working,
-    // How long the agent has worked: a preflight run's own start, when progress.mjs recorded one,
-    // beats when the server first saw the agent working.
-    since: (d.runShowing && Date.parse(d.progress?.startedAt)) || d.since || 0,
-    // While Preflight is the next step, the report is from an earlier run that no longer covers the
-    // code. A report with decisions waiting is the current one: preflight stopped on them.
-    oldReport: now === STEP.preflight && !(d.reportDecisions > 0),
-  };
-}
+// The Process column: the steps the service gave, in order. A finished step is muted with a tick,
+// a step with buttons is the one on offer, and a running step shows how long its agent has worked.
 function processCell(d) {
-  const m = processModel(d);
-  const r = d.ownReview;
-  const skillButton = (s, enabled) => {
-    const b = d.worktree ? action("orca skill", "Run /" + s + " in this worktree's Claude session", SKILL_BUTTON[s],
-      async () => { if (await post("/api/run-skill", { path: d.worktree, skill: s })) { launched.set(normPath(d.worktree), { skill: s, at: Date.now() }); lastJson = ""; refresh(); } }, "skill:" + d.worktree) : el("button", { type: "button", class: "orca skill", title: "This card has no worktree yet" }, SKILL_BUTTON[s]);
-    if (!enabled || !d.worktree) b.disabled = true;
-    return b;
-  };
   const label = text => el("span", { class: "lbl" }, text);
-  // A step with a line of small text under it: why the step is the next one.
   const withNote = (body, text) => el("span", { class: "noted" }, body, el("small", {}, text));
-  // The running step: its name, how long the agent has worked, and what it is doing now.
-  const runningLabel = text => el("span", { class: "lbl" }, text,
-    m.since ? el("span", { class: "elapsed", "data-since": String(m.since) }, elapsedText(m.since)) : null,
-    d.tool ? el("small", { title: d.tool }, d.tool) : null);
-
-  const steps = [];
-  // Code
-  {
-    let body;
-    if (m.running === STEP.code) body = runningLabel("Agent working");
-    else if (m.now === STEP.code) {
-      body = rowLink(d, d.worktree ? "Code" : "Start coding") || label("Code");
-      if (body.tagName === "BUTTON") { restyle(body, "orca skill"); body.disabled = !m.enabled; }
-    } else body = label("Code");
-    steps.push(body);
-  }
-  // Preflight, with a "report" link to its right when there is a report, in the developer's colour
-  // when the report lists decisions waiting on them.
-  {
-    const n = d.reportDecisions;
-    let body;
-    if (m.running === STEP.preflight) body = runningLabel("Preflighting");
-    else {
-      body = m.states[STEP.preflight] === "now" ? skillButton("preflight", m.enabled) : label("Preflight");
-      if (d.report) {
-        const a = link(d.report, (m.oldReport ? "old report" : "report") + (n > 0 && !m.oldReport ? ` (${n} decision${n > 1 ? "s" : ""})` : ""));
-        a.className = "report" + (n > 0 && !m.oldReport ? " you" : "");
-        a.title = m.oldReport ? "Open the report of an earlier preflight, from before the latest changes" : "Open the preflight report";
-        body = el("span", { class: "alts" }, body, a);
-      }
-      if (m.why) body = withNote(body, m.why);
-    }
-    steps.push(body);
-  }
-  // Your review
-  {
-    // When Reviewable's marks could not be read, only GitHub's Viewed ticks are counted, so the
-    // count says so.
-    const noReviewable = r && !r.reviewable ? "; couldn't read Reviewable" : "";
-    const text = r && m.left ? `Your review (${m.left} of ${r.files} files left${noReviewable})` : "Your review";
-    let body = label(text);
-    if (m.states[STEP.review] === "now" && d.pr) {
-      const rvUrl = reviewableUrl(d.pr);
-      body = link(rvUrl || d.pr.replace(/\/$/, "") + "/files", text);
-      body.className = "btn work";
-      // The rabbit says the button opens Reviewable.
-      if (rvUrl) {
-        const icon = el("span", { class: "rv-icon", "aria-hidden": "true" });
-        icon.innerHTML = REVIEWABLE_ICON;
-        body.prepend(icon);
-      }
-      if (r) body.title = (r.reviewable ? "" : "Couldn't read your marks in Reviewable, so only files marked Viewed in GitHub count.\n\n")
-        + "Not yet marked Viewed in GitHub or reviewed in Reviewable:\n" + r.left.join("\n");
-      if (!m.enabled) { body.removeAttribute("href"); body.style.opacity = "0.45"; }
-    }
-    steps.push(body);
-  }
-  // Process PR Comments, only while comments wait or an agent processes them; its place among the
-  // steps is kept in `commentsAt`.
-  const commentsAt = steps.length;
-  if (m.comments) {
-    steps.push(m.comments.state === "running" ? runningLabel(SKILL_STATUS["process-pr-comments"])
-      : withNote(skillButton("process-pr-comments", m.enabled), m.comments.text));
-  }
-  // Request Peer Review (squash and checks), or merge
-  {
-    const offered = m.states[STEP.request] === "now";
-    if (m.running === STEP.request) steps.push(runningLabel(SKILL_STATUS[d.skill]));
-    else if (offered) steps.push(el("span", { class: "alts" }, skillButton("request-peer-review", m.enabled), d.approvedPlan ? skillButton("merge-without-peer-review", m.enabled) : null));
-    else steps.push(label(d.approvedPlan ? "Request Peer Review, or Merge" : "Request Peer Review"));
-  }
-  // Peer review, done by a teammate; orange when it came back with comments, with the rabbit beside
-  // it to go read them in Reviewable.
-  if (d.ytState === "Has Comments") steps.push(el("span", { class: "pr-links" }, label("Peer review: comments back"), d.pr ? reviewableLink(d.pr) : null));
-  else steps.push(label("Peer review"));
-
   const ol = el("ol", { class: "steps" });
   const icon = { done: "check", now: "dot", running: "spin", later: "empty", comments: "bubble" };
-  const states = [...m.states];
-  if (m.comments) states.splice(commentsAt, 0, m.comments.state);
-  steps.forEach((body, i) => ol.append(withIcon(el("li", { class: states[i] + (body.classList.contains("noted") ? " two-line" : "") }, body), icon[states[i]])));
-  const badge = m.blocked ? statusPill(d) : null;
-  if (badge) badge.classList.add("process-badge");
-  return el("div", {}, badge ? el("div", {}, badge) : null, ol);
+  for (const s of d.steps) {
+    let body;
+    if (s.state === "running") {
+      body = el("span", { class: "lbl" }, s.label,
+        s.since ? el("span", { class: "elapsed", "data-since": String(s.since) }, elapsedText(s.since)) : null,
+        s.runningNote ? el("small", {}, s.runningNote) : null);
+    } else if (s.buttons?.length) {
+      const bs = s.buttons.map(b => serviceButton(b, bodyOf(d, b.id), "orca skill", b.label, "step:" + b.id + ":" + (d.worktree || d.card)));
+      body = bs.length > 1 ? el("span", { class: "alts" }, ...bs) : bs[0];
+    } else if (s.link) {
+      const rvUrl = reviewableUrl(s.link);
+      body = link(rvUrl || s.link.replace(/\/$/, "") + "/files", s.label);
+      body.className = "btn work";
+      if (rvUrl) { const i = el("span", { class: "rv-icon", "aria-hidden": "true" }); i.innerHTML = REVIEWABLE_ICON; body.prepend(i); }
+      if (s.files) body.title = (s.reviewable ? "" : "Couldn't read your marks in Reviewable, so only files marked Viewed in GitHub count.\n\n")
+        + "Not yet marked Viewed in GitHub or reviewed in Reviewable:\n" + s.files.join("\n");
+      if (!s.linkEnabled) { body.removeAttribute("href"); body.style.opacity = "0.45"; }
+    } else body = label(s.label);
+    if (s.id === "preflight" && d.report && s.state !== "running") {
+      const n = d.report.decisions;
+      const a = link(d.report.url, (d.report.old ? "old report" : "report") + (n > 0 ? ` (${n} decision${n > 1 ? "s" : ""})` : ""));
+      a.className = "report" + (n > 0 ? " you" : "");
+      a.title = d.report.old ? "Open the report of an earlier preflight, from before the latest changes" : "Open the preflight report";
+      body = el("span", { class: "alts" }, body, a);
+    }
+    if (s.id === "peer" && s.state === "comments" && d.pr) body = el("span", { class: "pr-links" }, body, reviewableLink(d.pr));
+    if (s.note) body = withNote(body, s.note);
+    ol.append(withIcon(el("li", { class: s.state + (body.classList.contains("noted") ? " two-line" : "") }, body), icon[s.state]));
+  }
+  const badge = badgeOf(d);
+  return el("div", {}, badge ? el("div", {}, badge) : null, ol,
+    d.failed ? el("p", { class: "failed", role: "alert" }, d.failed) : null);
+}
+// "Where it stands": a preflight run's phases while one runs; otherwise what the service
+// computed, the prose written about it, and what could not be read.
+function standsCell(d) {
+  const out = el("div", { class: "stands" });
+  if (d.run) {
+    out.append(preflightSteps({ steps: d.run.phases }));
+  } else {
+    const p = d.prose;
+    if (p?.status) {
+      const s = el("span", { class: "prose" + (p.stale ? " stale" : "") }, p.status);
+      s.title = `Written by ${p.model} at ${localTime(new Date(p.at).toISOString())}` + (p.stale ? ", before the latest changes; a new one is on its way" : "");
+      out.append(s);
+    } else out.append(el("span", { class: "computed" }, d.reasons.join(" ")));
+    if (d.stopped && Object.keys(d.stopped.phases).length) out.append(preflightSteps({ steps: d.stopped.phases }));
+    if (p?.comments && d.ytState === "Has Comments") out.append(commentsLine(p.comments));
+    if (d.question) out.append(el("span", { class: "question" }, el("b", {}, "Claude asks: "), d.question));
+    if (p?.next) out.append(el("span", { class: "next" }, el("b", {}, "Next: "), p.next));
+  }
+  for (const u of d.unknown || []) out.append(el("span", { class: "unknown", title: u.error }, `${u.source} could not be read${u.since ? "; showing what it said " + agoText(u.since) : ""}`));
+  out.append(whyDetails(d));
+  return out;
+}
+// "Why?": the rule that put the row in its state, each fact with its source and age, and the
+// latest events in its worktree.
+function agoText(t) {
+  if (!t) return "never";
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  return s < 90 ? `${s} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`;
+}
+const openWhy = new Set();   // the rows whose "Why?" is open, kept across redraws
+function whyDetails(d) {
+  const id = d.card + "|" + (d.worktree || "");
+  const box = el("details", { class: "why" }, el("summary", {}, "Why?"));
+  box.open = openWhy.has(id);
+  box.addEventListener("toggle", () => { box.open ? openWhy.add(id) : openWhy.delete(id); });
+  const dl = el("dl", {});
+  for (const f of d.why) {
+    dl.append(el("dt", {}, f.label), el("dd", {}, f.text, f.source ? el("small", { "data-ago": String(f.at || 0), "data-source": f.source }, ` ${f.source}, read ${agoText(f.at)}`) : null));
+  }
+  box.append(dl);
+  if (d.events?.length) box.append(el("ul", { class: "events" }, ...d.events.slice().reverse().map(e => el("li", {}, el("time", {}, localTime(new Date(e.at).toISOString())), " " + e.text))));
+  return box;
 }
 // The phases of a preflight run, top to bottom; the parts of the automated reviews and tests run
 // at the same time. Preflight also records `ci`, which is left out: on BloomDesktop the PR's
@@ -386,32 +296,52 @@ function prLinks(url, tone) {
   const rv = reviewableLink(url, tone);
   return rv ? el("span", { class: "pr-links" }, pr, rv) : pr;
 }
-
-// Orca's live agent states override the Status that Claude last wrote: a waiting agent means
-// Claude has a question in its terminal, a working one means an agent has the card. `agents` maps
-// a worktree path, as normPath gives it, to what row-facts.mjs's liveAgents made of its agents,
-// which has already worked out the skill (preflight whenever its run shows) and whether the
-// preflight run shows. A skill button that was just clicked counts as that skill running for up
-// to a minute, until Orca reports the agent working, so the step spins at once (`launched`).
-const launched = new Map();
-// The same form as norm() in orca-worktrees.mjs, which the server keys `agents` by.
-const normPath = p => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-function withLiveAgents(rows, agents, now = Date.now()) {
-  return rows.map(d => {
-    const key = normPath(d.worktree);
-    const a = d.worktree && agents[key];
-    const l = launched.get(key);
-    if (l && (now - l.at > 60000 || a?.working || a?.waiting)) launched.delete(key);
-    if (a?.waiting) return { ...d, who: "asking", question: a.question || "" };
-    if (a?.working) return { ...d, who: "agent", skill: a.skill || "", since: a.since || 0, tool: a.tool || "", runShowing: !!a.runShowing };
-    if (launched.has(key)) return { ...d, who: "agent", skill: l.skill, since: l.at, tool: "Starting…" };
-    return d;
-  });
-}
-
 // How long an agent has worked, as "for 12 min"; the rows redraw only when the state changes, so
 // the running steps' times are updated here.
 function elapsedText(since) {
   const m = Math.floor((Date.now() - since) / 60000);
   return m < 1 ? "just started" : m < 60 ? `for ${m} min` : `for ${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+// ---- the service indicator -------------------------------------------------------------------
+// A dot and "Service", in the dashboard page's top bar and in the upper right of the Worktree
+// panel: green when every source answered its last read, amber when one did not or new code does
+// not load, red when the page has lost the service. Pressing it lists each source with the age of
+// its last read, the code the service runs, the model that writes the prose, and Restart. Each
+// page has a button with the id "service" and a hidden element with the id "service-pop".
+const SOURCE_NAMES = { developer: "Your logins", orca: "Orca", github: "GitHub", youtrack: "YouTrack", reviewable: "Reviewable" };
+function drawService(service, connected, lostAt) {
+  const chip = document.getElementById("service"), pop = document.getElementById("service-pop");
+  const failing = service ? Object.entries(SOURCE_NAMES).filter(([k]) => service.sources[k].error) : [];
+  const tone = !connected ? "down" : service?.codeError || failing.length ? "warn" : "ok";
+  chip.className = "service-chip " + tone;
+  chip.querySelector(".service-label").textContent = !connected ? "Service not answering" : service?.codeError ? "Service: new code does not load" : failing.length ? "Service: " + failing.map(([, n]) => n).join(", ") + " not read" : "Service";
+  if (pop.hidden) return;
+  const rows = [];
+  const row = (k, v, cls) => rows.push(el("dt", {}, k), el("dd", cls ? { class: cls } : {}, v));
+  if (!connected) row("Connection", "lost " + agoText(lostAt) + "; reconnecting", "bad");
+  if (service) {
+    const s = service;
+    row("Running", `since ${localTime(new Date(s.startedAt).toISOString())}, process ${s.pid}`);
+    row("Code", `${s.code.branch || "?"} at ${s.code.commit || "?"}` + (s.code.changedAt ? `, files changed ${agoText(s.code.changedAt)}` : ""));
+    row("Code folder", s.code.dir);
+    if (s.codeError) row("New code", "does not load, so the service still runs the code from before the change: " + s.codeError, "bad");
+    for (const [k, name] of Object.entries(SOURCE_NAMES)) {
+      const x = s.sources[k];
+      row(name, x.error ? `failed: ${x.error}` + (x.at ? ` (last good read ${agoText(x.at)})` : "") : x.at ? "read " + agoText(x.at) : "not read yet", x.error ? "bad" : "");
+    }
+    row("Claude Code hooks", s.sources.hooks.at ? `${s.sources.hooks.count} since start, the last ${agoText(s.sources.hooks.at)}` : "none received since start", "");
+    row("Orca plugin", s.workerConnected ? "connected, pushing agent changes" : "not connected; Orca is asked every 5 s while this window shows", s.workerConnected ? "" : "warn");
+    row("Sessions", `${s.sessions} known, ${s.openRuns} with a skill running`);
+    const l = s.sources.llm;
+    row("Prose model", l.enabled ? `${l.model}: ${l.calls} call${l.calls === 1 ? "" : "s"} today, ${l.inputTokens + l.outputTokens} tokens, $${l.costUsd.toFixed(3)}` + (l.lastError ? `; last failure: ${l.lastError}` : "") : "off (config.json)", l.lastError ? "warn" : "");
+    row("Polling", s.visible ? "on: a window or panel is showing" : "off: nothing is showing");
+  }
+  const restart = action("refresh", "Stop the service and start it again from the same code folder", "Restart service", async () => { await act({ action: "restart" }, "Couldn't restart"); }, "restart");
+  pop.replaceChildren(el("dl", { class: "kv" }, ...rows), restart);
+}
+// Opens and closes the list. `redraw` draws the indicator from what the page knows now.
+function wireService(redraw) {
+  document.getElementById("service").addEventListener("click", () => { const pop = document.getElementById("service-pop"); pop.hidden = !pop.hidden; redraw(); });
+  document.addEventListener("click", e => { if (!e.target.closest("#service, #service-pop")) document.getElementById("service-pop").hidden = true; });
 }

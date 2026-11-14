@@ -8,8 +8,8 @@
 // agent has replied to it, though it stays unresolved until its reviewer is satisfied.
 //
 // Usage: node pr-comments.mjs <PR URL>
-// Prints { total, from: [{ who, you, count }] }, the developer first, or null when Reviewable
-// could not be read.
+// Prints { total, from: [{ who, you, count }], texts }, the developer first, or null when
+// Reviewable could not be read.
 import { pathToFileURL } from "node:url";
 import { pool } from "./own-review.mjs";
 import { discussion, discussionKeys, reviewState } from "./reviewable.mjs";
@@ -37,6 +37,20 @@ export function waitingComments(discussions, login) {
   return { total: from.reduce((n, f) => n + f.count, 0), from };
 }
 
+/**
+ * The start of up to twelve of the waiting discussions' last comments, each { who, text }, for the
+ * prose on a card's row (service/prose.mjs).
+ */
+export function waitingTexts(discussions) {
+  const texts = [];
+  for (const d of discussions) {
+    const last = (d.comments || []).at(-1);
+    if (!last || d.status?.resolved !== false || byAgent(last) || texts.length >= 12) continue;
+    texts.push({ who: last.author?.displayName || last.author?.username || "someone", text: String(last.markdownBody || "").replace(/\s+/g, " ").slice(0, 200) });
+  }
+  return texts;
+}
+
 // The answer for each PR and the counters of Reviewable's `review state` it was made at. Reading
 // every discussion takes a request each, so an answer is kept while those counters stay the
 // same, for up to KEEP_MS.
@@ -53,7 +67,7 @@ export async function prComments(prUrl, githubLogin, now = Date.now()) {
     if (k && k.counters === counters && now - k.at < KEEP_MS) return k.value;
     const keys = await discussionKeys(pr);
     const discussions = await pool(keys, 6, key => discussion(pr, key));
-    const value = waitingComments(discussions, githubLogin);
+    const value = { ...waitingComments(discussions, githubLogin), texts: waitingTexts(discussions) };
     kept.set(prUrl, { at: now, counters, value });
     return value;
   } catch (e) {

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Loads the dashboard's two Orca plugins from this clone: the Bloom Dashboard button in Orca's
-// status bar (orca-plugin/) and the Worktree panel in its right sidebar (this folder).
+// Loads the dashboard's Orca plugin from this clone: the Bloom Dashboard button in Orca's status
+// bar and the Worktree panel in its right sidebar (orca-plugin.json and plugin/ in this folder).
 //
-//   node orca-plugins.mjs            Load both. Prints each plugin's state and, for one that Orca
-//                                    has not approved, the access it asks for. Exit code 3 when
-//                                    one waits for approval.
-//   node orca-plugins.mjs --approve  Load both and approve the access that Orca lists for each.
+//   node orca-plugins.mjs            Load it. Prints its state and, when Orca has not approved
+//                                    it, the access it asks for. Exit code 3 when it waits for
+//                                    approval.
+//   node orca-plugins.mjs --approve  Load it and approve the access that Orca lists for it.
 //   node orca-plugins.mjs --json     The same, as JSON.
 //
 // Orca runs a plugin's code only after an approval tied to its files and its access, so a load
@@ -13,7 +13,8 @@
 // loaded this way runs from the clone, so a pull updates it; Orca asks again only when a pull
 // changes the access a plugin asks for, or its button or panel.
 //
-// update-team-skills/auto-update.mjs imports loadOrcaPlugins for its daily load.
+// service/install.mjs runs this, and update-team-skills/auto-update.mjs imports loadOrcaPlugins for
+// its daily load.
 
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -21,10 +22,10 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-export const PLUGINS = [
-    { key: "local.bloom-dashboard", name: "Bloom Dashboard button", dir: path.join(here, "orca-plugin") },
-    { key: "local.bloom-worktree", name: "Worktree panel", dir: here },
-];
+export const PLUGINS = [{ key: "local.bloom", name: "Bloom plugin (Dashboard button and Worktree panel)", dir: here }];
+// A folder that an earlier version loaded as a plugin of its own and that no longer exists, which
+// Orca would list as broken until it is unloaded.
+const RETIRED = [path.join(here, "orca-plugin")];
 
 function orcaJson(args) {
     const env = { ...process.env };
@@ -72,12 +73,18 @@ export function readLoadReply(reply) {
 }
 
 /**
- * Loads both plugins. Returns { orca: false } when the orca CLI is not installed, otherwise
+ * Sets up the dashboard service (unless `setUp` is false) and loads the plugin. Returns { orca: false } when the orca CLI is not installed, otherwise
  * { orca: true, plugins: [{ key, name, dir, state, access?, message? }] }. With `approve`, a
  * plugin that waits for approval is loaded again with the fingerprint that Orca gave for it.
  */
-export function loadOrcaPlugins({ approve = false } = {}) {
+export function loadOrcaPlugins({ approve = false, setUp = true } = {}) {
+    // The plugin is only the Orca side of the dashboard service, so loading it also sets up the
+    // service (its hooks, the service itself). The daily auto-update of a
+    // version from before the service calls only this function, and this is what sets a
+    // teammate's machine up on the day they pull.
+    if (setUp) spawnSync(process.execPath, [path.join(here, "service", "install.mjs"), "--no-plugin"], { encoding: "utf8", timeout: 90_000, windowsHide: true });
     const plugins = [];
+    for (const dir of RETIRED) if (orcaJson(["plugin", "dev", "unload", dir]).missing) return { orca: false, plugins: [] };
     for (const plugin of PLUGINS) {
         let reply = orcaJson(["plugin", "dev", "load", plugin.dir]);
         if (reply.missing) return { orca: false, plugins: [] };

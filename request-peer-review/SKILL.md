@@ -37,7 +37,9 @@ preflight), Step 2 (squash), and Step 3 (make the card accurate).
 3. **Move the card to the project's "ready for peer review" state**, through the tracker skill,
    and confirm the tracker echoes the new state back. Ask for it *semantically* — the tracker skill
    owns the concrete vocabulary (in Bloom's YouTrack, `Ready For Code Review`). Never move it
-   backwards (that file's Step 3).
+   backwards (that file's Step 3). Then run
+   `node "$HOME/.claude/skills/dashboard/tell.mjs" card-changed` (skip it when that file is
+   missing), so the developer's dashboard shows the card in peer review at once.
 4. **Correct the published preflight report's PR-state chip** to `ready`, as
    `before-merge-or-peer-review.md` describes.
 5. **Personal board**: if a `personal-board` skill is available, invoke it to record that the
