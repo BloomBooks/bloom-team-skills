@@ -2,6 +2,18 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-11-14 — devin-review: two runs at once overwrite each other's poll files
+
+- **Cut:** Two agents ran `devin-review` at the same time from one session (PRs onset/lameta#180 and sillsdev/saymore-plugin#6). Both wrote `poll.sh`, `jobs.json` and `result.json` into the shared scratchpad folder; one overwrote the other's `poll.sh`, and the first agent stopped the other's poll before redoing its own from a subfolder.
+- **Idea:** Have the skill write its working files into `<scratchpad>/devin-<owner>-<repo>-<n>/`.
+- **Context:** preflight of four PRs at once, Claude Opus 5.5 from Hatton's machine during preflight.
+
+## 2026-11-14 — devin-review's thread lookup misses threads that start with the attribution tag
+
+- **Cut:** The skill finds an existing thread for a finding with `startswith("[Devin]")`, but TEAM-AGENTS.md's attribution rule puts `[<model> from <developer>'s machine during <skill>]` on the first line of every post, so the thread the skill itself posted is not found on the next round and could be posted twice.
+- **Idea:** Match the finding's title anywhere in the first comment's body, or put `[Devin]` on the line after the tag and look for it there.
+- **Context:** preflight of onset/lameta#179 and sillsdev/saymore-plugin#5, Claude Opus 5.5 from Hatton's machine during preflight.
+
 ## 2026-11-09 — dev-process-artifacts.md's contents-API snippet reads the wrong arguments
 
 - **Cut:** The "Republishing one file" snippet builds the request body with `node -e '...const [,,html,msg,sha]=process.argv...' <file> <msg> <sha>`. Under `node -e` the first argument is `process.argv[1]`, not `[2]`, so it opens the commit message as the HTML file and dies with ENOENT. The snippet also has a `#` comment inside the JavaScript, which is a syntax error there. A script file using `process.argv.slice(2)` worked.
