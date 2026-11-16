@@ -2,22 +2,29 @@
 // running in it. Assigns the card to the developer and moves it to In Progress; stops before
 // touching anything when the card is assigned to someone else.
 //
-// Usage: node work-on-youtrack.mjs <card> [--repo <owner/name>] [--dry-run] [--json]
+// Usage: node work-on-youtrack.mjs <card> [--repo <owner/name>] [--prompt <text>] [--dry-run] [--json]
 //   <card>      BL-16627 (or BL16627), or a YouTrack URL that contains it
 //   --repo      the GitHub repo for a new worktree when the card has no PR (default
 //               bloombooks/bloomdesktop); also limits the search for worktrees and PRs to that repo
+//   --prompt    the first message for the Claude this starts (a hand-off's brief). Claude starts as
+//               a chat or in a terminal per the developer's Orca setting, and Orca can give a chat
+//               only its first message, so a brief goes here. Not sent when the worktree already
+//               has a Claude session (`agent` true).
 //   --dry-run   reads the card, finds or names the worktree, then prints what it would do; changes
 //               nothing on the card
 //   --json      prints one JSON object instead of text: { ok, action, card, summary, state,
-//               pr, worktree, branch, words, wordsFrom, terminal, others, assigned,
-//               movedTo, placedAfter, placeError, dashboard, error }
+//               pr, worktree, branch, words, wordsFrom, agent, terminal, launch, others, assigned,
+//               movedTo, placedAfter, placeError, dashboard, error }. `agent` is true when the
+//               worktree already had a Claude session (a chat or a terminal, whose handle is
+//               `terminal`); `launch` is what this started: { kind ("structured" for a chat, or
+//               "terminal"), handle, delivered (Orca's word on the first message) }.
 //
 // Exit code 0 on success, 1 on any failure (the text or JSON says why).
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import {
   orca, norm, parsePr, orcaRepoId, prHeadBranch, titleWords, agentTerminal,
-  openWorktree, createWorktree, bringOrcaToFront,
+  openWorktree, createWorktree, launchClaude, bringOrcaToFront,
 } from "../orca-worktrees.mjs";
 import { developer } from "../developer.mjs";
 import { tellDashboard } from "../orca-bloom-dashboard-plugin/report/tell.mjs";
@@ -34,7 +41,9 @@ const dryRun = flag("--dry-run");
 const asJson = flag("--json");
 const repoAt = argv.indexOf("--repo");
 const repoArg = repoAt >= 0 ? (argv[repoAt + 1] || "").toLowerCase() : null;
-const cardArg = argv.find((a, i) => !a.startsWith("--") && !(repoAt >= 0 && i === repoAt + 1));
+const promptAt = argv.indexOf("--prompt");
+const promptArg = promptAt >= 0 ? argv[promptAt + 1] || "" : null;
+const cardArg = argv.find((a, i) => !a.startsWith("--") && !(repoAt >= 0 && i === repoAt + 1) && !(promptAt >= 0 && i === promptAt + 1));
 
 function finish(result) {
   if (asJson) console.log(JSON.stringify(result, null, 2));
@@ -259,7 +268,10 @@ function describe(r) {
   const would = r.action.startsWith("would-");
   if (r.action.endsWith("open")) {
     lines.push(`${would ? "Would open" : "Opened"} ${r.worktree} (branch ${r.branch})`);
-    lines.push(r.terminal ? `${would ? "Would switch" : "Switched"} to its Claude terminal (${r.terminal}).` : `${would ? "Would start" : "Started"} Claude there (claude --continue || claude).`);
+    if (r.terminal) lines.push(`${would ? "Would switch" : "Switched"} to its Claude terminal (${r.terminal}).`);
+    else if (r.agent) lines.push("It already has a Claude chat; open it in Orca.");
+    else if (promptArg !== null) lines.push(`${would ? "Would start" : "Started"} Claude there with the prompt.`);
+    else lines.push(`${would ? "Would start" : "Started"} Claude there (claude --continue || claude).`);
   } else {
     const from = r.pr ? `on the PR's branch ${r.branch}` : `on a new branch ${r.branch}` + (r.base ? ` from origin/${r.base}` : "") + (r.wordsFrom === "claude" ? " (words from Claude)" : " (words from the title; Claude gave no usable answer)");
     lines.push(`${would ? "Would create" : "Created"} a worktree in ${r.repo} ${from}${r.worktree ? ` at ${r.worktree}` : ""}, with Claude running in it.`);
@@ -279,7 +291,7 @@ function describe(r) {
 async function main() {
   const digits = (String(cardArg || "").match(/\bBL-?(\d+)\b/i) || [])[1];
   const card = digits && "BL-" + digits;
-  if (!card) throw new Error("usage: node work-on-youtrack.mjs <BL-nnnnn> [--repo <owner/name>] [--dry-run] [--json]");
+  if (!card) throw new Error("usage: node work-on-youtrack.mjs <BL-nnnnn> [--repo <owner/name>] [--prompt <text>] [--dry-run] [--json]");
   if (repoArg !== null && !/^[\w.-]+\/[\w.-]+$/.test(repoArg)) throw new Error("--repo needs <owner/name>, e.g. bloombooks/bloomdesktop");
 
   const info = await readCard(card);
@@ -300,13 +312,23 @@ async function main() {
     Object.assign(result, { action: dryRun ? "would-open" : "open", worktree: wt.path, branch: wt.branch, repo: wt.repo, pr: pr?.url || null, others: others.map(o => o.path) });
     if (pr) result.otherPrs = prs.filter(p => p !== pr).map(p => p.url);
     result.terminal = (await agentTerminal(wt.path))?.handle || null;
-    if (!dryRun) await openWorktree(wt.path);
+    // A chat has no terminal, but Orca lists it among the worktree's agents.
+    result.agent = !!result.terminal || !!(await orca("worktree", "ps")).worktrees.find(x => norm(x.path) === norm(wt.path))?.agents?.length;
+    if (!dryRun) {
+      // Orca cannot show a chat tab from outside; bringOrcaToFront below shows the worktree's window.
+      if (result.terminal) await openWorktree(wt.path);
+      else if (!result.agent && promptArg !== null) result.launch = await launchClaude(wt.path, promptArg);
+      else if (!result.agent) await openWorktree(wt.path);
+    }
   } else if (prs.length) {
     const pr = prs[0];
     await orcaRepoId(pr.repo);
     const head = await prHeadBranch(pr.repo, String(pr.number));
     Object.assign(result, { action: dryRun ? "would-create" : "create", repo: pr.repo, pr: pr.url, branch: head });
-    if (!dryRun) result.worktree = (await createWorktree({ card, title: info.summary, pr: pr.url })).path;
+    if (!dryRun) {
+      const made = await createWorktree({ card, title: info.summary, pr: pr.url, prompt: promptArg });
+      Object.assign(result, { worktree: made.path, launch: made.launch });
+    }
   } else {
     const repo = repoArg || DEFAULT_REPO;
     await orcaRepoId(repo);
@@ -315,10 +337,11 @@ async function main() {
     words ||= titleWords(info.summary);
     Object.assign(result, { action: dryRun ? "would-create" : "create", repo, pr: null, words: words.join("-"), branch: [card, ...words].join("-") });
     if (!dryRun) {
-      const made = await createWorktree({ card, title: info.summary, words, repo });
+      const made = await createWorktree({ card, title: info.summary, words, repo, prompt: promptArg });
       result.worktree = made.path;
       if (made.branch) result.branch = made.branch;
       result.base = made.base;
+      result.launch = made.launch;
     }
   }
   result.login = me;

@@ -255,10 +255,15 @@ async function defaultBranch(repo) {
   if (!base) throw new Error("GitHub gave no default branch for " + repo);
   return base;
 }
-// Claude's first message in a worktree whose branch is not based on the default branch.
-const branchNotice = (branch, base, main) =>
-  `This worktree is on branch ${branch}, which is based on ${base}, not ${main}. ` +
-  `Tell the developer that in one sentence, then wait for their instructions without starting any work.`;
+// What Claude must tell the developer first in a worktree whose branch is not based on the default branch.
+const branchFact = (branch, base, main) => `This worktree is on branch ${branch}, which is based on ${base}, not ${main}.`;
+// Claude's first message: the facts it must tell the developer first, then the brief. With facts
+// and no brief, Claude waits for instructions. Empty when there is neither.
+function firstMessage(facts, prompt) {
+  if (!facts.length) return prompt || "";
+  const tell = facts.join(" ") + " Tell the developer that in one sentence";
+  return prompt ? `${tell}, then: ${prompt}` : `${tell}, then wait for their instructions without starting any work.`;
+}
 
 // Makes a worktree for a card that has none and starts Claude in it, then returns { path, branch }.
 // Orca names the worktree's branch itself from --name (adding its branch prefix, e.g.
@@ -270,7 +275,11 @@ const branchNotice = (branch, base, main) =>
 // title. With a PR, the worktree is switched onto the PR's own branch before Claude starts, and
 // Orca's prefixed branch is deleted. When the branch is based on anything but the default branch,
 // Claude's first message asks it to tell the developer which branch the worktree is on.
-export async function createWorktree({ card, title, pr, words, repo = "bloombooks/bloomdesktop" }) {
+// `prompt` (a hand-off's brief) becomes Claude's first message, after any such notice. Claude
+// starts as a chat or in a terminal, as the developer's Orca setting says; the first message is the
+// only one Orca can give a chat, so a brief must come this way. Returns also `launch`
+// (launchSummary).
+export async function createWorktree({ card, title, pr, words, repo = "bloombooks/bloomdesktop", prompt }) {
   if (!/^BL-\d+$/.test(card || "")) throw new Error("bad card id " + card);
   let prNumber = null;
   const parsed = parsePr(pr);
@@ -289,11 +298,11 @@ export async function createWorktree({ card, title, pr, words, repo = "bloombook
     }
     const name = [card, ...(words || titleWords(title))].join("-");
     // Orca's prefix is unknown until it answers, so the notice names the branch Orca is asked for.
-    const notice = base !== main ? ["--prompt", branchNotice(name, "origin/" + base, main)] : [];
-    const r = await orca(...args, "--agent", "claude", ...notice, "--name", name, "--base-branch", "origin/" + base);
+    const first = firstMessage(base !== main ? [branchFact(name, "origin/" + base, main)] : [], prompt);
+    const r = await orca(...args, "--agent", "claude", ...(first ? ["--prompt", first] : []), "--name", name, "--base-branch", "origin/" + base);
     const made = r.worktree?.path || r.worktreeId;
     log("created " + made + " on origin/" + base + " for " + card);
-    return { path: made, branch: (r.worktree?.branch || "").replace("refs/heads/", ""), base };
+    return { path: made, branch: (r.worktree?.branch || "").replace("refs/heads/", ""), base, launch: launchSummary(r.launch) };
   }
   const head = await prHeadBranch(repo, prNumber);
   const prBase = (await execFileP("gh", ["pr", "view", String(prNumber), "-R", repo, "--json", "baseRefName", "--jq", ".baseRefName"], { windowsHide: true })).stdout.trim();
@@ -308,14 +317,27 @@ export async function createWorktree({ card, title, pr, words, repo = "bloombook
   if (orcaBranch && orcaBranch !== head) await execFileP("git", ["-C", wt, "branch", "-D", orcaBranch], { windowsHide: true }).catch(e => log("could not delete " + orcaBranch + ": " + e.message));
   // A local branch that an earlier worktree left behind can be older than the PR: it moves up to
   // the PR's head. One with commits that the PR lacks stays as it is, and Claude says so first.
-  const notices = [];
+  const facts = [];
   if (!(await isAncestor(wt, "origin/" + head, "HEAD"))) {
     if (await isAncestor(wt, "HEAD", "origin/" + head)) await execFileP("git", ["-C", wt, "merge", "--ff-only", "origin/" + head], { windowsHide: true });
-    else notices.push(`This worktree is on the local branch ${head}, which has commits that the PR's branch on GitHub does not, and lacks some that it has. Tell the developer that in one sentence before anything else, and change neither branch until they say how to reconcile them.`);
+    else facts.push(`This worktree is on the local branch ${head}, which has commits that the PR's branch on GitHub does not, and lacks some that it has; change neither branch until the developer says how to reconcile them.`);
   }
-  if (prBase && prBase !== main) notices.push(branchNotice(head, prBase, main));
-  if (notices.length) await orca("agent", "launch", "--agent", "claude", "--worktree", "path:" + wt, "--prompt", notices.join(" "), "--focus");
-  else await orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", "claude", "--focus");
+  if (prBase && prBase !== main) facts.push(branchFact(head, prBase, main));
+  const launch = await launchClaude(wt, firstMessage(facts, prompt));
   log("created " + wt + " on " + head + " for " + card);
-  return { path: wt, branch: head, base: prBase || main };
+  return { path: wt, branch: head, base: prBase || main, launch };
+}
+
+// Starts Claude in a worktree that exists, with `prompt` as its first message when given, as a
+// chat or in a terminal per the developer's Orca setting, and shows it. Returns launchSummary.
+export async function launchClaude(wt, prompt) {
+  const r = await orca("agent", "launch", "--agent", "claude", "--worktree", "path:" + wt, ...(prompt ? ["--prompt", prompt] : []), "--focus");
+  return launchSummary(r.launch || r);
+}
+
+// What Orca's reply to an agent launch says started: { kind: "structured" (a chat) | "terminal",
+// handle, delivered }. `delivered` is Orca's word on whether the first message arrived, or null when
+// none was sent or Orca did not say.
+export function launchSummary(launch) {
+  return { kind: launch?.outcome?.kind ?? null, handle: launch?.outcome?.handle ?? null, delivered: launch?.prompt?.outcome ?? null };
 }

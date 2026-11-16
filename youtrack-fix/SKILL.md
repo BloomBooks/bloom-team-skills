@@ -24,22 +24,22 @@ You will be given a card id starting with `BL-`, or its URL
    A clean checkout is not a reason to work here: it is often the developer's main checkout, or
    a worktree for other work. In every other case, **move the work to a worktree of its own**,
    and do not plan or change anything here:
-   1. Run `node <bloom-team-skills>/work-on-youtrack/work-on-youtrack.mjs <card> --json`, adding
-      `--repo <owner/name>` when the fix belongs in a repo other than BloomDesktop (reach the
-      script through this file's real path, as with `dev-process-artifacts.md`). It assigns the
-      card, finds or creates the card's worktree and branch, starts Claude there, and brings
-      Orca to the front. If it fails (the card is someone else's, or Orca lacks the repo), report
-      its reason and stop.
-   2. If its JSON has a `terminal`, that worktree already had an agent running: leave it alone and
-      tell the developer the card is already being worked there. Otherwise find the new Claude's
-      terminal (`orca terminal list --worktree path:<worktree> --json`), wait with
-      `orca terminal wait --terminal <handle> --for tui-idle --timeout-ms 90000 --json`, and send it
-      `orca terminal send --terminal <handle> --text "<brief>" --enter --wait-submit 20 --json`.
-      The brief is `/youtrack-fix <card>` plus anything from this conversation it needs (what the
-      developer already said about the cause or where the fix goes) and "this worktree and branch
-      were made for this card; stay on that branch". Done when the result's stages include
-      `turn_started`; if they show only `input_accepted`, reissue the same command with the
-      `--retry-request` id it gave (that never sends twice).
+   1. Run `node <bloom-team-skills>/work-on-youtrack/work-on-youtrack.mjs <card> --prompt "<brief>" --json`,
+      adding `--repo <owner/name>` when the fix belongs in a repo other than BloomDesktop (reach
+      the script through this file's real path, as with `dev-process-artifacts.md`). The brief is
+      `/youtrack-fix <card>` plus anything from this conversation it needs (what the developer
+      already said about the cause or where the fix goes) and "this worktree and branch were made
+      for this card; stay on that branch". The script assigns the card, finds or creates the
+      card's worktree and branch, starts Claude there with the brief as its first message, and
+      brings Orca to the front. Claude starts as a chat or in a terminal, as the developer's Orca
+      setting says, and Orca can give a chat only its first message: so pass the brief here, never
+      type it in afterwards. If the script fails (the card is someone else's, or Orca lacks the
+      repo), report its reason and stop.
+   2. If its JSON has `agent: true`, that worktree already had a Claude session, which got no
+      brief: leave it alone and tell the developer the card is already being worked there.
+      Otherwise its `launch` says what started (`kind` `structured` is a chat) and `delivered`
+      whether Orca took the brief (`journaled` when it did); when it is anything else, tell the
+      developer to paste the brief into the new Claude themselves.
    3. Tell the developer which worktree and branch took the card, and stop here.
 3. **Plan.** Read the code as needed and write a short plan. Ask the user for anything you need
    clarified, then present the plan and ask whether to proceed. List in it the existing tests

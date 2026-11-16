@@ -28,13 +28,15 @@ What the script does, so you can explain its output:
    with `<card>-` or is the card id; a branch that is a PR's head branch; or a worktree that
    `orca reference find` returns. With several, it prefers one on a PR's branch, then the one
    with the latest activity, and lists the rest.
-4. With a worktree: switches Orca to its Claude terminal, or starts `claude --continue || claude`
-   there. Without one: creates it with `createWorktree` from `orca-worktrees.mjs` at the
+4. With a worktree: switches Orca to its Claude terminal, leaves a Claude chat there alone (Orca
+   cannot show a chat tab from outside), or starts `claude --continue || claude` there (with
+   `--prompt`, a new Claude with that first message). Without one: creates it with `createWorktree` from `orca-worktrees.mjs` at the
    repo root (shared with the dashboard), on the PR's branch when there is a PR, otherwise on
    `<card>-<1-3 words>` in `bloombooks/bloomdesktop`, from `origin/master`, or from
    `origin/Version6.5` when the card's title starts with `[6.5]`. When the branch is based on
    anything but master, the new Claude's first message tells the developer which branch it is on. Claude (haiku) suggests the words; when it
-   fails or answers with something else, the first three words of the title are used.
+   fails or answers with something else, the first three words of the title are used. A new
+   Claude starts as a chat or in a terminal, as the developer's Orca setting says.
 5. Assigns the card to the developer when it has no Assignee, and moves it to In Progress when its
    State comes before In Progress (Incoming, Open, Ready For Work, Has Comments). A card in review,
    in testing or closed keeps its State. Both fields are read back. A card it moved to In Progress
@@ -51,6 +53,10 @@ Options:
 - `--repo <owner/name>`: the repo for a new worktree when the card has no PR, and the only repo
   searched for worktrees and PRs. The script never guesses the repo from the card, so if the
   developer names a repo, or the card is plainly about another repo, pass it.
+- `--prompt <text>`: the first message for the Claude the script starts, such as a hand-off's
+  brief from `youtrack-fix`. Orca can give a chat only its first message, so a brief must come
+  this way rather than being typed in afterwards. It is not sent to a Claude the worktree
+  already had (`agent: true` in the JSON).
 - `--dry-run`: does steps 1 to 3, asks Claude for the words, and prints what it would open or
   create and what it would change on the card. It changes nothing.
 - `--json`: one JSON object instead of text (`action` is `open`, `create`, `would-open` or
