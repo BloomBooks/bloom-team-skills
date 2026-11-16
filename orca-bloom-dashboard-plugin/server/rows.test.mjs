@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allowAction, codeSince, computeRow, groupOf, stateOf } from "./rows.mjs";
+import { allowAction, codeSince, computeRow, groupOf, stateOf, wantsRow } from "./rows.mjs";
 
 const card = { id: "BL-1", url: "u", summary: "A card", state: "In Progress", approvedPlan: false, updated: "2026-11-01" };
 const pr = { url: "https://github.com/BloomBooks/BloomDesktop/pull/9", isDraft: true, mergeable: "MERGEABLE", checks: "SUCCESS", changedFiles: 3, additions: 10, deletions: 2, report: "https://bloombooks.github.io/dev-process-artifacts/r.html", reportDecisions: 0 };
@@ -184,4 +184,15 @@ test("the row explains itself: the rule that matched and each fact with its sour
   assert.match(row.why[0].text, /^handoff-ready: /);
   assert.deepEqual(row.why.find(w => w.label === "PR").source, "GitHub");
   assert.deepEqual(row.unknown, [{ source: "reviewable", error: "timeout", since: 0 }]);
+});
+
+test("a card assigned to someone else gets a row only while the developer has work on it", () => {
+  const theirs = { ...card, assignedToDeveloper: false };
+  const clean = { ...git, ahead: 0, uncommitted: 0, untracked: 1 };
+  assert.equal(wantsRow({ card: theirs, prs: [], gits: [clean, clean] }), false);
+  assert.equal(wantsRow({ card: theirs, prs: [pr], gits: [clean] }), true);
+  assert.equal(wantsRow({ card: theirs, prs: [], gits: [clean, { ...clean, ahead: 1 }] }), true);
+  assert.equal(wantsRow({ card: theirs, prs: [], gits: [{ ...clean, uncommitted: 2 }] }), true);
+  assert.equal(wantsRow({ card: theirs, prs: [], gits: [null] }), true);
+  assert.equal(wantsRow({ card: { ...card, assignedToDeveloper: true }, prs: [], gits: [] }), true);
 });

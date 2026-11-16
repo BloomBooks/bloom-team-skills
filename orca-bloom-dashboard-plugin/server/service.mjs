@@ -45,7 +45,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { PORT, ORIGIN, serviceDir, dashboardDir, repoDir, dataDir, dataFile, serviceKey, readJsonFile, writeJsonFile, ownEnvironment, orcaRunning, log } from "./env.mjs";
 import { emptyState, applyHook, applyProgress, applyInterrupt, checkLiveness, openRun, latestRun, sessionsIn, prune, isOpen, SKILLS } from "./runs.mjs";
-import { computeRow, allowAction, orderOf, GROUPS, ROW_STATES, IN_REVIEW } from "./rows.mjs";
+import { computeRow, allowAction, orderOf, wantsRow, GROUPS, ROW_STATES, IN_REVIEW } from "./rows.mjs";
 import { readGit, gitWatcher } from "./git.mjs";
 import { writeProse, digestOf, proseUsage, config, llmDir, SETTLE_MS } from "./prose.mjs";
 import { addDecider, deciderPage, answerDecider, waitForAnswers, waitingDeciders, dropDecider } from "./deciders.mjs";
@@ -345,6 +345,8 @@ function buildRows(now = Date.now()) {
     if (!ROW_STATES.includes(card.state) && !review) continue;
     const mine = (remote.prs || []).filter(p => p.card === card.id);
     const wts = [...known.entries()].filter(([, w]) => w.card === card.id || mine.some(p => p.headRefName === w.branch));
+    if (!card.assignedToDeveloper) for (const [k] of wts) if (!gits.has(k)) refreshGit(k);
+    if (!wantsRow({ card, prs: mine, gits: wts.map(([k]) => gits.get(k)?.value ?? null) })) continue;
     // The PR that a worktree is on, when the card has several; the worktree on that PR's branch.
     const pr = mine.find(p => wts.some(([, w]) => w.branch === p.headRefName)) ?? mine[0] ?? null;
     const [key, wt] = wts.find(([, w]) => pr && w.branch === pr.headRefName) ?? wts[0] ?? [null, null];
