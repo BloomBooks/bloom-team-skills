@@ -64,7 +64,6 @@ Preflight's final gift is a single report, auto-opened in your browser, that is 
 | `decider`                  | "Make a decider": present a batch of decisions as an interactive artifact — radios with a recommended pick, notes, `Other:`, and a copy-back block — instead of snap-judgment terminal questions. |
 | `interactive-dashboard`    | A live steering board for a long multi-agent run: every work item's state and log, drag-to-reorder priority, per-item pause, the workers' questions answered with a click, and a note box, all flowing back to the controlling agent through the page's database. |
 | `card-sorter`              | A local app for sorting a release board's YouTrack cards (stay, next release, Issues We'll Live With, close), with an analysis of each card; Synchronize pulls the board and pushes the confirmed decisions and card order back to YouTrack. |
-| `dashboard`                | A local page of your In Progress and Has Comments YouTrack cards on one Kanban Board (`/dashboard 6.6`), grouped by how close each is to review, showing live which ones agents are working and which wait for you, with buttons that open each worktree in Orca. Runs while its Claude session is open. |
 | `work-on-youtrack`         | `/work-on-youtrack BL-16627`, or "I want to work on issue BL16627": open the card's Orca worktree with Claude running in it, or create one (on the card's PR branch, or a new `<card>-<words>` branch whose words Claude suggests). The logic is in `work-on-youtrack.mjs`, so a browser extension can run it too. |
 | `update-team-skills`       | Pull the latest bloom-team-skills and symlink any newly added skill into `~/.claude/skills`. Run `/update-team-skills` after someone adds a skill; replaces the manual re-link chore.   |
 | `process-sentry-issues`    | "ProcessSentryIssues N": pick off the top N unprocessed Sentry issues for the repo you run it from, triage each, file an attributed YouTrack card, fix fixable ones on a branch + preflight, and land every card in Ready For Work. Repo-agnostic (BloomDesktop, BloomPlayer, …). |
@@ -177,10 +176,9 @@ different directory can be linked the same way.)
 
 ### The dashboard service and its Orca plugin
 
-The `dashboard` skill is a service that runs on your machine while Orca does, from your clone, so
+The dashboard is a service that runs on your machine while Orca does, from your clone, so
 pulls update it. Orca's Bloom plugin starts it, and it exits once Orca has quit. It serves the dashboard page at http://127.0.0.1:47600/ and one Orca
-plugin ([`dashboard/orca-plugin.json`](dashboard/orca-plugin.json) with
-[`dashboard/plugin/`](dashboard/plugin)):
+plugin, both in [`orca-bloom-dashboard-plugin/`](orca-bloom-dashboard-plugin):
 
 - **Bloom Dashboard button**, in Orca's status bar. Pressing it shows the dashboard window. It
   also says how many cards wait for you.
@@ -189,15 +187,14 @@ plugin ([`dashboard/orca-plugin.json`](dashboard/orca-plugin.json) with
   stands), then the checkout's git state, its Claude session, and your last three prompts in that
   session.
 
-[`dashboard/README.md`](dashboard/README.md) says how it works.
+[`orca-bloom-dashboard-plugin/README.md`](orca-bloom-dashboard-plugin/README.md) says how it works.
 
-`/update-team-skills` and `/dashboard` set it up and ask you to approve the access the plugin needs. The
-daily auto-update sets it up too, and leaves the approval to you. To do it yourself:
+`/update-team-skills` sets it up and asks you to approve the access the plugin needs. The daily
+auto-update sets it up too, and leaves the approval to you. To do it yourself:
 
 ```bash
-node <your clone>/dashboard/service/install.mjs            # hooks, the service, the plugin
-node <your clone>/dashboard/service/install.mjs --approve  # the same, and approve the plugin's access
-node <your clone>/dashboard/service/start.mjs --show       # show the dashboard window
+node <your clone>/orca-bloom-dashboard-plugin/install.mjs            # hooks, the service, the plugin
+node <your clone>/orca-bloom-dashboard-plugin/install.mjs --approve  # the same, and approve the plugin's access
 ```
 
 The button may read your workspaces, open them, type into the terminal that it starts, and keep

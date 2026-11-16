@@ -434,12 +434,12 @@ no CI.
 
 ## Progress for the dashboard
 
-The developer's dashboard shows which phase of a run is happening, from what
-`dashboard/progress.mjs` in the bloom-team-skills clone records. Each phase below opens with a
+The developer's dashboard shows which phase of a run is happening, from what `progress.mjs` in
+this skill's folder records. Each phase below opens with a
 **Progress** line naming its commands; `progress <args>` there means this, run from the worktree:
 
 ```
-node "$HOME/.claude/skills/dashboard/progress.mjs" <args>
+node "$HOME/.claude/skills/preflight/progress.mjs" <args>
 ```
 
 Run each one as the change happens and go on at once: it is quick and never fails the run.
@@ -454,8 +454,6 @@ Run each one as the change happens and go on at once: it is quick and never fail
   as its note), so that the dashboard never shows a step as not yet started on a finished run.
 - The note is a few words that a glance at the dashboard needs: `bots running "round 2 of 4"`,
   `tests failed "2 C# tests fail"`, `ci running "3 of 5 checks"`.
-
-When the script is not there (`$HOME/.claude/skills/dashboard` missing), skip these commands.
 
 ## Phase 0 — Discover
 

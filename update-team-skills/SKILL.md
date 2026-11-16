@@ -33,16 +33,17 @@ overwrites an existing link or touches skills that aren't part of this repo.
    ensure `~/.claude/skills/<folder>` exists as a symlink to it. Create the ones that are missing;
    leave existing links alone. Only link folders that have a `SKILL.md` (so docs and other root
    files are ignored).
-4. **Tidy broken links (optional).** If a link in `~/.claude/skills` points *into this repo* but its
-   target no longer exists (a skill was renamed/removed upstream), remove that dangling link. Never
+4. **Tidy broken links.** If a link in `~/.claude/skills` points *into this repo* but its target no
+   longer exists or no longer holds a `SKILL.md` (a skill was renamed/removed upstream), remove that
+   link. Never
    remove links that point outside this repo — those are the developer's own / other skills.
 5. **Install the daily auto-update.** Run `node <repo>/update-team-skills/auto-update.mjs --install`.
    It adds a SessionStart hook to `~/.claude/settings.json` (or reports it is already there). From
-   then on, the first Claude Code session each day starts a background `git pull --ff-only` and links
-   new skill folders, without delaying the session. It pulls only when the clone is on `main` with no
+   then on, the first Claude Code session each day starts a background `git pull --ff-only`, links
+   new skill folders and removes the links of step 4, without delaying the session. It pulls only when the clone is on `main` with no
    uncommitted changes to tracked files. It also sets up the dashboard as in step 6, without
    approving its Orca plugin. Results go to `~/.claude/bloom-team-skills-update.log`.
-6. **Set up the dashboard.** Run `node <repo>/dashboard/service/install.mjs`. It writes the
+6. **Set up the dashboard.** Run `node <repo>/orca-bloom-dashboard-plugin/install.mjs`. It writes the
    dashboard service's Claude Code hooks into `~/.claude/settings.json`, starts the service from
    the clone when Orca is running, and loads its Orca plugin (the Bloom
    Dashboard button in Orca's status bar and the Worktree panel in its right sidebar). It says so

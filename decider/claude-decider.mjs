@@ -4,7 +4,7 @@
 //
 // Usage: node claude-decider.mjs --name <form-name> <form.json | page.html> [--topic "<few words>"] [--no-open] [--timeout-min N]
 //
-// The page goes to the dashboard service on this machine when one runs (dashboard/service): the
+// The page goes to the dashboard service on this machine when one runs (orca-bloom-dashboard-plugin/server): the
 // service serves it, lists it on the dashboard with the other forms that wait, and hands the
 // answers back here. Any number of sessions can have a form waiting, and this process only waits.
 // With no service, this process serves the page itself on a port of its own.

@@ -1,6 +1,6 @@
 // Opens and creates Orca worktrees for YouTrack cards, and drives the Claude sessions in them.
-// dashboard/service/service.mjs (the buttons of the dashboard page and the Worktree panel),
-// dashboard/plugin/panel-facts.mjs and work-on-youtrack/work-on-youtrack.mjs share
+// orca-bloom-dashboard-plugin/server/service.mjs (the buttons of the dashboard page and the Worktree panel),
+// orca-bloom-dashboard-plugin/panel-facts.mjs and work-on-youtrack/work-on-youtrack.mjs share
 // these.
 //
 //   import { orca, openWorktree, createWorktree, bringOrcaToFront } from "<repo>/orca-worktrees.mjs";
@@ -26,7 +26,7 @@ export const norm = p => (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLow
 // The skills that the dashboard's and the panel's buttons run in a worktree's Claude session.
 export const DASHBOARD_SKILLS = ["preflight", "request-peer-review", "merge-without-peer-review", "process-pr-comments"];
 // No skill is named process-pr-comments: its button types this prompt. An agent whose prompt
-// starts with COMMENTS_PROMPT_START counts as running it (skillOf in dashboard/row-facts.mjs).
+// starts with COMMENTS_PROMPT_START counts as running it (skillOf in orca-bloom-dashboard-plugin/server/row-facts.mjs).
 // The prompt holds no quote, so that it can sit inside a quoted argument of `claude`.
 export const COMMENTS_PROMPT_START = "Process the PR comments";
 export const COMMENTS_PROMPT = COMMENTS_PROMPT_START + ": read every unresolved discussion on the PR of this branch (reviewable-replies skill), make the changes that they ask for, and reply to each one.";
@@ -94,7 +94,7 @@ export async function typePrompt(handle, text) {
 }
 
 let orcaExe = null;
-const raiseWindowScript = path.join(path.dirname(fileURLToPath(import.meta.url)), "dashboard", "raise-window.ps1");
+const raiseWindowScript = path.join(path.dirname(fileURLToPath(import.meta.url)), "orca-bloom-dashboard-plugin", "server", "raise-window.ps1");
 export async function bringOrcaToFront() {
   // The CLI calls only change what Orca shows. Windows lets only the foreground program raise a
   // window, so Orca raising its own (from its second-instance handler, when Orca.exe is launched

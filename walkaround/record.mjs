@@ -6,7 +6,7 @@
 // Run from inside the checkout (or pass --worktree <path>) as the walkaround's last step, after its
 // fixes and fast checks. It writes ~/.claude/walkaround/<checkout>.json holding the HEAD, the tree
 // of the working copy (uncommitted and untracked files included, ignored files left out) and the
-// summary. dashboard/progress.mjs refuses `walkaround done` for a checkout whose working copy no
+// summary. orca-bloom-dashboard-plugin/report/progress.mjs refuses `walkaround done` for a checkout whose working copy no
 // longer has that tree, so a walkaround that never ran on this code cannot be reported as done.
 import fs from "node:fs";
 import os from "node:os";

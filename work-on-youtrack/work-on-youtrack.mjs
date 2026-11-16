@@ -20,7 +20,7 @@ import {
   openWorktree, createWorktree, bringOrcaToFront,
 } from "../orca-worktrees.mjs";
 import { developer } from "../developer.mjs";
-import { tellDashboard } from "../dashboard/tell.mjs";
+import { tellDashboard } from "../orca-bloom-dashboard-plugin/report/tell.mjs";
 
 const execFileP = promisify(execFile);
 const YT = "https://issues.bloomlibrary.org/youtrack/api";
@@ -150,7 +150,7 @@ async function placeAfterMine(id, login) {
 }
 
 // ---- the card's PR --------------------------------------------------------------------------
-// The open PRs that name the card in their title or branch (the rule dashboard/gather.mjs uses),
+// The open PRs that name the card in their title or branch (the rule orca-bloom-dashboard-plugin/server/gather.mjs uses),
 // found among the GitHub PR links on the card and a GitHub search of BloomBooks for the card id.
 async function openPrs(card, info) {
   const urls = new Set();

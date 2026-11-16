@@ -30,7 +30,7 @@ Check all of the following. **Any failure → go no further** (see "Not clean" b
   description. Pass when it names a test, says `test-only change` (and the diff
   touches no product code), or gives a `developer's decision`. Bounce when it says
   `awaiting` or there is no such line. Never supply a reason yourself.
-- **The developer has reviewed every file.** Run `node <bloom-team-skills clone>/dashboard/own-review.mjs <PR URL>`.
+- **The developer has reviewed every file.** Run `node <bloom-team-skills clone>/orca-bloom-dashboard-plugin/server/own-review.mjs <PR URL>`.
   It counts a file as reviewed when the developer marked it Viewed on GitHub's Files changed page,
   or reviewed in Reviewable, for the file's current content. When `left` lists files, name them,
   tell the developer to finish their own review, and stop; this is not a bounce to preflight. When
@@ -138,7 +138,7 @@ has not yet reviewed HEAD), it waits for that review before it reports done or m
    inline comments.
    - **No findings** → go on.
    - **Findings** → the PR is not clean. Put it back in draft (`gh pr ready <n> --undo`, then
-     `node "$HOME/.claude/skills/dashboard/tell.mjs" pr-changed` when that file exists), leave
+     `node tell-dashboard.mjs pr-changed`, the script in the folder of the skill you are running), leave
      the card where it was before this skill ran, and bounce to preflight, naming the findings.
      The developer runs this skill again once preflight has dealt with them.
    - **Nothing by the cap** → go on, and say in the report that a review from that bot may still
