@@ -48,7 +48,7 @@ import { emptyState, applyHook, applyProgress, applyInterrupt, checkLiveness, op
 import { computeRow, allowAction, orderOf, wantsRow, GROUPS, ROW_STATES, IN_REVIEW } from "./rows.mjs";
 import { readGit, gitWatcher } from "./git.mjs";
 import { writeProse, digestOf, proseUsage, config, llmDir, SETTLE_MS } from "./prose.mjs";
-import { addDecider, deciderPage, answerDecider, waitForAnswers, waitingDeciders, dropDecider } from "./deciders.mjs";
+import { addDecider, deciderPage, answerDecider, waitForAnswers, waitingDeciders, dropDecider, isAbandoned } from "./deciders.mjs";
 import { cardOf, questionOf, agentState, readProgress, progressDir } from "./row-facts.mjs";
 import { ownReview } from "./own-review.mjs";
 import { prComments } from "./pr-comments.mjs";
@@ -338,7 +338,16 @@ async function drainReviews() {
 let rowsNow = [], inReviewNow = [];
 function buildRows(now = Date.now()) {
   const known = worktrees();
-  const deciders = waitingDeciders(now);
+  // A decider can never be answered to anyone once its session has ended, or once nothing waits
+  // on it any more (deciders.mjs, isAbandoned): it is dropped before it marks a row.
+  const deciders = waitingDeciders(now).filter(d => {
+    const why = d.session && runs.sessions[d.session]?.endedAt ? "its session ended"
+      : isAbandoned(d, now) ? "nothing has waited for its answers for 3 minutes" : null;
+    if (!why) return true;
+    dropDecider(d.id);
+    note(d.worktree, `dropped the decider "${d.name}": ${why}`);
+    return false;
+  });
   const rows = [], inReview = [];
   for (const card of remote?.cards || []) {
     const review = card.state === IN_REVIEW && card.assignedToDeveloper;
@@ -379,8 +388,6 @@ function buildRows(now = Date.now()) {
   rows.sort((a, b) => rank(a) - rank(b) || a.card.localeCompare(b.card, undefined, { numeric: true }));
   rowsNow = rows; inReviewNow = inReview;
   watcher.set([...rows, ...inReview].map(r => r.worktree).filter(Boolean));
-  // A decider whose session has gone can never be answered to anyone.
-  for (const d of deciders) if (d.session && runs.sessions[d.session]?.endedAt) { dropDecider(d.id); note(d.worktree, `dropped the decider "${d.name}": its session ended`); }
   return { rows, inReview, deciders };
 }
 

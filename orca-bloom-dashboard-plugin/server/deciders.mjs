@@ -19,7 +19,16 @@ const KEEP_ANSWERED_MS = 60 * 60_000;
 // A form that nobody answers is dropped after this long.
 const KEEP_WAITING_MS = 3 * 24 * 3600e3;
 
+// A form that nobody has waited on for this long has been abandoned: the session's
+// claude-decider.mjs timed out (after 115 minutes) or was stopped because the session went on
+// without the form, for instance after the developer answered in the terminal. claude-decider.mjs
+// asks again within a few seconds of each 50-second wait ending, and retries for two minutes while
+// the service restarts, so a waiting form is never this long without a waiter.
+const ABANDONED_MS = 3 * 60_000;
+const started = Date.now();
+
 const waiters = new Map();   // id -> Set of functions to call with the answers
+const waitedAt = new Map();  // id -> when a waiter last came or went, since this process started
 
 function all() {
   let names = [];
@@ -64,9 +73,10 @@ export function waitForAnswers(id, ms) {
   const d = getDecider(id);
   if (!d) return Promise.reject(new Error("no such decider"));
   if (d.answeredAt) return Promise.resolve(d.answers);
+  waitedAt.set(id, Date.now());
   return new Promise(resolve => {
     const set = waiters.get(id) ?? waiters.set(id, new Set()).get(id);
-    const give = answers => { clearTimeout(timer); set.delete(give); resolve(answers); };
+    const give = answers => { clearTimeout(timer); set.delete(give); waitedAt.set(id, Date.now()); resolve(answers); };
     const timer = setTimeout(() => give(null), ms);
     set.add(give);
   });
@@ -83,8 +93,18 @@ export function waitingDeciders(now = Date.now()) {
   return out.sort((a, b) => a.createdAt - b.createdAt);
 }
 
-/** Drops a waiting form whose session has gone: nobody is left to receive its answers. */
+/**
+ * Whether nothing waits on the form any more (ABANDONED_MS): no waiter now, and none since the
+ * later of its creation, this process's start and the last waiter's coming or going.
+ */
+export function isAbandoned(d, now = Date.now()) {
+  if (waiters.get(d.id)?.size) return false;
+  return now - Math.max(d.createdAt, started, waitedAt.get(d.id) ?? 0) > ABANDONED_MS;
+}
+
+/** Drops a waiting form that nobody can receive the answers of: its session ended, or it was abandoned. */
 export function dropDecider(id) {
   if (validId(id)) try { fs.rmSync(fileOf(id)); } catch {}
   waiters.delete(id);
+  waitedAt.delete(id);
 }
