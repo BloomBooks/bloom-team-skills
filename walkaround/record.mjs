@@ -10,7 +10,7 @@
 // of the working copy (uncommitted and untracked files included, ignored files left out), the
 // summary, and whether /simplify ran (`simplify: { status, reason }`). It refuses without
 // --simplify, because a walkaround whose /simplify could not run is not finished and is not
-// recorded. dashboard/progress.mjs refuses `walkaround done`, and request-peer-review and
+// recorded. orca-bloom-dashboard-plugin/report/progress.mjs refuses `walkaround done`, and request-peer-review and
 // merge-without-peer-review bounce to preflight (through --check), for a checkout whose working
 // copy no longer has that tree (apart from later merges that git made with no hand edits), or whose
 // record does not say that /simplify ran or was not needed, so a walkaround that never ran on this

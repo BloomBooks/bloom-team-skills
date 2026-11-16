@@ -14,15 +14,13 @@
 //
 // Exit code 0 on success, 1 on any failure (the text or JSON says why).
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   orca, norm, parsePr, orcaRepoId, prHeadBranch, titleWords, agentTerminal,
   openWorktree, createWorktree, bringOrcaToFront,
 } from "../orca-worktrees.mjs";
 import { developer } from "../developer.mjs";
+import { tellDashboard } from "../orca-bloom-dashboard-plugin/report/tell.mjs";
 
 const execFileP = promisify(execFile);
 const YT = "https://issues.bloomlibrary.org/youtrack/api";
@@ -152,7 +150,7 @@ async function placeAfterMine(id, login) {
 }
 
 // ---- the card's PR --------------------------------------------------------------------------
-// The open PRs that name the card in their title or branch (the rule dashboard/gather.mjs uses),
+// The open PRs that name the card in their title or branch (the rule orca-bloom-dashboard-plugin/server/gather.mjs uses),
 // found among the GitHub PR links on the card and a GitHub search of BloomBooks for the card id.
 async function openPrs(card, info) {
   const urls = new Set();
@@ -250,17 +248,9 @@ function claudeWords(card, info) {
 }
 
 // ---- the dashboard -------------------------------------------------------------------------
-// Asks a running dashboard server (the dashboard skill) for a gather now rather than at its next
-// 15-minute one, so the card shows up with its new Assignee, State and worktree. Returns true
-// when a dashboard took the request, false when none is running.
-async function refreshDashboard() {
-  let key;
-  try { key = readFileSync(join(homedir(), ".claude", "bloom-dashboard", "handover.key"), "utf8").trim(); } catch { return false; }
-  try {
-    const r = await fetch("http://127.0.0.1:47321/api/regather", { method: "POST", headers: { "x-handover-key": key }, signal: AbortSignal.timeout(3000) });
-    return r.ok;
-  } catch { return false; }
-}
+// Tells the dashboard service that a card changed, so the card shows up with its new Assignee,
+// State and worktree now. Returns true when a service took the request, false when none is running.
+const refreshDashboard = () => tellDashboard("card-changed");
 
 // ---- output ---------------------------------------------------------------------------------
 function describe(r) {

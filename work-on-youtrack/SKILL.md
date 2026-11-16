@@ -42,7 +42,7 @@ What the script does, so you can explain its output:
    sprint its Kanban Board field names), through the board's `issueOrder` request as the
    `card-sorter` does; with no other card of theirs there it stays where YouTrack put it. Failing
    to place it is reported, not fatal.
-6. Asks a running dashboard (the `dashboard` skill) to gather now, so the card appears there
+6. Asks a running dashboard to gather now, so the card appears there
    without waiting for the dashboard's 15-minute gather.
 7. Brings Orca to the front.
 
