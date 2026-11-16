@@ -8,7 +8,8 @@
 // <step> is one of RUN_STEPS in row-facts.mjs; <state> is running, done, failed or skipped. The
 // run belongs to the git checkout of the current folder (or --worktree <path>). It writes
 // ~/.claude/bloom-dashboard/progress/<checkout>.json and then tells the dashboard service, which
-// reads the file (server/runs.mjs describes the states a run goes through). The file is the
+// reads the file (server/runs.mjs describes the states a run goes through); after `publish done`
+// it also tells the service to read the PRs again. The file is the
 // record: a service that is not running reads it when it starts. `start` records the Claude Code
 // session that runs the skill. `end` also records the commit the run ended on (`head`) and its
 // tree (`tree`), which tell the dashboard whether the code has changed since, and leaves a run
@@ -64,12 +65,17 @@ try {
   run.updatedAt = now;
   fs.writeFileSync(file, JSON.stringify(run, null, 2));
   // The service also watches the folder; this reaches it sooner, and costs at most half a second.
+  // `publish done` means the run has just opened or pushed its PR, which the service otherwise
+  // finds only at its next read of GitHub, so it is told to read now (tell.mjs's pr-changed).
   try {
     const key = fs.readFileSync(path.join(dataDir(), "service.key"), "utf8").trim();
-    await fetch(`http://127.0.0.1:${Number(process.env.BLOOM_DASHBOARD_PORT || 47600)}/tell`, {
-      method: "POST", headers: { "content-type": "application/json", "x-bloom-key": key },
-      body: JSON.stringify({ kind: "progress", worktree: run.worktree }), signal: AbortSignal.timeout(500),
-    });
+    const kinds = ["progress", ...(step === "publish" && state === "done" ? ["pr-changed"] : [])];
+    for (const kind of kinds) {
+      await fetch(`http://127.0.0.1:${Number(process.env.BLOOM_DASHBOARD_PORT || 47600)}/tell`, {
+        method: "POST", headers: { "content-type": "application/json", "x-bloom-key": key },
+        body: JSON.stringify({ kind, worktree: run.worktree }), signal: AbortSignal.timeout(500),
+      });
+    }
   } catch {}
 } catch (e) {
   console.warn("progress.mjs: " + e.message);
