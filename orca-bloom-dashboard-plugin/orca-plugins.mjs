@@ -22,10 +22,11 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-export const PLUGINS = [{ key: "local.bloom", name: "Bloom plugin (Dashboard button and Worktree panel)", dir: here }];
-// A folder that an earlier version loaded as a plugin of its own and that no longer exists, which
-// Orca would list as broken until it is unloaded.
-const RETIRED = [path.join(here, "..", "dashboard", "orca-plugin"), path.join(here, "..", "dashboard")];
+export const PLUGINS = [{ key: "local.bloom-developer-dashboard", name: "Bloom Developer Dashboard plugin (Dashboard button and Worktree panel)", dir: here }];
+// What earlier versions loaded and Orca would otherwise keep listing beside this plugin: the two
+// folders that no longer exist (each a plugin of its own, which Orca lists as broken), and the key
+// that this folder had before (a second Bloom Dashboard button).
+const RETIRED = [path.join(here, "..", "dashboard", "orca-plugin"), path.join(here, "..", "dashboard"), "local.bloom"];
 
 function orcaJson(args) {
     const env = { ...process.env };

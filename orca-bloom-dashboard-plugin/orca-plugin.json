@@ -1,7 +1,7 @@
 {
   "manifestVersion": 2,
-  "id": "bloom",
-  "name": "Bloom",
+  "id": "bloom-developer-dashboard",
+  "name": "Bloom Developer Dashboard",
   "version": "0.2.0",
   "description": "The Bloom dashboard inside Orca: a status bar button that shows the dashboard, and a Worktree panel with the dashboard's row for the focused worktree, its checkout, its Claude session and your last prompts there. Both draw what the dashboard service on this machine computes.",
   "engines": {
