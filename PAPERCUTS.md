@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-11-16 — BloomDesktop: after a master merge that bumps a front-end package, Bloom shows only a spinner
+
+- **Cut:** Preflight merged master, which bumped `@sillsdev/config-r`. After `pnpm install`, a restarted Bloom stayed on its loading spinner, and `run-bloom`'s `switchWorkspaceTab` said it could find no tab. The console showed that Vite was still serving its old pre-bundled copy: `does not provide an export named 'useConfigrValue'`. Neither `--restart` nor a reload fixed it. `launcherControl.mjs --shutdown`, then deleting `src/BloomBrowserUI/node_modules/.vite/deps`, then `--ensure-running` did.
+- **Idea:** Have the launcher start Vite with `--force` (or clear `.vite/deps`) when `pnpm-lock.yaml` is newer than the cache, and have `run-bloom` print the page's console errors when the workspace never appears.
+- **Context:** BL-17109 preflight, Claude Opus 5.5 from Hatton's machine during preflight.
+
 ## 2026-11-14 — devin-review: two runs at once overwrite each other's poll files
 
 - **Cut:** Two agents ran `devin-review` at the same time from one session (PRs onset/lameta#180 and sillsdev/saymore-plugin#6). Both wrote `poll.sh`, `jobs.json` and `result.json` into the shared scratchpad folder; one overwrote the other's `poll.sh`, and the first agent stopped the other's poll before redoing its own from a subfolder.
