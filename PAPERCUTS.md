@@ -449,3 +449,11 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
 - **Idea:** Compare `fs.realpathSync(process.argv[1])` with the module's path, or print the usage
   line when the branch is skipped. Meanwhile, run it by its real path (`readlink -f`).
 - **Context:** BL-17109 preflight, building the report for PR 8567.
+
+## 2026-11-16 — patch-report-chip.mjs cannot put a report's chip back to draft
+
+- **Cut:** CLAUDE.md asks whether to convert a ready PR back to draft after a code push. When the
+  developer says yes, the published preflight report still says "Ready for review", but
+  `patch-report-chip.mjs` takes only `ready` or `merged`. I edited the marked span by hand.
+- **Idea:** Accept `draft` too, writing `data-pr-state="draft"` and "Draft PR".
+- **Context:** BL-16822, answering John Thomson's review of PR 8530.
