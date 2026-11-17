@@ -17,11 +17,13 @@ import { reviewedCards, backForReview as cardsBackForReview } from "./reviewed.m
 import { bloomRepos, standupDays } from "./standup.mjs";
 import { cardOf, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
 import { agentState, orca as orcaCli } from "../../orca-worktrees.mjs";
-import { removalWarnings } from "./stale-worktrees.mjs";
+import { removalWarnings, statusEntries } from "./stale-worktrees.mjs";
 
-function run(cmd, args, opts = {}) {
+// `raw` keeps the output as git wrote it: `git status` starts a line with a space.
+function run(cmd, args, { raw = false, ...opts } = {}) {
   try {
-    return execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 << 20, ...opts }).trim();
+    const out = execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 << 20, ...opts });
+    return raw ? out : out.trim();
   } catch (e) {
     return null;
   }
@@ -79,7 +81,7 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
     if (!card) continue;
     if (core) { worktrees.push({ card, path: w.path, repo: w.projectId, branch, main: !!w.isMainWorktree, name: w.displayName || "" }); continue; }
     const git = (...a) => run("git", ["-C", w.path, ...a]);
-    const status = (git("status", "--porcelain") || "").split("\n").filter(Boolean);
+    const changes = statusEntries(run("git", ["-C", w.path, "status", "--porcelain", "-z"], { raw: true }));
     const base = git("rev-parse", "--abbrev-ref", "origin/HEAD") || "origin/master";
     const p = ps.get(w.path);
     worktrees.push({
@@ -91,8 +93,9 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
       main: !!w.isMainWorktree,
       name: w.displayName || "",
       orcaComment: w.comment || "",
-      modified: status.filter(l => !l.startsWith("??")).map(l => l.slice(3)),
-      untracked: status.filter(l => l.startsWith("??")).length,
+      modified: changes.filter(c => c.status !== "??").map(c => c.file),
+      untracked: changes.filter(c => c.status === "??").length,
+      changes,
       hasUpstream: git("rev-parse", "--abbrev-ref", "@{u}") != null,
       // The branch's name on origin, which its PRs name, from git's config: it stays there after
       // GitHub deletes a merged PR's branch, when @{u} no longer resolves.
@@ -100,6 +103,7 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
       // When Orca last saw anything happen in the worktree.
       lastActivity: w.lastActivityAt ? new Date(w.lastActivityAt).toISOString() : null,
       unpushed: Number(git("rev-list", "--count", "@{u}..HEAD") ?? -1),
+      unpushedCommits: (git("log", "--oneline", "--no-merges", "@{u}..HEAD") || "").split("\n").filter(Boolean),
       base,
       behindBase: Number(git("rev-list", "--count", `HEAD..${base}`) ?? -1),
       ownCommits: (git("log", "--oneline", "--no-merges", `${base}..HEAD`) || "").split("\n").filter(Boolean),
@@ -214,21 +218,21 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
       const prs = (open.get(repo) || []).filter(p => cardOf(p.headRefName, p.title) === w.card)
         .map(p => ({ url: p.url, title: p.title, headRefName: p.headRefName, isDraft: p.isDraft, author: p.author?.login === dev.github ? "" : p.author?.login || "" }));
       // The newest merged PR from the branch, and the commits the branch has beyond it and its base.
-      let branchPr = null, afterMerge = null;
+      let branchPr = null, afterMerge = null, afterMergeCommits = [];
       if (repo && w.upstreamBranch) {
         const merged = (await ghJson(["pr", "list", "-R", repo, "--head", w.upstreamBranch, "--state", "merged", "--json", "url,headRefOid,baseRefName,mergedAt"]))
           .sort((a, b) => b.mergedAt.localeCompare(a.mergedAt))[0];
         if (merged) {
           branchPr = { url: merged.url };
-          const n = run("git", ["-C", w.path, "rev-list", "--count", "--no-merges", "HEAD", "^" + merged.headRefOid, "^origin/" + merged.baseRefName]);
-          afterMerge = n == null ? null : Number(n);
+          const log = run("git", ["-C", w.path, "log", "--oneline", "--no-merges", "HEAD", "^" + merged.headRefOid, "^origin/" + merged.baseRefName]);
+          if (log != null) { afterMergeCommits = log.split("\n").filter(Boolean); afterMerge = afterMergeCommits.length; }
         }
       }
-      const agents = (ps.get(w.path)?.agents || []).map(a => ({ state: agentState(a) }));
+      const agents = (ps.get(w.path)?.agents || []).map(a => ({ state: agentState(a), question: a.programStatus?.kind === "question" ? a.programStatus.message : null }));
       return {
         card: w.card, cardUrl: card.url, title: card.summary, state: card.state,
         path: w.path, name: w.name, branch: w.branch, orcaComment: w.orcaComment, lastCommit: w.lastCommit, pr: branchPr?.url || null,
-        warnings: removalWarnings(w, { prs, branchPr, afterMerge, agents, resolvedAt: card.resolved }),
+        warnings: removalWarnings(w, { prs, branchPr, afterMerge, afterMergeCommits, agents, resolvedAt: card.resolved }),
       };
     }));
     // The ones with nothing left in them first.

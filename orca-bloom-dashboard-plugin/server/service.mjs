@@ -57,6 +57,7 @@ import { changeTask, readTasks, TASK_ACTIONS } from "./tasks.mjs";
 import { unconfirmed } from "./stale-worktrees.mjs";
 import { orca, norm, setLog, bringOrcaToFront, openWorktree, createWorktree, runSkill, sendPrompt, openInVsCode } from "../../orca-worktrees.mjs";
 import { developer } from "../../developer.mjs";
+import { openChange, openCommit } from "./open-change.mjs";
 
 const execFileP = promisify(execFile);
 const args = process.argv.slice(2);
@@ -561,6 +562,8 @@ async function act(b) {
   if (action === "restart") { setTimeout(() => restart("the developer asked"), 200); return { message: "Restarting." }; }
   if (action === "show") return { message: await showWindow() };
   if (action === "remove-worktree") return removeStaleWorktree(b);
+  if (action === "open-change") return { message: await openChange(staleAt(b.path).path, b.file) };
+  if (action === "open-commit") return { message: await openCommit(staleAt(b.path).path, b.commit) };
   if (action === "set-board") { writeJsonFile(dataFile("board.json"), { board: String(b.board || "") }); remote = null; gather(true); return {}; }
   // Everything else acts on a card's worktree, by the rule that set the button's enabled state,
   // run again on what Orca says now.
@@ -612,9 +615,14 @@ async function act(b) {
   recompute();
   return { message };
 }
-async function removeStaleWorktree({ path: p, confirmed = [] }) {
-  const w = extras.staleWorktrees?.find(s => norm(s.path) === norm(p));
+// The worktree of a resolved card that the page lists at `p`, or an error.
+function staleAt(p) {
+  const w = extras.staleWorktrees?.find(s => norm(s.path) === norm(String(p || "")));
   if (!w) throw new Error("the dashboard does not list " + p + " as the worktree of a resolved card; press Refresh");
+  return w;
+}
+async function removeStaleWorktree({ path: p, confirmed = [] }) {
+  const w = staleAt(p);
   let dirty;
   try { dirty = (await execFileP("git", ["-C", w.path, "status", "--porcelain"], { windowsHide: true })).stdout.split("\n").filter(Boolean).length; }
   catch (e) { throw new Error("could not read git status in " + w.path + ": " + String(e.message).split("\n")[0]); }

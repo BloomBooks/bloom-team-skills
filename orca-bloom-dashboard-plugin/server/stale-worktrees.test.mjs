@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { removalWarnings, unconfirmed } from "./stale-worktrees.mjs";
+import { removalWarnings, statusEntries, unconfirmed } from "./stale-worktrees.mjs";
 
 const clean = { modified: [], untracked: 0, hasUpstream: true, upstreamBranch: "BL-1-x", unpushed: 0, ownCommits: [] };
 const merged = { url: "https://github.com/BloomBooks/BloomDesktop/pull/8400" };
@@ -57,6 +57,37 @@ test("an open PR from the branch is named once, as an open PR", () => {
 test("agents: working wins over waiting; done says nothing", () => {
   assert.deepEqual(removalWarnings(clean, { branchPr: merged, agents: [{ state: "done" }] }), []);
   assert.equal(removalWarnings(clean, { branchPr: merged, agents: [{ state: "waiting" }, { state: "working" }] })[0].text, "Claude is working here");
+});
+
+test("statusEntries reads git status -z, keeping the leading space and a rename's old name", () => {
+  assert.deepEqual(statusEntries(" M src/a b.ts\0R  new.ts\0old.ts\0?? notes/\0?? x.txt\0"), [
+    { status: " M", file: "src/a b.ts" },
+    { status: "R ", file: "new.ts", from: "old.ts" },
+    { status: "??", file: "notes/" },
+    { status: "??", file: "x.txt" },
+  ]);
+  assert.deepEqual(statusEntries(null), []);
+});
+
+test("the uncommitted warning lists each file; an untracked folder opens nothing", () => {
+  const changes = statusEntries(" M a.ts\0?? notes/\0");
+  const [w] = removalWarnings({ ...clean, modified: ["a.ts"], untracked: 1, changes }, { branchPr: merged, afterMerge: 0 });
+  assert.deepEqual(w.details, [{ text: "a.ts", status: "modified", file: "a.ts" }, { text: "notes/", status: "new folder" }]);
+});
+
+test("commit warnings list their commits, at most 25 and a line saying how many more", () => {
+  const [w] = removalWarnings({ ...clean, unpushed: 1, unpushedCommits: ["abc1234 Fix the thing"] }, { branchPr: merged, afterMerge: 0 });
+  assert.deepEqual(w.details, [{ text: "abc1234 Fix the thing", commit: "abc1234" }]);
+  const many = Array.from({ length: 30 }, (_, i) => `c${i} commit ${i}`);
+  const [after] = removalWarnings(clean, { branchPr: merged, afterMerge: 30, afterMergeCommits: many });
+  assert.equal(after.details.length, 26);
+  assert.deepEqual(after.details.at(-1), { text: "and 5 more" });
+});
+
+test("a waiting agent's question is the agent warning's detail", () => {
+  const [w] = removalWarnings(clean, { branchPr: merged, agents: [{ state: "waiting", question: "Which one?" }] });
+  assert.equal(w.open, true);
+  assert.deepEqual(w.details, [{ text: "Which one?" }]);
 });
 
 test("unconfirmed names what appeared since the page was drawn", () => {

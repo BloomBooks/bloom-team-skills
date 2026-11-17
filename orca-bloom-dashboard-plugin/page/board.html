@@ -409,10 +409,17 @@ document.getElementById("task-form").addEventListener("submit", async e => {
 // The worktrees of resolved cards (stale-worktrees.mjs): each card's State, id and title, the
 // worktree's folder (opens in VS Code), its merged PR, a Remove button, and under them in amber
 // any signs that work is left there. null (the gather could not check GitHub) hides the section.
+// The service redraws the list every few seconds, so the warnings expanded and the worktrees
+// being removed are kept here, by path.
+let lastStale = null;
+const staleExpanded = new Set(), staleRemoving = new Set();
 function renderStale(items) {
+  lastStale = items;
   const ul = document.getElementById("stale-list");
   ul.replaceChildren(...(items || []).map(w => {
-    const remove = action("refresh", "Remove this worktree from Orca and disk", "Remove", () => removeStale(w), "remove:" + w.path);
+    const removing = staleRemoving.has(w.path);
+    const remove = action("refresh", "Remove this worktree from Orca and disk", removing ? "Removing…" : "Remove", () => removeStale(w), "remove:" + w.path);
+    remove.disabled = removing;
     return el("li", { class: w.warnings.length ? "warned" : "" },
       el("div", { class: "stale-main" },
         el("span", { class: "id" }, stateIcon(w.state), toned(w.cardUrl, w.card, CARD_TONE[w.state])),
@@ -420,17 +427,52 @@ function renderStale(items) {
         w.pr ? el("span", { class: "id" }, markMerged(toned(w.pr, "PR " + w.pr.split("/").pop(), PR_TONE.merged), "merged")) : null,
         action("orca wt", "Open this folder in VS Code", w.path.split("/").pop(), () => post("/api/vscode", { path: w.path }), "vscode:" + w.path),
         remove),
-      w.warnings.length ? el("ul", { class: "warnings" }, ...w.warnings.map(x => el("li", {}, x.url ? link(x.url, x.text) : x.text))) : null);
+      w.warnings.length ? el("ul", { class: "warnings" }, ...w.warnings.map(x => warningItem(w, x))) : null);
   }));
   document.getElementById("stale").hidden = !ul.childNodes.length;
+}
+// One warning: its text (a link when it is about a PR), a Show in Orca button when the worktree's
+// use in Orca is the worry, and its details (files or commits, each opening in VS Code) in a list
+// that expands.
+function warningItem(w, x) {
+  const head = x.url ? link(x.url, x.text) : x.text;
+  const show = x.open ? action("orca stale-show", "Show this worktree in Orca", "Show in Orca",
+    () => act({ action: "open", path: w.path, front: FRONT }, "Couldn't show the worktree", showStaleNote), "open:" + w.path) : null;
+  if (!x.details?.length) return el("li", {}, head, show ? " " : null, show);
+  // A click on the button inside the summary would also expand the list.
+  show?.addEventListener("click", ev => ev.preventDefault());
+  const key = w.path + "|" + x.kind;
+  const box = el("details", staleExpanded.has(key) ? { open: "" } : {},
+    el("summary", {}, head, show ? " " : null, show),
+    el("ul", { class: "warning-details" }, ...x.details.map(d => el("li", {}, detailItem(w, d)))));
+  box.addEventListener("toggle", () => box.open ? staleExpanded.add(key) : staleExpanded.delete(key));
+  return el("li", {}, box);
+}
+// A file opens beside its committed version in VS Code, a commit as its diff; other lines are text.
+function detailItem(w, d) {
+  const status = d.status ? el("span", { class: "change-status" }, d.status) : null;
+  if (d.file) return el("span", {}, action("orca change", "Show this change in VS Code", d.text,
+    () => act({ action: "open-change", path: w.path, file: d.file }, "Couldn't open the change", showStaleNote), "change:" + w.path + "|" + d.file), " ", status);
+  if (d.commit) {
+    const b = action("orca change", "Show this commit in VS Code", "",
+      () => act({ action: "open-commit", path: w.path, commit: d.commit }, "Couldn't open the commit", showStaleNote), "commit:" + w.path + "|" + d.commit);
+    b.append(el("span", { class: "sha" }, d.commit), d.text.slice(d.commit.length));
+    return b;
+  }
+  return el("span", {}, d.text, status ? " " : null, status);
 }
 async function removeStale(w) {
   const lines = [`Remove the worktree ${w.path} (${w.card}, ${w.state})?`, "",
     "Its branch stays unless Orca can tell it is merged."];
   if (w.warnings.length) lines.push("", "But work may be left there:", ...w.warnings.map(x => "  • " + x.text));
   if (!confirm(lines.join("\n"))) return;
-  await request("/api/remove-worktree", { path: w.path, confirmed: w.warnings.map(x => x.kind) }, "Couldn't remove the worktree", showStaleNote);
-  refresh();
+  staleRemoving.add(w.path);
+  renderStale(lastStale);
+  // A removed worktree leaves the list, so its path stays in staleRemoving until the page reloads.
+  if (!await request("/api/remove-worktree", { path: w.path, confirmed: w.warnings.map(x => x.kind) }, "Couldn't remove the worktree", showStaleNote)) {
+    staleRemoving.delete(w.path);
+    renderStale(lastStale);
+  }
 }
 function showStaleNote(text) {
   const n = document.getElementById("stale-note");

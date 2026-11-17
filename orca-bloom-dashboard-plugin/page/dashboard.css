@@ -258,6 +258,14 @@ ul.lines.stale .orca { font-family: var(--font-mono); font-size: 12px; color: va
 ul.lines.stale .warnings { margin: 0; padding: 0 0 0 18px; font-size: 13px; color: var(--you); }
 ul.lines.stale .warnings li { display: list-item; padding: 0; border: 0; }
 ul.lines.stale .warnings a { color: inherit; }
+ul.lines.stale .warnings summary { cursor: pointer; }
+ul.lines.stale .warning-details { margin: 2px 0 4px; padding: 0 0 0 18px; list-style: none; }
+ul.lines.stale .warning-details li { display: block; padding: 1px 0; border: 0; }
+/* A file or commit under a warning reads as a link: it opens in VS Code. */
+ul.lines.stale button.orca.change { font-size: 12px; color: var(--accent); white-space: normal; overflow-wrap: anywhere; }
+ul.lines.stale .sha { color: var(--muted); margin-right: 0.5ch; }
+ul.lines.stale .change-status { font-size: 12px; color: var(--muted); }
+ul.lines.stale button.orca.stale-show { font-family: inherit; font-size: 12px; color: var(--accent); margin-left: 6px; }
 .stale-note { margin: 0; font-size: 13px; color: var(--you); }
 .stale-note[hidden] { display: none; }
 @media (max-width: 640px) { .stale-main { flex-wrap: wrap; } }
