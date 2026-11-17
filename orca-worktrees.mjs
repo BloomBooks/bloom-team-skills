@@ -1,6 +1,7 @@
 // Opens and creates Orca worktrees for YouTrack cards, and drives the Claude sessions in them.
 // orca-bloom-dashboard-plugin/server/service.mjs (the buttons of the dashboard page and the Worktree panel),
-// orca-bloom-dashboard-plugin/panel-facts.mjs and work-on-youtrack/work-on-youtrack.mjs share
+// orca-bloom-dashboard-plugin/panel-facts.mjs, work-on-youtrack/work-on-youtrack.mjs and
+// work-on-reviewing/work-on-reviewing.mjs share
 // these.
 //
 //   import { orca, openWorktree, createWorktree, bringOrcaToFront } from "<repo>/orca-worktrees.mjs";
@@ -225,6 +226,41 @@ export function parsePr(url) {
   return m ? { repo: m[1].toLowerCase(), number: m[2] } : null;
 }
 
+const branchOf = w => (w.branch || "").replace(/^refs\/heads\//, "");
+const repoOf = w => (w.projectId || "").replace(/^github:/, "");
+// Worktrees (not archived) for a card and its PRs ([{ url, repo, number, head }]), only in `repo`
+// ("owner/name", lower case) when given: a branch that, after any "<prefix>/", starts with
+// "<card>-" or is the card id; a branch that is one of the PRs' head branches; a worktree Orca
+// links to one of the PRs; or one that `orca reference find` returns for the card or a PR. `card`
+// may be null, to find only a PR's worktrees. Those on a PR's branch come first, then the one Orca
+// saw activity in most recently. Returns [{ path, branch, repo, onPr }], `onPr` being the PR whose
+// branch the worktree is on, or null.
+export async function cardWorktrees(card, prs, repo = null) {
+  const list = (await orca("worktree", "list")).worktrees.filter(w => !w.isArchived && (!repo || repoOf(w) === repo));
+  const byPath = new Map(list.map(w => [norm(w.path), w]));
+  const found = new Map();
+  const add = (w, why) => { if (w && !found.has(norm(w.path))) found.set(norm(w.path), { w, why }); };
+  const prOf = w => prs.find(p => p.repo === repoOf(w) && (branchOf(w) === p.head || branchOf(w).endsWith("/" + p.head))) || null;
+  const named = card && new RegExp(`(^|/)${card}(-|$)`, "i");
+  for (const w of list) {
+    if (prOf(w) || prs.some(p => p.repo === repoOf(w) && w.linkedPR === Number(p.number))) add(w, "pr");
+    else if (named?.test(branchOf(w))) add(w, "branch");
+  }
+  for (const query of [card, ...prs.map(p => p.url)].filter(Boolean)) {
+    let r;
+    try { r = await orca("reference", "find", query); } catch { continue; }
+    for (const m of r.matches || []) {
+      if (m.workspace?.archived) continue;
+      const p = String(m.workspace?.id || "").split("::")[1];
+      add(byPath.get(norm(p)), "reference");
+    }
+  }
+  const rank = { pr: 0, reference: 1, branch: 2 };
+  return [...found.values()]
+    .sort((a, b) => rank[a.why] - rank[b.why] || (b.w.lastActivityAt || 0) - (a.w.lastActivityAt || 0))
+    .map(({ w }) => ({ path: w.path, branch: branchOf(w), repo: repoOf(w), onPr: prOf(w) }));
+}
+
 // Orca's id for the repo it knows as github:<repo>, or an error naming the repo.
 export async function orcaRepoId(repo) {
   const repoId = (await orca("worktree", "list")).worktrees.find(w => w.projectId === "github:" + repo)?.repoId;
@@ -280,10 +316,11 @@ function firstMessage(facts, prompt) {
 // only one Orca can give a chat, so a brief must come this way. Returns also `launch`
 // (launchSummary).
 export async function createWorktree({ card, title, pr, words, repo = "bloombooks/bloomdesktop", prompt }) {
-  if (!/^BL-\d+$/.test(card || "")) throw new Error("bad card id " + card);
   let prNumber = null;
   const parsed = parsePr(pr);
   if (parsed) { repo = parsed.repo; prNumber = parsed.number; }
+  // With a PR the worktree is named for the PR's branch, so the card is only for the log.
+  if (!prNumber && !/^BL-\d+$/.test(card || "")) throw new Error("bad card id " + card);
   const repoId = await orcaRepoId(repo);
   const repoPath = (await orca("repo", "list")).repos.find(r => r.id === repoId)?.path;
   const main = await defaultBranch(repo);
@@ -324,14 +361,20 @@ export async function createWorktree({ card, title, pr, words, repo = "bloombook
   }
   if (prBase && prBase !== main) facts.push(branchFact(head, prBase, main));
   const launch = await launchClaude(wt, firstMessage(facts, prompt));
-  log("created " + wt + " on " + head + " for " + card);
+  log("created " + wt + " on " + head + " for " + (card || "PR " + prNumber));
   return { path: wt, branch: head, base: prBase || main, launch };
 }
 
+// Makes the worktree the one Orca shows, without bringing Orca's window to the front.
+export async function activateWorktree(wt) {
+  await orca("worktree", "activate", "--worktree", "path:" + wt);
+}
+
 // Starts Claude in a worktree that exists, with `prompt` as its first message when given, as a
-// chat or in a terminal per the developer's Orca setting, and shows it. Returns launchSummary.
-export async function launchClaude(wt, prompt) {
-  const r = await orca("agent", "launch", "--agent", "claude", "--worktree", "path:" + wt, ...(prompt ? ["--prompt", prompt] : []), "--focus");
+// chat or in a terminal per the developer's Orca setting, and shows it unless `focus` is false
+// (its tab then opens beside the one shown). Returns launchSummary.
+export async function launchClaude(wt, prompt, { focus = true } = {}) {
+  const r = await orca("agent", "launch", "--agent", "claude", "--worktree", "path:" + wt, ...(prompt ? ["--prompt", prompt] : []), ...(focus ? ["--focus"] : []));
   return launchSummary(r.launch || r);
 }
 

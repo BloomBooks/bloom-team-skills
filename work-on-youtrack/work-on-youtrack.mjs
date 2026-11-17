@@ -20,17 +20,15 @@
 //               "terminal"), handle, delivered (Orca's word on the first message) }.
 //
 // Exit code 0 on success, 1 on any failure (the text or JSON says why).
-import { execFile, execFileSync, spawn } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import {
-  orca, norm, parsePr, orcaRepoId, prHeadBranch, titleWords, agentTerminal,
+  orca, norm, orcaRepoId, prHeadBranch, titleWords, agentTerminal, cardWorktrees,
   openWorktree, createWorktree, launchClaude, bringOrcaToFront,
 } from "../orca-worktrees.mjs";
+import { cardId, yt, readCard, cardFields, openPrs } from "../youtrack-card.mjs";
 import { developer } from "../developer.mjs";
 import { tellDashboard } from "../orca-bloom-dashboard-plugin/report/tell.mjs";
 
-const execFileP = promisify(execFile);
-const YT = "https://issues.bloomlibrary.org/youtrack/api";
 const DEFAULT_REPO = "bloombooks/bloomdesktop";
 const IN_PROGRESS = "In Progress";
 
@@ -53,43 +51,6 @@ function finish(result) {
 }
 
 // ---- YouTrack -------------------------------------------------------------------------------
-function userEnv(name) {
-  if (process.env[name]) return process.env[name];
-  if (process.platform !== "win32") return "";
-  try {
-    return execFileSync("powershell.exe", ["-NoProfile", "-Command", `[Environment]::GetEnvironmentVariable('${name}','User')`], { encoding: "utf8", windowsHide: true }).trim();
-  } catch { return ""; }
-}
-function botToken() {
-  const token = userEnv("YOUTRACK_BOT");
-  if (!token) throw new Error("YOUTRACK_BOT is not set, so the card cannot be read (see the youtrack-api skill)");
-  return token;
-}
-async function yt(path, body) {
-  const r = await fetch(YT + path, {
-    method: body ? "POST" : "GET",
-    headers: { Authorization: "Bearer " + botToken(), Accept: "application/json", ...(body && { "Content-Type": "application/json" }) },
-    body: body && JSON.stringify(body),
-  });
-  if (r.status === 404) throw new Error(`YouTrack has no ${path.split("?")[0]}`);
-  if (!r.ok) throw new Error(`YouTrack ${path.split("?")[0]}: ${r.status} ${(await r.text()).slice(0, 200)}`);
-  return r.json();
-}
-const field = (i, name) => i.customFields?.find(c => c.name === name)?.value ?? null;
-async function cardFields(id) {
-  const i = await yt(`/issues/${id}?fields=customFields(name,value(name,login,fullName,ordinal))`);
-  const state = field(i, "State"), assignee = field(i, "Assignee");
-  return { state: state?.name ?? null, stateOrdinal: state?.ordinal ?? null, assignee: assignee && { login: assignee.login, fullName: assignee.fullName || assignee.login } };
-}
-async function readCard(id) {
-  const i = await yt(`/issues/${id}?fields=idReadable,summary,description,comments(text,deleted)`);
-  return {
-    summary: i.summary || "",
-    description: i.description || "",
-    comments: (i.comments || []).filter(c => !c.deleted).map(c => c.text || ""),
-    ...(await cardFields(id)),
-  };
-}
 // The ordinal of In Progress in the card's project, so a card further along (in review, in
 // testing) stays where it is.
 async function inProgressOrdinal(id) {
@@ -158,72 +119,6 @@ async function placeAfterMine(id, login) {
   return c.after.idReadable;
 }
 
-// ---- the card's PR --------------------------------------------------------------------------
-// The open PRs that name the card in their title or branch (the rule orca-bloom-dashboard-plugin/server/gather.mjs uses),
-// found among the GitHub PR links on the card and a GitHub search of BloomBooks for the card id.
-async function openPrs(card, info) {
-  const urls = new Set();
-  for (const text of [info.description, ...info.comments]) {
-    for (const m of text.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g)) urls.add(m[0]);
-  }
-  try {
-    const { stdout } = await execFileP("gh", ["search", "prs", card, "--owner", "BloomBooks", "--state", "open", "--json", "url", "--limit", "20"], { windowsHide: true });
-    for (const p of JSON.parse(stdout || "[]")) urls.add(p.url);
-  } catch (e) {
-    throw new Error("could not search GitHub for the card's PRs (is gh signed in?): " + String(e.stderr || e.message).split("\n")[0]);
-  }
-  const names = new RegExp(`\\b${card}\\b`, "i");
-  const prs = [];
-  const seen = new Set();
-  for (const url of urls) {
-    const parsed = parsePr(url);
-    if (!parsed || seen.has(parsed.repo + "#" + parsed.number)) continue;
-    seen.add(parsed.repo + "#" + parsed.number);
-    if (repoArg && parsed.repo !== repoArg) continue;
-    let p;
-    try {
-      const { stdout } = await execFileP("gh", ["pr", "view", parsed.number, "-R", parsed.repo, "--json", "url,title,state,headRefName,number"], { windowsHide: true });
-      p = JSON.parse(stdout);
-    } catch { continue; }
-    if (p.state !== "OPEN" || !(names.test(p.title) || names.test(p.headRefName))) continue;
-    prs.push({ url: p.url, repo: parsed.repo, number: p.number, title: p.title, head: p.headRefName });
-  }
-  return prs.sort((a, b) => a.number - b.number);
-}
-
-// ---- existing worktrees ---------------------------------------------------------------------
-const branchOf = w => (w.branch || "").replace(/^refs\/heads\//, "");
-const repoOf = w => (w.projectId || "").replace(/^github:/, "");
-// Worktrees (not archived) for the card: a branch that, after any "<prefix>/", starts with
-// "<card>-" or is the card id; a branch that is one of the PRs' head branches; a worktree Orca
-// links to one of the PRs; or one that `orca reference find` returns for the card or a PR.
-async function cardWorktrees(card, prs) {
-  const list = (await orca("worktree", "list")).worktrees.filter(w => !w.isArchived && (!repoArg || repoOf(w) === repoArg));
-  const byPath = new Map(list.map(w => [norm(w.path), w]));
-  const found = new Map();
-  const add = (w, why) => { if (w && !found.has(norm(w.path))) found.set(norm(w.path), { w, why }); };
-  const named = new RegExp(`(^|/)${card}(-|$)`, "i");
-  for (const w of list) {
-    const pr = prs.find(p => p.repo === repoOf(w) && (branchOf(w) === p.head || branchOf(w).endsWith("/" + p.head) || w.linkedPR === p.number));
-    if (pr) add(w, "pr");
-    else if (named.test(branchOf(w))) add(w, "branch");
-  }
-  for (const query of [card, ...prs.map(p => p.url)]) {
-    let r;
-    try { r = await orca("reference", "find", query); } catch { continue; }
-    for (const m of r.matches || []) {
-      if (m.workspace?.archived) continue;
-      const p = String(m.workspace?.id || "").split("::")[1];
-      add(byPath.get(norm(p)), "reference");
-    }
-  }
-  // A worktree on the PR's branch first, then the one Orca saw activity in most recently.
-  const rank = { pr: 0, reference: 1, branch: 2 };
-  return [...found.values()]
-    .sort((a, b) => rank[a.why] - rank[b.why] || (b.w.lastActivityAt || 0) - (a.w.lastActivityAt || 0))
-    .map(({ w }) => ({ path: w.path, branch: branchOf(w), repo: repoOf(w) }));
-}
-
 // ---- words for a new branch -----------------------------------------------------------------
 const WORDS = /^[a-z0-9]+(-[a-z0-9]+){0,2}$/;
 // Asks Claude (haiku) for 1-3 lowercase hyphenated words naming what the card is about. Returns
@@ -289,8 +184,7 @@ function describe(r) {
 
 // ---- main -----------------------------------------------------------------------------------
 async function main() {
-  const digits = (String(cardArg || "").match(/\bBL-?(\d+)\b/i) || [])[1];
-  const card = digits && "BL-" + digits;
+  const card = cardId(cardArg);
   if (!card) throw new Error("usage: node work-on-youtrack.mjs <BL-nnnnn> [--repo <owner/name>] [--prompt <text>] [--dry-run] [--json]");
   if (repoArg !== null && !/^[\w.-]+\/[\w.-]+$/.test(repoArg)) throw new Error("--repo needs <owner/name>, e.g. bloombooks/bloomdesktop");
 
@@ -300,15 +194,14 @@ async function main() {
     throw new Error(`${card} is assigned to ${info.assignee.fullName} (${info.assignee.login}), not to you (${me}). Nothing was opened or changed.`);
   }
   const target = await inProgressOrdinal(card);
-  const prs = await openPrs(card, info);
-  const worktrees = await cardWorktrees(card, prs);
+  const prs = await openPrs(card, info, repoArg);
+  const worktrees = await cardWorktrees(card, prs, repoArg);
   const result = { ok: true, card, summary: info.summary, state: info.state, dryRun };
   if (prs.length > 1) result.otherPrs = prs.slice(1).map(p => p.url);
 
   if (worktrees.length) {
     const [wt, ...others] = worktrees;
-    // The PR this worktree is on, if any.
-    const pr = prs.find(p => p.repo === wt.repo && (wt.branch === p.head || wt.branch.endsWith("/" + p.head))) || prs[0];
+    const pr = wt.onPr || prs[0];
     Object.assign(result, { action: dryRun ? "would-open" : "open", worktree: wt.path, branch: wt.branch, repo: wt.repo, pr: pr?.url || null, others: others.map(o => o.path) });
     if (pr) result.otherPrs = prs.filter(p => p !== pr).map(p => p.url);
     result.terminal = (await agentTerminal(wt.path))?.handle || null;
