@@ -139,7 +139,11 @@ const ORDER = ["code", "preflight", "review", "request", "peer"];
  *   row      the row's { state, worktree, card, offered } (computeRow gives them)
  *   activity { working, asking, orcaOk }
  */
-export function allowAction(action, row, activity) {
+// The skills that a step's label starts even when the step is not the one on offer (the request
+// body says `anyway`). request-peer-review checks the PR itself and sends the developer back to
+// preflight when it is not ready.
+export const ANYWAY = ["request-peer-review"];
+export function allowAction(action, row, activity, anyway = false) {
   if (action === "vscode") return row.worktree ? { ok: true } : { ok: false, reason: "This card has no worktree." };
   if (!activity.orcaOk) return { ok: false, reason: "Orca is not answering, so nothing can be opened or started there." };
   if (action === "create") return row.worktree ? { ok: false, reason: "The card already has a worktree." } : /^BL-\d+$/.test(row.card || "") ? { ok: true } : { ok: false, reason: "Only a single card can get a worktree." };
@@ -148,7 +152,7 @@ export function allowAction(action, row, activity) {
   if (!SKILL_LABEL[action]) return { ok: false, reason: "Not something the dashboard does: " + action };
   if (activity.asking) return { ok: false, reason: "Claude is asking a question in that worktree; answer it first." };
   if (activity.working) return { ok: false, reason: "Claude is working in that worktree; wait for it to finish." };
-  if (!row.offered.includes(action)) return { ok: false, reason: `${SKILL_LABEL[action]} is not the next step for this card.` };
+  if (!row.offered.includes(action) && !(anyway && ANYWAY.includes(action))) return { ok: false, reason: `${SKILL_LABEL[action]} is not the next step for this card.` };
   return { ok: true };
 }
 
@@ -181,12 +185,12 @@ export function computeRow(input, now = Date.now()) {
   // holds work: commits beyond the base branch, or changes to tracked files.
   if (state === "code" && worktree && git && (git.ahead > 0 || git.uncommitted > 0)) offered.push("preflight");
   const ref = { state, worktree: worktree?.path ?? null, card: card.id, offered };
-  const button = id => {
-    const a = allowAction(id, ref, act);
+  const button = (id, anyway = false) => {
+    const a = allowAction(id, ref, act, anyway);
     // Showing the worktree in Orca or VS Code starts no work, and it is how the developer gets to
     // a session that asks a question, so neither waits for the agent or for an answer.
     const held = !["open", "vscode"].includes(id) && (busy || blocked);
-    return { id, label: SKILL_LABEL[id] ?? id, enabled: a.ok && !held, reason: !a.ok ? a.reason : !held ? "" : busy ? "An agent is working on this card." : "This card waits for your answer first." };
+    return { id, label: SKILL_LABEL[id] ?? id, anyway, enabled: a.ok && !held, reason: !a.ok ? a.reason : !held ? "" : busy ? "An agent is working on this card." : "This card waits for your answer first." };
   };
 
   // Which step shows the spinner: the open run's, or Code for an agent doing anything else.
@@ -217,12 +221,14 @@ export function computeRow(input, now = Date.now()) {
       note: stepState("preflight") === "now" && ["preflight-needed", "preflight-stopped"].includes(state) ? reasons.join("; ") : "",
       buttons: stepState("preflight") === "now" && state !== "decision" ? [button("preflight")] : [] },
     { id: "review", label: left ? `Your review (${left} of ${plural(review.files, "file")} left${review.reviewable ? "" : "; couldn't read Reviewable"})` : "Your review", state: stepState("review"),
-      link: stepState("review") === "now" && pr ? pr.url : null, linkEnabled: !busy && !blocked, files: review?.left ?? null, reviewable: review?.reviewable ?? null },
+      link: pr ? pr.url : null, linkEnabled: !busy && !blocked, files: review?.left ?? null, reviewable: review?.reviewable ?? null },
   ];
   if (commentsShown) steps.push({ id: "comments", label: state === "comments-running" ? SKILL_RUNNING["process-pr-comments"] : "Process PR Comments", state: state === "comments-running" ? "running" : "now",
     note: state === "comments" && comments ? commentsText(comments) : "", buttons: state === "comments" ? [button("process-pr-comments")] : [] });
   steps.push({ id: "request", label: runningStep === "request" ? SKILL_RUNNING[runningSkill] : card.approvedPlan ? "Request Peer Review, or Merge" : "Request Peer Review", state: stepState("request"),
-    buttons: stepState("request") === "now" ? [button("request-peer-review"), ...(card.approvedPlan ? [button("merge-without-peer-review")] : [])] : [] });
+    buttons: stepState("request") === "now" ? [button("request-peer-review"), ...(card.approvedPlan ? [button("merge-without-peer-review")] : [])] : [],
+    // Not on offer: the label starts the skill anyway.
+    labelButton: !["now", "running"].includes(stepState("request")) && worktree && pr ? button("request-peer-review", true) : null });
   steps.push({ id: "peer", label: card.state === "Has Comments" ? "Peer review: comments back" : "Peer review", state: card.state === "Has Comments" ? "comments" : stepState("peer") });
   for (const s of steps) if (s.state === "running") { s.since = runningSince; s.runningNote = runningNote; }
 

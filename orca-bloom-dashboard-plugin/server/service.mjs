@@ -50,7 +50,7 @@ import { readGit, gitWatcher } from "./git.mjs";
 import { writeProse, digestOf, proseUsage, config, llmDir, SETTLE_MS } from "./prose.mjs";
 import { addDecider, deciderPage, answerDecider, waitForAnswers, waitingDeciders, dropDecider, isAbandoned } from "./deciders.mjs";
 import { cardOf, questionOf, agentState, readProgress, progressDir } from "./row-facts.mjs";
-import { ownReview } from "./own-review.mjs";
+import { ownReview, pool } from "./own-review.mjs";
 import { prComments } from "./pr-comments.mjs";
 import { STANDUP } from "./standup.mjs";
 import { changeTask, readTasks, TASK_ACTIONS } from "./tasks.mjs";
@@ -318,21 +318,85 @@ async function drainReviews() {
   reviewBusy = true;
   while (reviewQueue.length) {
     const { kind, pr } = reviewQueue.shift();
-    const kept = kind === "review" ? reviews : comments;
-    try {
-      const value = kind === "review" ? await ownReview(pr, dev.github) : await prComments(pr, dev.github);
-      // Both answer null when the source could not be read: the last good value stays with the
-      // time it was read, and the error shows on the row.
-      if (value) { kept.set(pr, { value, at: Date.now(), error: "" }); if (kind === "comments" || value.reviewable) sources.reviewable = { at: Date.now(), error: "" }; }
-      else kept.set(pr, { at: 0, value: null, ...kept.get(pr), error: kind === "review" ? "GitHub could not be read" : "Reviewable could not be read" });
-      if (!value && kind === "comments") sources.reviewable = { ...sources.reviewable, error: "could not read discussions" };
-      cacheDirty = true;
-    } catch (e) {
-      kept.set(pr, { at: 0, value: null, ...kept.get(pr), error: String(e.message).split("\n")[0].slice(0, 200) });
-    }
-    recompute();
+    await readReview(kind, pr);
   }
   reviewBusy = false;
+}
+async function readReview(kind, pr) {
+  const kept = kind === "review" ? reviews : comments;
+  try {
+    const value = kind === "review" ? await ownReview(pr, dev.github) : await prComments(pr, dev.github);
+    // Both answer null when the source could not be read: the last good value stays with the
+    // time it was read, and the error shows on the row.
+    if (value) { kept.set(pr, { value, at: Date.now(), error: "" }); if (kind === "comments" || value.reviewable) sources.reviewable = { at: Date.now(), error: "" }; }
+    else kept.set(pr, { at: 0, value: null, ...kept.get(pr), error: kind === "review" ? "GitHub could not be read" : "Reviewable could not be read" });
+    if (!value && kind === "comments") sources.reviewable = { ...sources.reviewable, error: "could not read discussions" };
+    cacheDirty = true;
+  } catch (e) {
+    kept.set(pr, { at: 0, value: null, ...kept.get(pr), error: String(e.message).split("\n")[0].slice(0, 200) });
+  }
+  recompute();
+}
+
+// ---- everything ------------------------------------------------------------------------------
+// The top bar's Refresh: a full gather, Orca, every row's git, and every PR's review marks and
+// comments, answered once all of them have been read. A gather already running may be a core one,
+// so the full one starts after it.
+async function refreshAll() {
+  const prs = [...new Set([...rowsNow, ...inReviewNow].map(r => r.pr).filter(Boolean))];
+  const reads = pool(prs.flatMap(pr => [["comments", pr], ["review", pr]]), 4, ([kind, pr]) => readReview(kind, pr));
+  if (gathering) await gathering;
+  await Promise.all([gather(true), readPs(), reads, ...[...rowsNow, ...inReviewNow].map(r => r.key && refreshGit(r.key))]);
+  // All of it was just read, so the timer starts over from now.
+  const now = Date.now();
+  due.git = now;
+  for (const pr of prs) { reviewDue.set("comments " + pr, now); reviewDue.set("review " + pr, now); }
+}
+
+// ---- one card ----------------------------------------------------------------------------------
+// A row's own refresh button: the card from YouTrack, its open PRs from GitHub, its worktree's git
+// and agents, and its PR's review marks and comments, in a few seconds where a whole gather takes
+// half a minute. The rest of the last gather stays as it was.
+const cardReading = new Map();   // card id -> the read under way
+function refreshCard(id) {
+  if (!cardReading.has(id)) cardReading.set(id, readCard(id).finally(() => cardReading.delete(id)));
+  return cardReading.get(id);
+}
+async function readCard(id) {
+  const row = [...rowsNow, ...inReviewNow].find(r => r.card === id);
+  if (!row || !remote) throw new Error(`the dashboard shows no row for ${id}; press Refresh`);
+  const repoOf = r => r?.startsWith("github:") ? r.slice(7) : null;
+  const repos = new Set([
+    ...remote.prs.filter(p => p.card === id).map(p => p.repo),
+    ...remote.worktrees.filter(w => w.card === id).map(w => repoOf(w.repo)).filter(Boolean),
+  ]);
+  if (!repos.size) repos.add("bloombooks/bloomdesktop");
+  const tmp = dataFile(`gather-card-${process.pid}-${id}.json`);
+  const git = row.key ? refreshGit(row.key) : null;
+  const orcaNow = readPs();
+  try {
+    try {
+      await execFileP(process.execPath, [path.join(serviceDir, "gather.mjs"), tmp, "--card", id, ...repos], { windowsHide: true, maxBuffer: 16 << 20, timeout: 60_000 });
+    } catch (e) {
+      const lines = String(e.stderr || e.message).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      throw new Error(`could not read ${id}: ` + (lines.find(l => /^\w*Error\b/.test(l)) ?? lines[0] ?? "no output").slice(0, 240));
+    }
+    const next = readJsonFile(tmp);
+    if (!next) throw new Error(`could not read ${id}: gather wrote nothing`);
+    const was = remote.cards.find(c => c.id === id);
+    if (was && was.state !== next.card.state) note(null, `${id}: State ${was.state} -> ${next.card.state}`);
+    remote = {
+      ...remote,
+      cards: remote.cards.map(c => c.id === id ? next.card : c),
+      prs: [...remote.prs.filter(p => !(p.card === id && next.repos.includes(p.repo))), ...next.prs],
+    };
+    cacheDirty = true;
+    const pr = next.prs.find(p => p.url === row.pr)?.url ?? next.prs[0]?.url;
+    await Promise.all([git, orcaNow, pr && readReview("comments", pr), pr && readReview("review", pr)]);
+  } finally {
+    fs.rmSync(tmp, { force: true });
+    recompute();
+  }
 }
 
 // ---- rows --------------------------------------------------------------------------------------
@@ -558,7 +622,8 @@ const rowOfPath = p => [...rowsNow, ...inReviewNow].find(r => r.key === norm(p))
 async function act(b) {
   const action = String(b.action || "");
   if (TASK_ACTIONS.map(a => "task-" + a).includes(action)) return { tasks: changeTask(dataFile("tasks.json"), action.slice(5), b) };
-  if (action === "refresh") { await Promise.all([gather(true), readPs()]); for (const r of rowsNow) if (r.key) refreshGit(r.key); dueAll(); return {}; }
+  if (action === "refresh-card") { await refreshCard(String(b.card || "")); return {}; }
+  if (action === "refresh") { await refreshAll(); return {}; }
   if (action === "restart") { setTimeout(() => restart("the developer asked"), 200); return { message: "Restarting." }; }
   if (action === "show") return { message: await showWindow() };
   if (action === "remove-worktree") return removeStaleWorktree(b);
@@ -583,7 +648,7 @@ async function act(b) {
     if (activity.working) throw new Error("Claude is working in that worktree; wait for it to finish.");
     message = await sendPrompt(ref.worktree, text, paneKey);
   } else {
-    const allowed = allowAction(action, ref, activity);
+    const allowed = allowAction(action, ref, activity, b.anyway === true);
     if (!allowed.ok) throw new Error(allowed.reason);
     if (action === "open") message = await openWorktree(ref.worktree, paneKey);
     else if (action === "vscode") message = await openInVsCode(ref.worktree);
@@ -663,7 +728,8 @@ function tick() {
     const ask = (kind, every) => { const k = kind + " " + r.pr; if (now - (reviewDue.get(k) || 0) >= every) { reviewDue.set(k, now); wantReview(kind, r.pr); } };
     const near = ["review", "handoff-ready", "comments", "comments-running", "peer-review"].includes(r.state) || r.ytState === "Has Comments";
     ask("comments", near ? REVIEW_MS : REVIEW_SLOW_MS);
-    if (["review", "handoff-ready"].includes(r.state)) ask("review", REVIEW_MS);
+    // The marks are read for every row with a PR, since the review step shows their count in every state.
+    ask("review", ["review", "handoff-ready"].includes(r.state) ? REVIEW_MS : REVIEW_SLOW_MS);
   }
   scheduleProse();
 }

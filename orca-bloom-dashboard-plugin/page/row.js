@@ -63,7 +63,7 @@ function serviceButton(b, body, cls, text, key) {
   if (!b.enabled) btn.disabled = true;
   return btn;
 }
-const bodyOf = (d, id) => id === "create" ? { action: "create", card: d.card, front: FRONT } : { action: id, path: d.worktree, front: FRONT };
+const bodyOf = (d, id, anyway) => id === "create" ? { action: "create", card: d.card, front: FRONT } : { action: id, path: d.worktree, front: FRONT, ...(anyway ? { anyway: true } : {}) };
 // The row's Orca button: opens its worktree, or makes one first when it has none (the sparkle).
 function orcaButton(d) {
   const b = d.worktree ? d.actions.open : d.actions.create;
@@ -105,6 +105,15 @@ function processCell(d) {
     } else if (s.buttons?.length) {
       const bs = s.buttons.map(b => serviceButton(b, bodyOf(d, b.id), "orca skill", b.label, "step:" + b.id + ":" + (d.worktree || d.card)));
       body = bs.length > 1 ? el("span", { class: "alts" }, ...bs) : bs[0];
+    } else if (s.labelButton) {
+      // The step is not the one on offer, and its label starts the skill anyway.
+      const b = s.labelButton;
+      body = serviceButton(b, bodyOf(d, b.id, true), "step-link lbl", s.label, "anyway:" + b.id + ":" + d.worktree);
+      if (b.enabled) body.title = `Start ${b.label} now, although it is not the next step`;
+    } else if (s.link && s.state !== "now") {
+      // The step is not the one on offer: its label links to the same page, without a button's look.
+      body = link(reviewableUrl(s.link) || s.link.replace(/\/$/, "") + "/files", s.label);
+      body.className = "lbl step-link";
     } else if (s.link) {
       const rvUrl = reviewableUrl(s.link);
       body = link(rvUrl || s.link.replace(/\/$/, "") + "/files", s.label);

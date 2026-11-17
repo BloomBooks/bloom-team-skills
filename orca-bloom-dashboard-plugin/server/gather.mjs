@@ -4,6 +4,7 @@
 // cards. The dashboard service calls gather() while a surface is visible; it also runs on its own:
 //
 // Usage: node gather.mjs <out.json> [board] [--core]
+//        node gather.mjs <out.json> --card <id> <owner/repo>...   one card and its open PRs (gatherCard)
 // board: a YouTrack "Kanban Board" value such as "Bloom 6.6" (or just "6.6"); only cards on that
 // board are kept, and worktrees and PRs whose card is not on it are dropped. "all" keeps every
 // board. With no board, the current version's board is used (see currentVersionBoard).
@@ -60,6 +61,53 @@ async function currentVersionBoard() {
   const lower = (a, b) => { const x = version(a), y = version(b); for (let k = 0; k < Math.max(x.length, y.length); k++) if ((x[k] ?? 0) !== (y[k] ?? 0)) return (x[k] ?? 0) - (y[k] ?? 0); return 0; };
   const board = [...candidates].sort((a, b) => activity[b] - activity[a] || lower(a, b))[0];
   return { board, activity };
+}
+
+const FIELDS = "idReadable,summary,updated,resolved,customFields(name,value(name,login)),tags(name)";
+function cardFrom(i, assignedToDeveloper) {
+  const id = i.idReadable;
+  return {
+    id,
+    url: "https://issues.bloomlibrary.org/youtrack/issue/" + id,
+    summary: i.summary,
+    state: field(i, "State"),
+    board: field(i, "Kanban Board"),
+    assignedToDeveloper,
+    // A card tagged "Approved Plan" may be merged without peer review (merge-without-peer-review).
+    approvedPlan: (i.tags || []).some(t => t.name === "Approved Plan"),
+    updated: new Date(i.updated).toISOString().slice(0, 10),
+    // Done, Closed, Won't Fix and the like: its worktrees are offered for removal (staleWorktrees).
+    resolved: i.resolved ? new Date(i.resolved).toISOString() : null,
+  };
+}
+// The developer's open PRs in one GitHub repo ("owner/name"), each with the decisions its report asks for.
+async function openPrs(repo) {
+  const text = run("gh", ["pr", "list", "-R", repo, "--author", "@me", "--state", "open", "--limit", "100", "--json",
+    "number,url,title,headRefName,baseRefName,isDraft,mergeable,reviewDecision,reviewRequests,additions,deletions,changedFiles,updatedAt,statusCheckRollup,body"]);
+  // A failed list is an error, never an empty one: the server would report every PR in the repo
+  // as merged or closed. Failing keeps the last facts, and the server reports the error once.
+  if (text == null) throw new Error(`gh pr list failed for ${repo}; is gh signed in and GitHub reachable?`);
+  const prs = JSON.parse(text).map(({ statusCheckRollup, body, ...p }) => ({
+    ...p, repo, card: cardOf(p.headRefName, p.title),
+    reviewRequests: p.reviewRequests.map(r => r.login), checks: checksState(statusCheckRollup),
+    report: reportOf(body),
+  }));
+  await Promise.all(prs.filter(p => p.report).map(async p => { p.reportDecisions = await reportDecisions(p.report); }));
+  return prs;
+}
+
+/**
+ * Reads one card again, for a row's own refresh button: { card, prs } with the card from YouTrack
+ * and its open PRs in `repos`. The PRs come from the same list as gather()'s, so a PR that names
+ * the card in its branch or title counts. Throws when YouTrack or GitHub cannot be read.
+ */
+export async function gatherCard(id, repos) {
+  const dev = await developer();
+  const i = await yt("/issues/" + id, { fields: FIELDS });
+  const assignee = i.customFields?.find(c => c.name === "Assignee")?.value;
+  const card = cardFrom(i, !i.resolved && assignee?.login === dev.youtrack.login);
+  const prs = (await Promise.all(repos.map(openPrs))).flat().filter(p => p.card === id);
+  return { card, prs, repos };
 }
 
 /**
@@ -123,27 +171,13 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
   let board = null, boardActivity = null;
   if (!boardArg) ({ board, activity: boardActivity } = await currentVersionBoard());
   else if (boardArg.toLowerCase() !== "all") board = /^\d/.test(boardArg) ? "Bloom " + boardArg : boardArg;
-  const FIELDS = "idReadable,summary,updated,resolved,customFields(name,value(name)),tags(name)";
   // Searching by assignee needs the Bot's global "Read User Basic Role".
   const assigned = await yt("/issues", { query: `Assignee: {${dev.youtrack.login}} #Unresolved`, fields: FIELDS, $top: "500" });
   const ids = new Set([...assigned.map(i => i.idReadable), ...worktrees.map(w => w.card)]);
   const cards = [];
   for (const id of ids) {
     const i = assigned.find(a => a.idReadable === id) ?? (await yt("/issues/" + id, { fields: FIELDS }).catch(() => null));
-    if (!i) continue;
-    cards.push({
-      id,
-      url: "https://issues.bloomlibrary.org/youtrack/issue/" + id,
-      summary: i.summary,
-      state: field(i, "State"),
-      board: field(i, "Kanban Board"),
-      assignedToDeveloper: assigned.some(a => a.idReadable === id),
-      // A card tagged "Approved Plan" may be merged without peer review (merge-without-peer-review).
-      approvedPlan: (i.tags || []).some(t => t.name === "Approved Plan"),
-      updated: new Date(i.updated).toISOString().slice(0, 10),
-      // Done, Closed, Won't Fix and the like: its worktrees are offered for removal (staleWorktrees).
-      resolved: i.resolved ? new Date(i.resolved).toISOString() : null,
-    });
+    if (i) cards.push(cardFrom(i, assigned.some(a => a.idReadable === id)));
   }
 
   // The boards that hold these cards, with how many each holds, for the page's board picker.
@@ -159,22 +193,7 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
   // The developer's open PRs in every GitHub repo a card's worktree belongs to.
   const repos = new Set(worktrees.map(w => w.repo).filter(r => r?.startsWith("github:")).map(r => r.slice(7)));
   repos.add("bloombooks/bloomdesktop");
-  const prs = [];
-  for (const repo of repos) {
-    const text = run("gh", ["pr", "list", "-R", repo, "--author", "@me", "--state", "open", "--limit", "100", "--json",
-      "number,url,title,headRefName,baseRefName,isDraft,mergeable,reviewDecision,reviewRequests,additions,deletions,changedFiles,updatedAt,statusCheckRollup,body"]);
-    // A failed list is an error, never an empty one: the server would report every PR in the repo
-    // as merged or closed. Failing keeps the last facts, and the server reports the error once.
-    if (text == null) throw new Error(`gh pr list failed for ${repo}; is gh signed in and GitHub reachable?`);
-    for (const { statusCheckRollup, body, ...p } of JSON.parse(text)) {
-      prs.push({
-        ...p, repo, card: cardOf(p.headRefName, p.title),
-        reviewRequests: p.reviewRequests.map(r => r.login), checks: checksState(statusCheckRollup),
-        report: reportOf(body),
-      });
-    }
-  }
-  await Promise.all(prs.filter(p => p.report).map(async p => { p.reportDecisions = await reportDecisions(p.report); }));
+  const prs = (await Promise.all([...repos].map(openPrs))).flat();
 
   // board is null when every board was kept; boardActivity is set only when the board was chosen
   // by currentVersionBoard.
@@ -243,11 +262,18 @@ return { gatheredAt: new Date().toISOString(), core, board, boardActivity, board
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
-  const args = process.argv.slice(2).filter(a => a !== "--core");
-  const out = args[0];
-  if (!out) throw new Error("usage: node gather.mjs <out.json> [board|all] [--core]");
-  const result = await gather({ board: args[1]?.trim() || null, core: process.argv.includes("--core") });
-  writeFileSync(out, JSON.stringify(result, null, 2));
-  if (result.boardActivity) console.log(`chose ${result.board}, the board with the most cards updated in the last 14 days: ${Object.entries(result.boardActivity).map(([b, n]) => `${b} ${n}`).join(", ")}`);
-  console.log(`wrote ${out}${result.board ? ` for ${result.board}` : " for every board"}:${result.cards.length} cards, ${result.worktrees.length} worktrees, ${result.prs.length} PRs, ${result.staleWorktrees?.length ?? "?"} worktrees of resolved cards`);
+  const card = process.argv.indexOf("--card");
+  if (card > 0) {
+    const [out, , id, ...repos] = process.argv.slice(2);
+    if (!out || !id || !repos.length) throw new Error("usage: node gather.mjs <out.json> --card <id> <owner/repo>...");
+    writeFileSync(out, JSON.stringify(await gatherCard(id, repos), null, 2));
+  } else {
+    const args = process.argv.slice(2).filter(a => a !== "--core");
+    const out = args[0];
+    if (!out) throw new Error("usage: node gather.mjs <out.json> [board|all] [--core]");
+    const result = await gather({ board: args[1]?.trim() || null, core: process.argv.includes("--core") });
+    writeFileSync(out, JSON.stringify(result, null, 2));
+    if (result.boardActivity) console.log(`chose ${result.board}, the board with the most cards updated in the last 14 days: ${Object.entries(result.boardActivity).map(([b, n]) => `${b} ${n}`).join(", ")}`);
+    console.log(`wrote ${out}${result.board ? ` for ${result.board}` : " for every board"}:${result.cards.length} cards, ${result.worktrees.length} worktrees, ${result.prs.length} PRs, ${result.staleWorktrees?.length ?? "?"} worktrees of resolved cards`);
+  }
 }

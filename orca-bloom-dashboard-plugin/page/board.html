@@ -106,6 +106,15 @@ function request(path, body, failure, note) {
 }
 async function post(path, body, failure) { return !!(await request(path, body, failure, showNote)); }
 
+// The refresh icon in a row's upper right corner: reads that one card, its PR, its worktree and the
+// comments on its PR again, which takes seconds where the Refresh in the top bar reads everything.
+function cardRefresh(d) {
+  const title = `Read ${d.card} again now: the card, its PR, its worktree and the comments waiting on the PR`;
+  const b = action("card-refresh", title, "", () => act({ action: "refresh-card", card: d.card }, "Couldn't refresh " + d.card), "refresh-card:" + d.card);
+  b.setAttribute("aria-label", title);
+  b.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>';
+  return b;
+}
 function render(items) {
   const groups = document.getElementById("groups");
   groups.replaceChildren();
@@ -125,7 +134,7 @@ function render(items) {
         el("td", { class: "card" }, cell),
         el("td", { class: "who" }, processCell(d)),
         el("td", {}, standsCell(d)),
-        el("td", { class: "upd" }, orcaButton(d))));
+        el("td", { class: "upd" }, cardRefresh(d), orcaButton(d))));
     }
     const table = el("table", {},
       el("thead", {}, el("tr", {}, el("th", {}, "Links"), el("th", {}, "Process"), el("th", {}, "Where it stands"), el("th", {}, ""))),

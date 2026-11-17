@@ -196,3 +196,15 @@ test("a card assigned to someone else gets a row only while the developer has wo
   assert.equal(wantsRow({ card: theirs, prs: [], gits: [null] }), true);
   assert.equal(wantsRow({ card: { ...card, assignedToDeveloper: true }, prs: [], gits: [] }), true);
 });
+
+test("when Request Peer Review is not on offer, its label starts it anyway, and only that skill", () => {
+  const row = computeRow({ ...base, git: { ...git, head: "h2", tree: "t2", commitsSince: 1 } });
+  const request = step(row, "request");
+  assert.deepEqual(request.buttons, []);
+  assert.deepEqual([request.labelButton.id, request.labelButton.anyway, request.labelButton.enabled], ["request-peer-review", true, true]);
+  const ref = { state: row.state, worktree: worktree.path, card: card.id, offered: row.offered };
+  assert.match(allowAction("request-peer-review", ref, activity).reason, /not the next step/);
+  assert.deepEqual(allowAction("request-peer-review", ref, activity, true), { ok: true });
+  assert.match(allowAction("merge-without-peer-review", ref, activity, true).reason, /not the next step/);
+  assert.equal(step(computeRow(base), "request").labelButton, null);
+});

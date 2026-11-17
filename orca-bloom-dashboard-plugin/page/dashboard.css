@@ -112,8 +112,14 @@ ol.steps button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 ol.steps button:disabled:hover { text-decoration: none; filter: none; }
 .process-badge { margin-bottom: 8px; }
 .pills { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-td.upd { width: 100px; position: relative; padding-bottom: 56px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-/* The Orca button sits in the row's lower right corner, under the time. */
+td.upd { width: 100px; position: relative; padding-top: 38px; padding-bottom: 56px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The row's own refresh sits in its upper right corner: the icon alone, spinning while it reads. */
+button.card-refresh { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: var(--muted); background: none; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+button.card-refresh:hover { color: var(--fg); }
+button.card-refresh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.card-refresh.busy svg { animation: spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { button.card-refresh.busy svg { animation: none; } }
+/* The Orca button sits in the row's lower right corner. */
 button.orca-icon { position: absolute; right: 10px; bottom: 8px; display: grid; place-items: center; width: 52px; height: 42px; padding: 0; color: #fff; background: color-mix(in srgb, var(--accent), #000 40%); border: 0; border-radius: var(--radius-sm); cursor: pointer; }
 button.orca-icon:hover { filter: brightness(1.12); }
 /* Every button and clickable pill sinks a little while pressed, and dims while the server works
@@ -173,6 +179,11 @@ button.orca.skill, a.btn { display: inline-block; padding: 4px 10px; border-radi
 a.btn.work { background: color-mix(in srgb, var(--agent), #000 45%); }
 button.orca.skill:hover, a.btn:hover { text-decoration: none; filter: brightness(1.12); }
 /* The preflight report is a plain link, in the developer's colour when it lists decisions. */
+/* A step's label that links to its page while another step is the one on offer. */
+a.step-link, button.step-link { text-decoration: none; text-underline-offset: 3px; }
+a.step-link:hover, button.step-link:hover:not(:disabled) { text-decoration: underline; }
+button.step-link { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+button.step-link:disabled { color: var(--muted); text-decoration: none; cursor: not-allowed; }
 a.report { font-size: 13px; font-weight: 500; white-space: nowrap; }
 a.report.you { color: var(--you); }
 a.btn { transition: transform 80ms ease, filter 80ms ease; }
