@@ -137,48 +137,68 @@ is an action the tester performs; keep plain prose for the explanatory parts (th
 lead-in, and the reasoning inside "watch these especially"), where a checkbox would make no sense.
 Don't force everything into checkboxes — they're for the do-this items, not for narrative.
 
-### Marking what has already been checked
+### Who checks each item: a test, an agent, or a person
 
-When at least one checkbox has earned a badge, two badge slots at the start of every checkbox
-tell the tester which items something has already checked, so they can spend their time on the
-rest. When none has, write plain checkboxes with no slots and no legend.
+A person's testing time is the scarcest thing in the team's process, so an item goes to the tester
+only when it needs a person. An automated test checks every other item. An item needs a person
+when it is one of these:
 
-- 🤖 (first slot) — an automated test checks this, and it passed on this version of the change.
-- 👁️ (second slot) — an agent did these steps in a running Bloom and saw the expected result.
-- ▫️ — an empty slot. Whenever the slots are used, fill both on every checkbox, so the text of
-  every checkbox lines up. Write the eye and the empty slot with U+FE0F (`👁️`, `▫️`); without
-  it some fonts draw a narrow text glyph that breaks the column.
+- **Judgment.** Whether something looks right, reads clearly, or feels fast enough.
+- **Out of the automated suites' reach.** Code that only runs on a real device or a deployed
+  service, antivirus software, a shared folder used from two computers, a printer, a microphone or
+  camera, the installer. Decide this by which code produces the result, and never by where a
+  person would go to look. Which languages a published book shows is decided by Bloom Player, and
+  the Publish tab's BloomPUB preview runs Bloom Player, so a test can check it there; Bloom
+  Reader on a phone is needed only for what Bloom Reader's own code does, such as supplying
+  fonts. Read the repo's own list of what its suites cannot drive (in BloomDesktop,
+  `src/BloomE2E/AUTOMATION-DEBT.md` and the helpers in `src/BloomE2E/README.md`) before you
+  decide that something is out of reach.
 
-Explain them once, in a legend at the very end of the comment, after everything else. Testers
-soon learn the marks, so the legend should not stand between them and the checkboxes. It is two
-plain lines, nothing more (YouTrack shows each on its own line):
+  When nothing reaches the code yet and something could (a test hook, a fixture, a procedure
+  that an agent can follow, such as opening the book in an installed older Bloom), the item is
+  waiting for an automated test, and the way to reach it is work to do. It goes to a person only
+  when no test and no agent can reach it.
+- **A real keyboard, pointer or window focus.** Switching to another program with Alt+Tab; keys
+  that must pass through the operating system to show the bug.
+- **Exploration of a new feature.** One item that asks the tester to use the riskiest part of
+  the feature freely for a stated time, such as ten minutes. A bug fix gets no such item.
 
-```markdown
-🤖: an automated test checks this
-👁️: an AI agent did this in a running Bloom and saw the expected result
-```
+For an item that a test should check, choose the lowest kind of test that can fail for the reason
+the item names: a unit or component test when the logic can be reached without the running app, an
+end-to-end test when the failure would be in how the UI and the code behind it are connected.
+Variations of one behavior (the same steps with a different tool, page type or click target) are
+parameters of one test.
 
-```markdown
-- [ ] 🤖👁️ Rename the collection to "Stories." and reopen Bloom. It opens with the new name.
-- [ ] ▫️👁️ Open the collection on a second computer through Team Collections. The name matches.
-- [ ] ▫️▫️ Undo the rename from the Team Collection history.
-```
+Then put every item in one of three places:
 
-Nothing else goes on the line: no test names, no kind of test, no commit. The point is a column
-the eye can scan. A badge has to be earned in full:
+1. **For the tester.** The items that need a person, as checkboxes, in the sections above.
+2. **Waiting for an automated test.** Items that a test should check and that no test checks yet,
+   as checkboxes under a `### Waiting for an automated test` heading, placed after the tester's
+   sections and before "Watch these especially". Open the section with one line saying that a
+   person does these until the tests exist. Tell the caller which items are in it: `preflight`
+   makes them a decision for the developer (its "The test decision").
+3. **Already checked.** Items that a passing test checks, and items of the second or third kind
+   above that an agent did in a running app, as plain bullets with no checkboxes under a
+   `### Already checked: nothing for you to do` heading at the very end of the comment. Each
+   bullet says what was checked and ends with `(automated test)` or `(an AI agent did this in a
+   running Bloom)`. Nothing else goes on the line: no test names and no commit.
 
-- **🤖** only for a test that ran and passed at the final HEAD, and only when it does the same
-  thing and checks the same expected result. A test of the same area, or of part of the item,
-  earns nothing, and neither does a test that only runs in the nightly. `preflight` gives you the
-  list of tests it saw pass at HEAD, each with what it checks. Run by hand, use only tests you can
-  see passed at HEAD, such as the PR's green CI run of their suite.
-- **👁️** only from the live checks at the end of the PR description's E2E Coverage section, each
-  with the commit it ran on. Driving Bloom's UI and seeing the result counts; reading the code or
-  calling an API does not. Leave a slot empty when the code that item exercises has changed since
-  that commit: a live check cannot be re-run.
+A judgment item stays with the tester even when an agent did its steps: the agent saw that it
+works, and the tester decides whether it is good.
 
-"Watch these especially" should favour the unmarked items: risky parts nothing has checked are
-where the tester's time is worth most.
+An item is "already checked" only when the check covers it in full:
+
+- **A test** counts when it ran and passed at the final HEAD, does the same thing and checks the
+  same expected result. A test of the same area, or of part of the item, leaves the item where it
+  was. `preflight` gives you the list of tests it saw pass at HEAD, each with what it checks. Run
+  by hand, use only tests you can see passed at HEAD, such as the PR's green CI run of their
+  suite or, for code already merged, the nightly's run on the base branch.
+- **An agent's run** counts only from the live checks at the end of the PR description's E2E
+  Coverage section, each with the commit it ran on. Driving the app's UI and seeing the result
+  counts; reading the code or calling an API does not. When the code that the item exercises has
+  changed since that commit, the item goes back to the tester.
+
+"Watch these especially" covers only the tester's items and the ones waiting for a test.
 
 ### When there's nothing for a tester to do
 
@@ -369,8 +389,9 @@ comment when you can name what would be lost by overwriting.
   "can't-really-break" confirmations (especially "it's just a normal X now" items) — they dilute
   the tester's attention.
 - Is there a clear **"watch these especially"** for the risky/just-fixed/data-affecting parts?
-- Has every 🤖 or 👁️ been earned in full, and is every 👁️ still current? If any checkbox has a
-  badge, does every checkbox have both slots filled?
+- Does every checkbox for the tester need a person, for one of the four reasons in "Who checks
+  each item"? Is every other item either waiting for an automated test or already checked, and
+  is each "already checked" bullet covered in full and still current?
 - Does it name the **known, deliberate limits** a tester will run into, so they don't file a
   settled decision as a new bug?
 - Did you prompt them to try the relevant **conditions** (online/offline, different computers,

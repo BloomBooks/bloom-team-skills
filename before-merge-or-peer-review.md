@@ -187,9 +187,9 @@ operations every tracker skill provides). Moving the card afterwards is each ski
      write the corrected behavior, not the old one.
    - **Current truth, nothing historical:** describe the change as it stands. No "earlier this
      did X", no "round 2", no correction notes stacked under the original; replace the text.
-   - **Badges kept consistent** (`add-test-ideas`, "Marking what has already been checked"): an
-     item you add or reword gets ▫️▫️ unless it earns a badge, and if no badge remains, drop the
-     slots and the legend.
+   - **Each item in the right place** (`add-test-ideas`, "Who checks each item"): the tester's
+     checkboxes hold only items that need a person, and an item you add or reword is "already
+     checked" only when a test or an agent's run covers the new wording in full.
    - **Succinct:** scale it to the change. A small change gets two or three sentences and a
      handful of checkboxes. Cut any item this diff has no plausible way of breaking, and any
      setup a tester doesn't need.
