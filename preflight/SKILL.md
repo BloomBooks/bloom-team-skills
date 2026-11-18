@@ -908,7 +908,7 @@ publish it **once** — never through two targets, which yields two links and tw
 **Read `references/report-artifact.md` (in this skill's folder) now and follow it exactly** — it
 defines the publish target and steps (including the single URL to open in the browser and
 printing a bare URL), the visual style, the content blocks — including the **header links row,
-led by a link to the PR's own page**, which the render check and a pre-publish grep both verify —
+led by a link to the PR's own page** —
 the decision-item controls (`Leave as is` / `Leave comment` / `Other:` conventions), and the
 copy-back with its Copy and Send to Claude buttons.
 
@@ -969,7 +969,7 @@ after the developer had answered it.)
 
 - Every report links to the PR's own page from its header, and every chat summary prints the PR
 URL bare on its own line. A PR number in plain text, or a link only to the files view or a commit,
-is not that link (`references/report-artifact.md`, block 0 and the render check).
+is not that link (`references/report-artifact.md`, block 0).
 - Every report and chat summary **opens with the current narrative for the whole PR**, below the
 `INCOMPLETE:` lines of an incomplete run (problem /
 cause / fix, or purpose / what the PR does), maintained across runs — never replaced by notes on the latest run, and never
