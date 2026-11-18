@@ -25,6 +25,11 @@ is not worth attempting.
 
 ## The poll loop, learned the hard way
 
+Until 2026-11 the skill polled from a tab in the `chrome-devtools` CLI's browser. That daemon
+runs a visible Chrome window (sitting on `about:blank`) that nothing ever closed, and the first
+three items below are what the shared tab cost. The skill now triggers with a one-shot headless
+Chrome and polls with `curl`, which has none of these problems.
+
 - `chrome-devtools evaluate_script` prints an update-nag banner and a fenced ```` ```json ````
   block around the value, so `[ "$(chrome-devtools …)" = "true" ]` can never match and the loop
   spins forever (it stalled a bloom-player #430 run). Extract the value with a pattern match.
