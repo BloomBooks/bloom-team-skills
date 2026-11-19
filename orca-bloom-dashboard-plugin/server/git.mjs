@@ -3,6 +3,7 @@
 // a timer while a surface shows the worktree. Each read starts four or five git processes, so
 // nothing reads on a short timer.
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -46,6 +47,19 @@ export async function readGit(wt, since = null) {
   }
   const [behind, ahead] = counts ? counts.split(/\s+/).map(Number) : [null, null];
   return { head: sha, tree, headTime, uncommitted, untracked, branch, upstream, unpushed: upstream ? unpushed ?? 0 : null, base: base.replace(/^origin\//, ""), behind, ahead, commitsSince };
+}
+
+/**
+ * HEAD's commit and a digest of the uncommitted changes (the diff of tracked files and the names
+ * of untracked ones), to tell whether an agent changed the checkout: { head, changes }.
+ */
+export async function checkoutNow(wt) {
+  const [head, diff, status] = await Promise.all([
+    git(wt, "rev-parse", "HEAD"),
+    git(wt, "diff", "HEAD", "--binary"),
+    git(wt, "status", "--porcelain=v1", "-uall"),
+  ]);
+  return { head, changes: crypto.createHash("sha1").update(diff).update("\0").update(status).digest("hex") };
 }
 
 /**

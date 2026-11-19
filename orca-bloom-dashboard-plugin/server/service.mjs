@@ -46,7 +46,9 @@ import { promisify } from "node:util";
 import { PORT, ORIGIN, serviceDir, dashboardDir, repoDir, dataDir, dataFile, serviceKey, readJsonFile, writeJsonFile, ownEnvironment, orcaRunning, log } from "./env.mjs";
 import { emptyState, applyHook, applyProgress, applyInterrupt, checkLiveness, openRun, latestRun, sessionsIn, prune, isOpen, SKILLS } from "./runs.mjs";
 import { computeRow, allowAction, orderOf, wantsRow, prRows, prRowTitle, GROUPS, ROW_STATES, IN_REVIEW } from "./rows.mjs";
-import { readGit, gitWatcher } from "./git.mjs";
+import { readGit, gitWatcher, checkoutNow } from "./git.mjs";
+import { commentRunSteps, unchanged, WORKING } from "./comment-runs.mjs";
+import { callService } from "../../bloom-services/sources.mjs";
 import { writeProse, digestOf, proseUsage, config, llmDir, SETTLE_MS } from "./prose.mjs";
 import { addDecider, deciderPage, answerDecider, waitForAnswers, waitingDeciders, dropDecider, isAbandoned } from "./deciders.mjs";
 import { cardOf, questionOf, agentState, readProgress, progressDir } from "./row-facts.mjs";
@@ -127,11 +129,14 @@ function note(worktree, texts) {
 const eventsOf = key => events.filter(e => e.worktree === key || (key && e.text.includes(key))).slice(-20);
 
 let saveRunsTimer = null;
+function saveRunsSoon() {
+  clearTimeout(saveRunsTimer);
+  saveRunsTimer = setTimeout(() => { prune(runs); writeJsonFile(dataFile("runs.json"), runs); }, 1000);
+}
 function runsChanged(worktree, changes) {
   if (!changes.length) return;
   note(worktree, changes);
-  clearTimeout(saveRunsTimer);
-  saveRunsTimer = setTimeout(() => { prune(runs); writeJsonFile(dataFile("runs.json"), runs); }, 1000);
+  saveRunsSoon();
   recompute();
 }
 let cacheDirty = false;
@@ -399,6 +404,69 @@ async function readCard(id) {
   }
 }
 
+// ---- a card's State, while an agent processes its PR's comments (comment-runs.mjs) ------------
+// Sets a card's State in YouTrack, as the Bot, and shows it at once without waiting for a gather.
+async function setCardState(id, state) {
+  const body = JSON.stringify({ customFields: [{ name: "State", $type: "StateIssueCustomField", value: { name: state } }] });
+  const answer = await (await callService("youtrack", `/issues/${id}?fields=customFields(name,value(name))`, { method: "POST", body })).json();
+  const now = answer.customFields?.find(f => f.name === "State")?.value?.name;
+  if (now !== state) throw new Error(`YouTrack left ${id} in ${now ?? "no State"}`);
+  const was = remote?.cards.find(c => c.id === id);
+  if (was) {
+    note(null, `${id}: State ${was.state} -> ${state} (the dashboard set it)`);
+    remote = { ...remote, cards: remote.cards.map(c => c.id === id ? { ...c, state } : c) };
+    cacheDirty = true;
+  }
+  recompute();
+}
+const cardOfWorktree = key => { const r = [...rowsNow, ...inReviewNow].find(x => x.key === key); return r ? { card: r.card, state: r.ytState } : null; };
+const pathOf = key => worktrees().get(key)?.path ?? key;
+function followCommentRuns() {
+  for (const { run, step, card, from } of commentRunSteps(runs, cardOfWorktree)) {
+    if (step === "start") startCommentRun(run, card, from);
+    else if (step === "finish") finishCommentRun(run);
+    else {
+      run.cardMove.settled = true;
+      note(run.worktree, `${run.cardMove.card}: Process PR Comments ended before it finished, so the card stays ${WORKING}`);
+      saveRunsSoon();
+    }
+  }
+}
+async function startCommentRun(run, card, from) {
+  const m = run.cardMove = { card, from, pending: true };
+  try {
+    m.before = await checkoutNow(pathOf(run.worktree)).catch(() => null);
+    await setCardState(card, WORKING);
+  } catch (e) {
+    m.settled = true;
+    m.error = String(e.message).split("\n")[0].slice(0, 200);
+    note(run.worktree, `${card}: could not move the card to ${WORKING} for Process PR Comments: ${m.error}`);
+  } finally {
+    m.pending = false;
+    saveRunsSoon();
+    recompute();
+  }
+}
+async function finishCommentRun(run) {
+  const m = run.cardMove;
+  m.pending = true;
+  try {
+    const after = await checkoutNow(pathOf(run.worktree)).catch(() => null);
+    const now = cardOfWorktree(run.worktree)?.state;
+    if (!unchanged(m.before, after)) note(run.worktree, `${m.card}: Process PR Comments ${after ? "changed the code" : "left a checkout that git could not read"}, so the card stays ${WORKING} until Request Peer Review`);
+    else if (now !== WORKING) note(run.worktree, `${m.card}: Process PR Comments changed no code, but the card is in ${now ?? "an unknown State"} now, so it stays there`);
+    else await setCardState(m.card, IN_REVIEW);
+  } catch (e) {
+    m.error = String(e.message).split("\n")[0].slice(0, 200);
+    note(run.worktree, `${m.card}: could not move the card back to ${IN_REVIEW}: ${m.error}`);
+  } finally {
+    m.pending = false;
+    m.settled = true;
+    saveRunsSoon();
+    recompute();
+  }
+}
+
 // ---- rows --------------------------------------------------------------------------------------
 let rowsNow = [], inReviewNow = [];
 // What names a row: the card id, and the PR's number too when the card has a row for each PR.
@@ -495,6 +563,7 @@ function recompute() {
   recomputeTimer = setTimeout(() => {
     recomputeTimer = null;
     const state = buildState();
+    followCommentRuns();
     const json = JSON.stringify(state);
     if (json === stateJson) return;
     stateJson = json; stateNow = state; version++;
@@ -778,8 +847,7 @@ function onHook(p, pid) {
   hookTrace.push({ at: Date.now(), pid, worktree, ...Object.fromEntries(Object.entries(p).map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 160) : k === "tool_response" ? "…" : v])) });
   if (hookTrace.length > 80) hookTrace.shift();
   runsChanged(worktree, applyHook(runs, p, { worktree, pid }));
-  clearTimeout(saveRunsTimer);
-  saveRunsTimer = setTimeout(() => { prune(runs); writeJsonFile(dataFile("runs.json"), runs); }, 1000);
+  saveRunsSoon();
   const e = p.hook_event_name;
   if (worktree && (e === "Stop" || e === "PostToolUse" || e === "SessionEnd")) refreshGit(worktree);
   // Orca's plugin pushes agent changes; with no plugin connected, a hook is the next best prompt to look.
