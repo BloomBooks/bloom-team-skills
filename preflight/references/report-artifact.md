@@ -2,57 +2,19 @@
 
 Read this when building the Phase 5 report artifact. It defines the page's design, content
 blocks, decision-item controls, and copy-back behavior. Load the `artifact-design` skill first,
-then write the page content to a file, **check how it renders**, and publish it.
+then write the page content to a file and publish it.
 
 Note on the file itself: when publishing to the public repo the page is served as-is (by GitHub
 Pages or githack), so write a **complete HTML document** — `<!doctype html>`, `<head>` with a `<title>`, and
 your own CSS reset. (The wrapping-skeleton behaviour, where you write body content only, applies
 to the Anthropic Artifact tool, not here.)
 
-## Check the render before you publish
-
-You are writing a page you never look at, which is how a report with the decisions column pushed
-off-screen gets published and linked on a card. **Open the local file and check it before
-publishing** — the whole check is five assertions and takes one round-trip:
-
-```bash
-chrome-devtools new_page "file:///<path>/preflight-report.html"
-chrome-devtools resize_page 1440 1000
-chrome-devtools evaluate_script "() => ({ overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth, prLink: !!document.querySelector('a[href=\"https://github.com/<owner>/<repo>/pull/<n>\"]') })"
-chrome-devtools take_screenshot --format png --filePath "<scratch>/shot.png"   # then Read it
-```
-
-1. **The PR link is there** — `prLink` must be `true`: an `<a>` whose `href` is exactly the PR's
-   own GitHub page (not `/files`, not `/commits`, not a comment anchor — and not Devin's review
-   page, whose URL also ends in `/pull/<n>`, which is why the selector matches the whole URL).
-   `false` means the header links row is missing or the PR number is sitting there as plain text.
-   This is the most-used link on the page and the one most often shipped missing; fix it before
-   looking at anything else. No browser available? The grep in Publishing is the fallback.
-2. **No horizontal overflow** — `scrollWidth > clientWidth` must be `false`, at a wide width
-   (~1440) *and* a narrow one (~620, where it collapses to one column). Sideways scroll almost
-   always means a grid item that cannot shrink; see the Visual style rules.
-3. **Look at the screenshot.** The "what this PR is about" card is the first thing on the page,
-   the header links row (PR first) is visible, both columns are present, the decisions are
-   visible, no prose set in monospace, no text running under or past a neighbour.
-4. **The copy-back actually serializes.** Read `#payload`, then flip a couple of controls and read
-   it again — confirm a selection changes the text, a `Leave comment` tick adds its line, an
-   untouched `Leave comment` adds nothing, and `Other:` picks up its typed value. On the page
-   served by `claude-decider.mjs`, Send to Claude shows; on the file opened directly, it does
-   not.
-5. **Only then publish.** If you find a defect after publishing, fix and republish to the *same*
-   path so the card's link stays valid.
-
 ## Publishing
 
-- **Before the file leaves the machine, grep for the PR link** — whichever target you publish to,
-  and whether or not the browser check above ran:
+Don't check the report in a browser before publishing: over ~115 runs that check almost never
+found anything and broke often. The developer will say if a report is badly formatted; then fix
+it and republish to the *same* path so the card's link stays valid.
 
-  ```bash
-  grep -c 'href="https://github.com/<owner>/<repo>/pull/<n>"' preflight-report.html   # must be ≥ 1
-  ```
-
-  `0` means the report cannot take its reader to the PR. Add the header links row (block 0) and
-  re-check; do not publish a report that fails this.
 - **Publish once, to exactly one target.** Do not publish the same report through both the
   public repo and the Anthropic Artifact tool — that produces two links and opens two browser
   tabs.
@@ -135,8 +97,7 @@ page), and each remote reviewer's page (Devin: `https://devinreview.com/<owner>/
 Every entry is an `<a>` with a visible label. A PR number or card id in plain text is not a link
 and does not satisfy this; neither does a link to the files view or a commit "because the PR is
 one click from there". The sample screenshot (`preflight-report-sample.png`) shows the row — the
-chips after "Board". The render check and the pre-publish grep both look for this link.
-
+chips after "Board".
 The state chip may additionally wrap its label in an `<a>` to the same PR URL (an anchor inside
 the span keeps the markers' shape and survives the patch that `request-peer-review` and `merge-without-peer-review` apply, which only swaps the
 attribute and the label text) — but that is optional; the links row is what is checked.

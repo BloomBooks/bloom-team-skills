@@ -63,12 +63,12 @@ function serviceButton(b, body, cls, text, key) {
   if (!b.enabled) btn.disabled = true;
   return btn;
 }
-const bodyOf = (d, id, anyway) => id === "create" ? { action: "create", card: d.card, front: FRONT } : { action: id, path: d.worktree, front: FRONT, ...(anyway ? { anyway: true } : {}) };
+const bodyOf = (d, id, anyway) => id === "create" ? { action: "create", card: d.card, pr: d.pr || "", front: FRONT } :{ action: id, path: d.worktree, front: FRONT, ...(anyway ? { anyway: true } : {}) };
 // The row's Orca button: opens its worktree, or makes one first when it has none (the sparkle).
 function orcaButton(d) {
   const b = d.worktree ? d.actions.open : d.actions.create;
   if (!d.worktree && !/^BL-\d+$/.test(d.card || "")) return null;
-  const btn = serviceButton(b, bodyOf(d, b.id), "orca-icon", "");
+  const btn = serviceButton(b, bodyOf(d, b.id), "orca-icon", "", b.id + ":" + (d.worktree || d.id));
   btn.title = b.enabled ? (d.worktree ? "Show this worktree in Orca" : "Make a worktree for this card and start Claude in it") : b.reason;
   btn.setAttribute("aria-label", btn.title);
   btn.innerHTML = orcaIcon(!d.worktree);
@@ -95,7 +95,7 @@ function processCell(d) {
   const label = text => el("span", { class: "lbl" }, text);
   const withNote = (body, text) => el("span", { class: "noted" }, body, el("small", {}, text));
   const ol = el("ol", { class: "steps" });
-  const icon = { done: "check", now: "dot", running: "spin", later: "empty", comments: "bubble" };
+  const icon = { done: "check", now: "dot", running: "spin", later: "empty" };
   for (const s of d.steps) {
     let body;
     if (s.state === "running") {
@@ -103,7 +103,7 @@ function processCell(d) {
         s.since ? el("span", { class: "elapsed", "data-since": String(s.since) }, elapsedText(s.since)) : null,
         s.runningNote ? el("small", {}, s.runningNote) : null);
     } else if (s.buttons?.length) {
-      const bs = s.buttons.map(b => serviceButton(b, bodyOf(d, b.id), "orca skill", b.label, "step:" + b.id + ":" + (d.worktree || d.card)));
+      const bs = s.buttons.map(b => serviceButton(b, bodyOf(d, b.id), "orca skill", b.label, "step:" + b.id + ":" + (d.worktree || d.id)));
       body = bs.length > 1 ? el("span", { class: "alts" }, ...bs) : bs[0];
     } else if (s.labelButton) {
       // The step is not the one on offer, and its label starts the skill anyway.
@@ -123,63 +123,114 @@ function processCell(d) {
         + "Not yet marked Viewed in GitHub or reviewed in Reviewable:\n" + s.files.join("\n");
       if (!s.linkEnabled) { body.removeAttribute("href"); body.style.opacity = "0.45"; }
     } else body = label(s.label);
-    if (s.id === "preflight" && d.report && s.state !== "running") {
+    // A report from before the latest changes gets no link.
+    if (s.id === "preflight" && d.report && !d.report.old && s.state !== "running") {
       const n = d.report.decisions;
-      const a = link(d.report.url, (d.report.old ? "old report" : "report") + (n > 0 ? ` (${n} decision${n > 1 ? "s" : ""})` : ""));
+      const a = link(d.report.url, "report" + (n > 0 ? ` (${n} decision${n > 1 ? "s" : ""})` : ""));
       a.className = "report" + (n > 0 ? " you" : "");
-      a.title = d.report.old ? "Open the report of an earlier preflight, from before the latest changes" : "Open the preflight report";
+      a.title = "Open the preflight report";
       body = el("span", { class: "alts" }, body, a);
     }
-    if (s.id === "peer" && s.state === "comments" && d.pr) body = el("span", { class: "pr-links" }, body, reviewableLink(d.pr));
-    if (s.note) body = withNote(body, s.note);
+    if (s.note && s.commits) body = el("span", { class: "noted" }, body, noteWithCommits(s.note, s.commits));
+    else if (s.note) body = withNote(body, s.note);
     ol.append(withIcon(el("li", { class: s.state + (body.classList.contains("noted") ? " two-line" : "") }, body), icon[s.state]));
   }
   const badge = badgeOf(d);
   return el("div", {}, badge ? el("div", {}, badge) : null, ol,
     d.failed ? el("p", { class: "failed", role: "alert" }, d.failed) : null);
 }
-// "Where it stands": a preflight run's phases while one runs; otherwise what the service
-// computed, the prose written about it, and what could not be read.
+// A step's note in which the count of commits since preflight ("2 commits") opens a box that
+// lists them.
+function noteWithCommits(note, commits) {
+  const at = note.indexOf(commits.text);
+  const open = el("button", { type: "button", class: "step-link commits-link", "aria-haspopup": "dialog" }, commits.text);
+  open.addEventListener("click", e => { e.stopPropagation(); showCommits(open, commits.list); });
+  return el("small", {}, note.slice(0, at), open, note.slice(at + commits.text.length));
+}
+// The commits since preflight, each with its message and, once it is on GitHub, a link to it there.
+function showCommits(anchor, list) {
+  showListBox(anchor, "Commits since preflight", list.map(c => {
+    const subject = c.url ? link(c.url, c.subject) : el("span", {}, c.subject);
+    subject.classList.add("subject");
+    return el("li", {}, subject,
+      el("small", {}, c.sha.slice(0, 7) + (c.url ? "" : " · not on GitHub yet")),
+      c.body ? el("p", {}, c.body) : null);
+  }));
+}
+// The teammates' comments in unresolved discussions: where each one is, linking to its discussion
+// in Reviewable, who wrote it, whether it has been answered, and what it says.
+function showPeerComments(anchor, { toAnswer, answered }) {
+  const item = c => {
+    const where = c.file ? `${c.file}${c.line != null ? ":" + c.line : ""}` : "The whole PR";
+    const head = c.url ? link(c.url, where) : el("span", {}, where);
+    head.classList.add("subject");
+    return el("li", {}, head, el("small", {}, c.who), el("p", { class: "comment" }, c.text),
+      c.answered ? el("p", { class: "reply" }, c.reply ? "Reply: " + c.reply : `${c.who} marked it satisfied`) : null);
+  };
+  showBox(anchor, "Peer comments",
+    toAnswer.length ? el("h4", {}, "To answer") : null, toAnswer.length ? el("ol", {}, ...toAnswer.map(item)) : null,
+    answered.length ? el("h4", {}, "Answered; the reviewer is to resolve them") : null, answered.length ? el("ol", {}, ...answered.map(item)) : null);
+}
+// A box under `anchor` with a heading over a list.
+function showListBox(anchor, heading, items) {
+  showBox(anchor, heading, el("ol", {}, ...items));
+}
+// A box under `anchor` with a heading over `content`. There is one box on the page, outside the
+// rows, so the rows' redraws leave it open; a click outside it or Escape closes it.
+function showBox(anchor, heading, ...content) {
+  let pop = document.getElementById("list-pop");
+  if (!pop) {
+    pop = el("div", { class: "list-pop", id: "list-pop", role: "dialog" });
+    pop.hidden = true;
+    document.body.append(pop);
+    document.addEventListener("click", e => { if (!e.target.closest("#list-pop")) pop.hidden = true; });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") pop.hidden = true; });
+  }
+  pop.setAttribute("aria-label", heading);
+  pop.replaceChildren(el("h3", {}, heading), ...content.filter(Boolean));
+  pop.hidden = false;
+  const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  pop.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + "px";
+  pop.style.top = (r.bottom + 6 + h > innerHeight - 8 ? Math.max(8, r.top - 6 - h) : r.bottom + 6) + "px";
+}
+// "Where it stands": the teammates' comments first; then a preflight run's phases while one runs,
+// or else the phases of a run that stopped and the prose written about the row; and what could
+// not be read.
 function standsCell(d) {
   const out = el("div", { class: "stands" });
+  if (d.peerComments) out.append(peerLine(d.peerComments));
   if (d.run) {
     out.append(preflightSteps({ steps: d.run.phases }));
   } else {
     const p = d.prose;
-    if (p?.status) {
-      const s = el("span", { class: "prose" + (p.stale ? " stale" : "") }, p.status);
-      s.title = `Written by ${p.model} at ${localTime(new Date(p.at).toISOString())}` + (p.stale ? ", before the latest changes; a new one is on its way" : "");
-      out.append(s);
-    } else out.append(el("span", { class: "computed" }, d.reasons.join(" ")));
     if (d.stopped && Object.keys(d.stopped.phases).length) out.append(preflightSteps({ steps: d.stopped.phases }));
-    if (p?.comments && d.ytState === "Has Comments") out.append(commentsLine(p.comments));
     if (d.question) out.append(el("span", { class: "question" }, el("b", {}, "Claude asks: "), d.question));
     if (p?.next) out.append(el("span", { class: "next" }, el("b", {}, "Next: "), p.next));
   }
   for (const u of d.unknown || []) out.append(el("span", { class: "unknown", title: u.error }, `${u.source} could not be read${u.since ? "; showing what it said " + agoText(u.since) : ""}`));
-  out.append(whyDetails(d));
   return out;
 }
-// "Why?": the rule that put the row in its state, each fact with its source and age, and the
-// latest events in its worktree.
 function agoText(t) {
   if (!t) return "never";
   const s = Math.max(0, Math.round((Date.now() - t) / 1000));
   return s < 90 ? `${s} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`;
 }
-const openWhy = new Set();   // the rows whose "Why?" is open, kept across redraws
-function whyDetails(d) {
-  const id = d.card + "|" + (d.worktree || "");
-  const box = el("details", { class: "why" }, el("summary", {}, "Why?"));
-  box.open = openWhy.has(id);
-  box.addEventListener("toggle", () => { box.open ? openWhy.add(id) : openWhy.delete(id); });
-  const dl = el("dl", {});
-  for (const f of d.why) {
-    dl.append(el("dt", {}, f.label), el("dd", {}, f.text, f.source ? el("small", { "data-ago": String(f.at || 0), "data-source": f.source }, ` ${f.source}, read ${agoText(f.at)}`) : null));
-  }
-  box.append(dl);
-  if (d.events?.length) box.append(el("ul", { class: "events" }, ...d.events.slice().reverse().map(e => el("li", {}, el("time", {}, localTime(new Date(e.at).toISOString())), " " + e.text))));
-  return box;
+// The information icon on a row, which opens a box with the rule that put the row in its state,
+// each fact with its source and age, and the latest events in its worktree.
+function infoButton(d) {
+  const tip = "Why this row says what it does";
+  const b = el("button", { type: "button", class: "card-info", title: tip, "aria-label": tip, "aria-haspopup": "dialog" });
+  b.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
+  b.addEventListener("click", e => {
+    e.stopPropagation();
+    const dl = el("dl", { class: "facts" });
+    for (const f of d.why) {
+      dl.append(el("dt", {}, f.label), el("dd", {}, f.text, f.source ? el("small", { "data-ago": String(f.at || 0), "data-source": f.source }, ` ${f.source}, read ${agoText(f.at)}`) : null));
+    }
+    const events = d.events?.length ? el("ul", { class: "events" }, ...d.events.slice().reverse().map(ev => el("li", {}, el("time", {}, localTime(new Date(ev.at).toISOString())), " " + ev.text))) : null;
+    showBox(b, d.title || d.card, dl, events);
+  });
+  return b;
 }
 // The phases of a preflight run, top to bottom; the parts of the automated reviews and tests run
 // at the same time. Preflight also records `ci`, which is left out: on BloomDesktop the PR's
@@ -213,14 +264,23 @@ function preflightSteps(p) {
   }
   return el("div", { class: "run-box" }, ol);
 }
-// What the people who asked for changes said, after a speech bubble drawn in the line's colour.
-function commentsLine(text) {
-  const line = el("span", { class: "comments" }, text);
-  line.insertAdjacentHTML("afterbegin", '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>');
-  return line;
+// The teammates' comments in unresolved discussions, after a speech bubble: the ones to answer in
+// orange, and the answered ones in green, which is also the bubble's colour when nothing is left to
+// answer. Pressing it lists them.
+function peerLine(c) {
+  const parts = c.parts.flatMap((p, i) => [i ? " · " : null, el("span", { class: p.yours ? "yours" : "theirs" }, p.text)]);
+  const b = el("button", { type: "button", class: "peer-line" + (c.toAnswer.length ? " yours" : " theirs"), "aria-haspopup": "dialog" }, ...parts);
+  b.insertAdjacentHTML("afterbegin", '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>');
+  b.addEventListener("click", e => { e.stopPropagation(); showPeerComments(b, c); });
+  return b;
 }
+// The card's id, linking to the card. On a row for one of the card's PRs, hovering it shows the
+// card's own title, since the row's title is the PR's.
 function cardLabel(d) {
-  return d.cardUrl ? toned(d.cardUrl, d.card, CARD_TONE[d.ytState]) : document.createTextNode(d.card || "");
+  if (!d.cardUrl) return document.createTextNode(d.card || "");
+  const a = toned(d.cardUrl, d.card, CARD_TONE[d.ytState]);
+  if (d.cardTitle) a.title = d.cardTitle;
+  return a;
 }
 
 const isToday = t => t.toDateString() === new Date().toDateString();
@@ -304,6 +364,30 @@ function prLinks(url, tone) {
   if (tone === PR_TONE.merged) markMerged(pr, "merged");
   const rv = reviewableLink(url, tone);
   return rv ? el("span", { class: "pr-links" }, pr, rv) : pr;
+}
+// "→ master" and an icon for whether GitHub can merge the PR into that branch: a tick for
+// MERGEABLE, a cross for CONFLICTING, a question mark while GitHub has not worked it out. Null for
+// a row with no PR or no base branch.
+const MERGEABLE_ICON = {
+  MERGEABLE: ["ok", "GitHub can merge this PR into its base branch", '<circle cx="12" cy="12" r="10"/><path d="M8 12.5l3 3 5-6"/>'],
+  CONFLICTING: ["bad", "This PR conflicts with its base branch", '<circle cx="12" cy="12" r="10"/><path d="M9 9l6 6M15 9l-6 6"/>'],
+  UNKNOWN: ["unknown", "GitHub has not worked out yet whether this PR can merge", '<circle cx="12" cy="12" r="10"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.6M12 17h.01"/>'],
+};
+function baseLine(d) {
+  if (!d.pr || !d.prBase) return null;
+  const [tone, tip, path] = MERGEABLE_ICON[d.prMergeable] || MERGEABLE_ICON.UNKNOWN;
+  const icon = el("span", { class: "mergeable " + tone, title: tip, role: "img", "aria-label": tip });
+  icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
+  return el("span", { class: "base-line", title: `This PR merges into ${d.prBase}` }, "→ " + d.prBase + " ", icon);
+}
+// A row's PR with Reviewable's rabbit, and "2 of 3 in stack" when the PR is one of a stack of PRs
+// for the card, counted from the PR on the base branch. The board's rows pass showStackAt false,
+// because they number the PR on the line that joins the stack's rows.
+function prLine(d, showStackAt = true) {
+  const links = prLinks(d.pr, PR_TONE[d.prState]);
+  if (!d.stack || !showStackAt) return links;
+  const where = el("span", { class: "stack-at", title: `PR ${d.stack.at} of the ${d.stack.of} PRs in this stack, each one built on the one before` }, `${d.stack.at} of ${d.stack.of} in stack`);
+  return el("span", { class: "pr-line" }, links, where);
 }
 // How long an agent has worked, as "for 12 min"; the rows redraw only when the state changes, so
 // the running steps' times are updated here.

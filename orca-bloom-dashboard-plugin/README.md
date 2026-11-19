@@ -96,7 +96,7 @@ changed", and a review that cannot be read offers the review and Request Peer Re
 
 | State | When | On offer |
 | --- | --- | --- |
-| `peer-review` | the card is in Ready For Code Review | Process PR Comments when comments wait |
+| `peer-review` | the card is in Ready For Code Review | Process PR Comments when comments wait, which moves the card to In Progress |
 | `preflight-running`, `comments-running`, `handoff-running` | a run of that skill is working or waiting in the worktree | nothing |
 | `no-worktree` | no worktree and no PR | create a worktree |
 | `comments` | an unresolved discussion ends with a person's comment | Process PR Comments; the review stays offered |
@@ -128,7 +128,9 @@ stateDiagram-v2
   review --> comments: a person's comment waits
   handoff_ready --> comments: a person's comment waits
   comments --> comments_running: Process PR Comments
+  peer_review --> comments_running: Process PR Comments, card to In Progress
   comments_running --> preflight_needed: answered with commits
+  comments_running --> peer_review: answered without changing code, card to Ready For Code Review
   peer_review --> preflight_needed: PR back to draft
 ```
 
@@ -139,7 +141,15 @@ time a fact changes.
 
 A working agent, or a question in its terminal, is drawn over the state: a working agent shows on
 the step of the run that is open in its worktree, or on Code when none is, and either one disables
-the row's buttons. `allowAction` gives each button its enabled state, and the service runs it again
+the row's buttons.
+
+When Process PR Comments begins on a card in Ready For Code Review or Has Comments, the service
+moves the card to In Progress, so the card leaves "In peer review" while the agent works. When
+the run finishes with HEAD and the uncommitted changes as they were (the agent only replied), the
+service moves the card to Ready For Code Review. A run that changed code, or ended before it
+finished, leaves the card In Progress until Request Peer Review (`server/comment-runs.mjs`).
+
+`allowAction` gives each button its enabled state, and the service runs it again
 on what Orca says at that moment before it acts, so a button and its action cannot disagree.
 
 ## A run's state

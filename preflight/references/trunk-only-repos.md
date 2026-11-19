@@ -23,6 +23,6 @@ ordinary work. Skip Phase 1 and Phase 2 on them entirely.
 
 Two mechanics for a repo with no CI: without a `pr-automation.yml` there is nothing to trigger
 Devin, and the CI re-run `devin-review` recommends as the reliable trigger doesn't exist either, so
-loading the review page in the `devin-noauth` isolated context is the only trigger (it worked first
-time on all four slices). *Reading* the result needs no browser at all — both endpoints answer plain
+loading the review page (`devin-review` Procedure §1, a one-shot headless Chrome) is the only
+trigger (it worked first time on all four slices). *Reading* the result needs no browser at all — both endpoints answer plain
 `curl --compressed`.

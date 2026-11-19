@@ -45,8 +45,10 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { PORT, ORIGIN, serviceDir, dashboardDir, repoDir, dataDir, dataFile, serviceKey, readJsonFile, writeJsonFile, ownEnvironment, orcaRunning, log } from "./env.mjs";
 import { emptyState, applyHook, applyProgress, applyInterrupt, checkLiveness, openRun, latestRun, sessionsIn, prune, isOpen, SKILLS } from "./runs.mjs";
-import { computeRow, allowAction, orderOf, wantsRow, GROUPS, ROW_STATES, IN_REVIEW } from "./rows.mjs";
-import { readGit, gitWatcher } from "./git.mjs";
+import { computeRow, allowAction, orderOf, wantsRow, prSets, prRowTitle, GROUPS, ROW_STATES, IN_REVIEW } from "./rows.mjs";
+import { readGit, gitWatcher, checkoutNow } from "./git.mjs";
+import { commentRunSteps, unchanged, WORKING } from "./comment-runs.mjs";
+import { callService } from "../../bloom-services/sources.mjs";
 import { writeProse, digestOf, proseUsage, config, llmDir, SETTLE_MS } from "./prose.mjs";
 import { addDecider, deciderPage, answerDecider, waitForAnswers, waitingDeciders, dropDecider, isAbandoned } from "./deciders.mjs";
 import { cardOf, questionOf, agentState, readProgress, progressDir } from "./row-facts.mjs";
@@ -93,7 +95,7 @@ let ps = [];                                       // `orca worktree ps`, the wo
 const gits = new Map(Object.entries(cache.gits || {}));          // norm(worktree) -> { value, at, error }
 const reviews = new Map(Object.entries(cache.reviews || {}));    // PR URL -> { value, at, error }
 const comments = new Map(Object.entries(cache.comments || {}));  // PR URL -> { value, at, error }
-const proses = new Map(Object.entries(cache.proses || {}));      // card -> { status, comments, next, at, model, digest }
+const proses = new Map(Object.entries(cache.proses || {}));      // card -> { next, at, model, digest }
 const launches = new Map();                        // norm(worktree) -> { skill, at, failed }
 const workingSeen = new Map();                     // norm(worktree) -> when its agent was first seen working
 const removedWorktrees = new Set();
@@ -127,11 +129,14 @@ function note(worktree, texts) {
 const eventsOf = key => events.filter(e => e.worktree === key || (key && e.text.includes(key))).slice(-20);
 
 let saveRunsTimer = null;
+function saveRunsSoon() {
+  clearTimeout(saveRunsTimer);
+  saveRunsTimer = setTimeout(() => { prune(runs); writeJsonFile(dataFile("runs.json"), runs); }, 1000);
+}
 function runsChanged(worktree, changes) {
   if (!changes.length) return;
   note(worktree, changes);
-  clearTimeout(saveRunsTimer);
-  saveRunsTimer = setTimeout(() => { prune(runs); writeJsonFile(dataFile("runs.json"), runs); }, 1000);
+  saveRunsSoon();
   recompute();
 }
 let cacheDirty = false;
@@ -372,7 +377,8 @@ async function readCard(id) {
   ]);
   if (!repos.size) repos.add("bloombooks/bloomdesktop");
   const tmp = dataFile(`gather-card-${process.pid}-${id}.json`);
-  const git = row.key ? refreshGit(row.key) : null;
+  const cardRows = [...rowsNow, ...inReviewNow].filter(r => r.card === id);
+  const git = Promise.all(cardRows.filter(r => r.key).map(r => refreshGit(r.key)));
   const orcaNow = readPs();
   try {
     try {
@@ -391,16 +397,80 @@ async function readCard(id) {
       prs: [...remote.prs.filter(p => !(p.card === id && next.repos.includes(p.repo))), ...next.prs],
     };
     cacheDirty = true;
-    const pr = next.prs.find(p => p.url === row.pr)?.url ?? next.prs[0]?.url;
-    await Promise.all([git, orcaNow, pr && readReview("comments", pr), pr && readReview("review", pr)]);
+    await Promise.all([git, orcaNow, ...next.prs.flatMap(p => [readReview("comments", p.url), readReview("review", p.url)])]);
   } finally {
     fs.rmSync(tmp, { force: true });
     recompute();
   }
 }
 
+// ---- a card's State, while an agent processes its PR's comments (comment-runs.mjs) ------------
+// Sets a card's State in YouTrack, as the Bot, and shows it at once without waiting for a gather.
+async function setCardState(id, state) {
+  const body = JSON.stringify({ customFields: [{ name: "State", $type: "StateIssueCustomField", value: { name: state } }] });
+  const answer = await (await callService("youtrack", `/issues/${id}?fields=customFields(name,value(name))`, { method: "POST", body })).json();
+  const now = answer.customFields?.find(f => f.name === "State")?.value?.name;
+  if (now !== state) throw new Error(`YouTrack left ${id} in ${now ?? "no State"}`);
+  const was = remote?.cards.find(c => c.id === id);
+  if (was) {
+    note(null, `${id}: State ${was.state} -> ${state} (the dashboard set it)`);
+    remote = { ...remote, cards: remote.cards.map(c => c.id === id ? { ...c, state } : c) };
+    cacheDirty = true;
+  }
+  recompute();
+}
+const cardOfWorktree = key => { const r = [...rowsNow, ...inReviewNow].find(x => x.key === key); return r ? { card: r.card, state: r.ytState } : null; };
+const pathOf = key => worktrees().get(key)?.path ?? key;
+function followCommentRuns() {
+  for (const { run, step, card, from } of commentRunSteps(runs, cardOfWorktree)) {
+    if (step === "start") startCommentRun(run, card, from);
+    else if (step === "finish") finishCommentRun(run);
+    else {
+      run.cardMove.settled = true;
+      note(run.worktree, `${run.cardMove.card}: Process PR Comments ended before it finished, so the card stays ${WORKING}`);
+      saveRunsSoon();
+    }
+  }
+}
+async function startCommentRun(run, card, from) {
+  const m = run.cardMove = { card, from, pending: true };
+  try {
+    m.before = await checkoutNow(pathOf(run.worktree)).catch(() => null);
+    await setCardState(card, WORKING);
+  } catch (e) {
+    m.settled = true;
+    m.error = String(e.message).split("\n")[0].slice(0, 200);
+    note(run.worktree, `${card}: could not move the card to ${WORKING} for Process PR Comments: ${m.error}`);
+  } finally {
+    m.pending = false;
+    saveRunsSoon();
+    recompute();
+  }
+}
+async function finishCommentRun(run) {
+  const m = run.cardMove;
+  m.pending = true;
+  try {
+    const after = await checkoutNow(pathOf(run.worktree)).catch(() => null);
+    const now = cardOfWorktree(run.worktree)?.state;
+    if (!unchanged(m.before, after)) note(run.worktree, `${m.card}: Process PR Comments ${after ? "changed the code" : "left a checkout that git could not read"}, so the card stays ${WORKING} until Request Peer Review`);
+    else if (now !== WORKING) note(run.worktree, `${m.card}: Process PR Comments changed no code, but the card is in ${now ?? "an unknown State"} now, so it stays there`);
+    else await setCardState(m.card, IN_REVIEW);
+  } catch (e) {
+    m.error = String(e.message).split("\n")[0].slice(0, 200);
+    note(run.worktree, `${m.card}: could not move the card back to ${IN_REVIEW}: ${m.error}`);
+  } finally {
+    m.pending = false;
+    m.settled = true;
+    saveRunsSoon();
+    recompute();
+  }
+}
+
 // ---- rows --------------------------------------------------------------------------------------
 let rowsNow = [], inReviewNow = [];
+// What names a row: the card id, and the PR's number too when the card has a row for each PR.
+const rowId = (card, pr) => pr ? card + "#" + pr.number : card;
 function buildRows(now = Date.now()) {
   const known = worktrees();
   // A decider can never be answered to anyone once its session has ended, or once nothing waits
@@ -414,6 +484,7 @@ function buildRows(now = Date.now()) {
     return false;
   });
   const rows = [], inReview = [];
+  const prOf = new Map();   // row id -> its PR, for prSets
   for (const card of remote?.cards || []) {
     const review = card.state === IN_REVIEW && card.assignedToDeveloper;
     if (!ROW_STATES.includes(card.state) && !review) continue;
@@ -421,36 +492,67 @@ function buildRows(now = Date.now()) {
     const wts = [...known.entries()].filter(([, w]) => w.card === card.id || mine.some(p => p.headRefName === w.branch));
     if (!card.assignedToDeveloper) for (const [k] of wts) if (!gits.has(k)) refreshGit(k);
     if (!wantsRow({ card, prs: mine, gits: wts.map(([k]) => gits.get(k)?.value ?? null) })) continue;
-    // The PR that a worktree is on, when the card has several; the worktree on that PR's branch.
-    const pr = mine.find(p => wts.some(([, w]) => w.branch === p.headRefName)) ?? mine[0] ?? null;
-    const [key, wt] = wts.find(([, w]) => pr && w.branch === pr.headRefName) ?? wts[0] ?? [null, null];
-    // A worktree seen for the first time is read at once; after that its file watch and the
-    // timer keep it current.
-    if (key && !gits.has(key)) refreshGit(key);
-    const git = key ? gits.get(key) : null;
-    const rv = pr ? reviews.get(pr.url) : null, cm = pr ? comments.get(pr.url) : null;
-    const launch = key ? launches.get(key) : null;
-    const failing = {};
-    for (const s of ["github", "youtrack", "reviewable"]) if (sources[s].error) failing[s] = sources[s].error;
-    if (git?.error) failing.git = git.error;
-    if (rv?.error) failing.review = rv.error;
-    if (cm?.error) failing.comments = cm.error;
-    const row = computeRow({
-      card, pr, worktree: wt, git: git?.value ?? null,
-      preflight: key ? latestRun(runs, key, "preflight") : null, open: key ? openRun(runs, key) : null,
-      review: rv?.value ?? null, comments: cm?.value ?? null,
-      activity: key ? activityOf(key) : { orcaOk: !sources.orca.error && sources.orca.at > 0, orcaError: sources.orca.error },
-      launch, prose: proseFor(card.id), deciders: key ? deciders.filter(d => d.worktree === key) : [],
-      ages: { git: git?.at || 0, github: sources.github.at, youtrack: sources.youtrack.at, review: rv?.at || 0, comments: cm?.at || 0, orca: sources.orca.at },
-      failing,
-    }, now);
-    row.key = key;
-    row.events = key ? eventsOf(key) : [];
-    row.git = git?.value ?? null;
-    (review ? inReview : rows).push(row);
+    // Each PR has a row of its own, with the worktree on its branch. A card with one PR or none
+    // keeps the card's own worktree on its one row.
+    const listed = mine.length ? mine : [null];
+    listed.forEach(pr => {
+      const [key, wt] = wts.find(([, w]) => pr && w.branch === pr.headRefName) ?? (listed.length === 1 ? wts[0] : null) ?? [null, null];
+      // A worktree seen for the first time is read at once; after that its file watch and the
+      // timer keep it current.
+      if (key && !gits.has(key)) refreshGit(key);
+      const git = key ? gits.get(key) : null;
+      const rv = pr ? reviews.get(pr.url) : null, cm = pr ? comments.get(pr.url) : null;
+      const launch = key ? launches.get(key) : null;
+      const failing = {};
+      for (const s of ["github", "youtrack", "reviewable"]) if (sources[s].error) failing[s] = sources[s].error;
+      if (git?.error) failing.git = git.error;
+      if (rv?.error) failing.review = rv.error;
+      if (cm?.error) failing.comments = cm.error;
+      const row = computeRow({
+        card, pr, worktree: wt, git: git?.value ?? null,
+        preflight: key ? latestRun(runs, key, "preflight") : null, open: key ? openRun(runs, key) : null,
+        review: rv?.value ?? null, comments: cm?.value ?? null,
+        activity: key ? activityOf(key) : { orcaOk: !sources.orca.error && sources.orca.at > 0, orcaError: sources.orca.error },
+        launch, prose: proseFor(rowId(card.id, listed.length > 1 ? pr : null)), deciders: key ? deciders.filter(d => d.worktree === key) : [],
+        ages: { git: git?.at || 0, github: sources.github.at, youtrack: sources.youtrack.at, review: rv?.at || 0, comments: cm?.at || 0, orca: sources.orca.at },
+        failing,
+      }, now);
+      row.key = key;
+      row.id = rowId(card.id, listed.length > 1 ? pr : null);
+      if (listed.length > 1) { row.title = prRowTitle(pr.title) || row.title; row.cardTitle = card.summary || ""; }
+      row.stack = null;
+      row.set = null;
+      row.events = key ? eventsOf(key) : [];
+      row.git = git?.value ?? null;
+      if (pr) prOf.set(row.id, pr);
+      (review ? inReview : rows).push(row);
+    });
   }
+  // A stack of PRs and a card with several PRs each get a section of their own (prSets), listed
+  // before the groups, the section with the row nearest to hand-off first.
   const rank = r => GROUPS.indexOf(r.group) * 100 + orderOf(r);
-  rows.sort((a, b) => rank(a) - rank(b) || a.card.localeCompare(b.card, undefined, { numeric: true }));
+  const summaries = new Map((remote?.cards || []).map(c => [c.id, c.summary || ""]));
+  const inSet = new Map();   // row id -> { set, at }
+  for (const s of prSets(rows.map(r => ({ id: r.id, card: r.card, pr: prOf.get(r.id) ?? null })))) {
+    const set = { key: s.ids[0], title: `${s.cards.join(", ")}: ${summaries.get(s.cards[0]) || ""}` };
+    s.ids.forEach((id, at) => inSet.set(id, { set, at, stack: s.stack[id] ?? null }));
+  }
+  const setRank = new Map();
+  for (const r of rows) {
+    const s = inSet.get(r.id);
+    if (!s) continue;
+    setRank.set(s.set.key, Math.min(setRank.get(s.set.key) ?? Infinity, rank(r)));
+    r.set = s.set; r.stack = s.stack; r.group = "set";
+  }
+  const sortKey = r => { const s = inSet.get(r.id); return s ? [0, setRank.get(s.set.key), s.set.key, s.at] : [1, rank(r), r.card, 0]; };
+  rows.sort((a, b) => {
+    const [x, y] = [sortKey(a), sortKey(b)];
+    for (let i = 0; i < x.length; i++) {
+      if (x[i] === y[i]) continue;
+      return typeof x[i] === "string" ? x[i].localeCompare(y[i], undefined, { numeric: true }) : x[i] - y[i];
+    }
+    return 0;
+  });
   rowsNow = rows; inReviewNow = inReview;
   watcher.set([...rows, ...inReview].map(r => r.worktree).filter(Boolean));
   return { rows, inReview, deciders };
@@ -482,6 +584,7 @@ function recompute() {
   recomputeTimer = setTimeout(() => {
     recomputeTimer = null;
     const state = buildState();
+    followCommentRuns();
     const json = JSON.stringify(state);
     if (json === stateJson) return;
     stateJson = json; stateNow = state; version++;
@@ -495,11 +598,7 @@ function recompute() {
 // ---- prose -------------------------------------------------------------------------------------
 const proseFacts = new Map();   // card -> { digest, facts, since }
 let proseBusy = false;
-function proseFor(card) {
-  const p = proses.get(card);
-  if (!p) return null;
-  return { ...p, stale: proseFacts.has(card) && proseFacts.get(card).digest !== p.digest };
-}
+const proseFor = card => proses.get(card) ?? null;
 function scheduleProse() {
   if (!config().prose) return;
   const now = Date.now();
@@ -515,8 +614,8 @@ function scheduleProse() {
       lastAgentMessage: session?.lastMessage || "",
     };
     const digest = digestOf(facts);
-    const was = proseFacts.get(r.card);
-    if (was?.digest !== digest) proseFacts.set(r.card, { digest, facts, since: now });
+    const was = proseFacts.get(r.id);
+    if (was?.digest !== digest) proseFacts.set(r.id, { digest, facts, since: now });
   }
   if (proseBusy || !visible()) return;
   const due = [...proseFacts.entries()].find(([card, f]) => proses.get(card)?.digest !== f.digest && now - f.since >= SETTLE_MS && !f.failedAt);
@@ -634,7 +733,7 @@ async function act(b) {
   // run again on what Orca says now.
   await readPs();
   const p = String(b.path || "");
-  const row = action === "create" ? [...rowsNow, ...inReviewNow].find(r => r.card === String(b.card || "")) : rowOfPath(p);
+  const row = action === "create" ? [...rowsNow, ...inReviewNow].find(r => r.card === String(b.card || "") && (!b.pr || r.pr === b.pr)) : rowOfPath(p);
   // The panel also acts on worktrees that belong to no card: only opening and typing a prompt.
   const ref = row ? { state: row.state, worktree: row.worktree, card: row.card, offered: row.offered } : { state: "", worktree: p || null, card: "", offered: [] };
   const key = norm(ref.worktree);
@@ -765,8 +864,7 @@ function onHook(p, pid) {
   hookTrace.push({ at: Date.now(), pid, worktree, ...Object.fromEntries(Object.entries(p).map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 160) : k === "tool_response" ? "…" : v])) });
   if (hookTrace.length > 80) hookTrace.shift();
   runsChanged(worktree, applyHook(runs, p, { worktree, pid }));
-  clearTimeout(saveRunsTimer);
-  saveRunsTimer = setTimeout(() => { prune(runs); writeJsonFile(dataFile("runs.json"), runs); }, 1000);
+  saveRunsSoon();
   const e = p.hook_event_name;
   if (worktree && (e === "Stop" || e === "PostToolUse" || e === "SessionEnd")) refreshGit(worktree);
   // Orca's plugin pushes agent changes; with no plugin connected, a hook is the next best prompt to look.

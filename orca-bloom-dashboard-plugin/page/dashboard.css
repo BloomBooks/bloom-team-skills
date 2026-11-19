@@ -36,8 +36,7 @@ header:has(#note[hidden]) { display: none; }
 #groups { display: grid; gap: 40px; }
 section.group { display: grid; gap: 12px; }
 section.group[hidden] { display: none; }
-section.group > h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; }
-/* An information icon after a heading; its text shows on hover or keyboard focus. */
+section.group > h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; }/* An information icon after a heading; its text shows on hover or keyboard focus. */
 .info { position: relative; display: inline-flex; vertical-align: -2px; margin-left: 4px; color: var(--muted); cursor: help; border-radius: 50%; }
 .info:hover, .info:focus-visible { color: var(--fg); }
 .info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -73,6 +72,10 @@ ol.steps .noted { display: flex; flex-direction: column; align-items: flex-start
 ol.steps .noted small { font-size: 12px; color: var(--muted); }
 ol.steps li.two-line { align-items: start; }
 ol.steps li.two-line.now > svg { margin-top: 4px; }
+/* A label that wraps keeps its icon beside its first line. */
+ol.steps li:has(> .lbl) { align-items: start; }
+ol.steps li:has(> .lbl) > svg { margin-top: 4px; }
+ol.steps li > .lbl { padding-top: 2.5px; }
 ol.steps .lbl { font-size: 13px; color: var(--muted); }
 ol.steps li.later .lbl { opacity: 0.55; }
 ol.steps li.done .lbl { color: var(--muted); }
@@ -105,18 +108,29 @@ ol.steps.run li.run-skipped > .lbl { color: var(--muted); text-decoration: line-
 ol.steps.sub { margin-top: 4px; font-weight: 400; }
 @media (prefers-reduced-motion: reduce) { ol.steps.run li.run-running > svg { animation: none; } }
 tr.agent-row > td:first-child { box-shadow: inset 3px 0 0 var(--agent); }
+/* The rows of a stack of PRs for one card: a line down their left edge joins them, from the
+   first row's title to the last row's, each row's PR number in the stack sits in a circle on the
+   line, and the rule between them is dotted. */
+tr.stacked > td.card { position: relative; padding-left: 30px; }
+tr.stacked > td.card::before { content: ""; position: absolute; left: 12px; top: 0; bottom: 0; border-left: 2px solid var(--muted); }
+tr.stacked > td.card::after { content: attr(data-stack-at); position: absolute; left: 4px; top: 9px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); color: var(--surface); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+tr.stack-first > td.card::before { top: 18px; }
+tr.stack-last > td.card::before { bottom: auto; height: 18px; }
+tr.stacked:not(.stack-last) > td { border-bottom-style: dotted; }
+.pr-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.stack-at { font-size: 12px; color: var(--muted); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { ol.steps li.running > svg { animation: none; } }
-ol.steps li.comments { --tone: var(--you); }
-ol.steps li.comments .lbl { color: var(--you); }
 ol.steps button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 ol.steps button:disabled:hover { text-decoration: none; filter: none; }
 .process-badge { margin-bottom: 8px; }
 .pills { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 td.upd { width: 100px; position: relative; padding-top: 38px; padding-bottom: 56px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-/* The row's own refresh sits in its upper right corner: the icon alone, spinning while it reads. */
-button.card-refresh { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: var(--muted); background: none; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
-button.card-refresh:hover { color: var(--fg); }
-button.card-refresh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The row's own refresh and its information icon sit in its upper right corner, the information
+   icon rightmost: the icons alone, the refresh spinning while it reads. */
+button.card-refresh, button.card-info { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; color: var(--muted); background: none; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+td.upd button.card-refresh { right: 36px; }
+button.card-refresh:hover, button.card-info:hover { color: var(--fg); }
+button.card-refresh:focus-visible, button.card-info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.card-refresh.busy svg { animation: spin 1s linear infinite; }
 @media (prefers-reduced-motion: reduce) { button.card-refresh.busy svg { animation: none; } }
 /* The Orca button sits in the row's lower right corner. */
@@ -188,8 +202,6 @@ a.report { font-size: 13px; font-weight: 500; white-space: nowrap; }
 a.report.you { color: var(--you); }
 a.btn { transition: transform 80ms ease, filter 80ms ease; }
 a.btn:active { transform: translateY(1px) scale(0.96); filter: brightness(0.82); }
-.comments { display: block; margin-top: 3px; font-size: 13px; color: var(--you); }
-.comments svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
 .question { display: block; margin-top: 3px; font-size: 13px; color: var(--you); }
 /* Finished cards: one line each, quieter than the active groups. */
 ul.lines { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
@@ -210,6 +222,11 @@ a.st-comments { color: var(--you); }
 a.st-review { color: var(--done); }
 a.st-done { color: var(--accent); }
 .pr-links { display: inline-flex; align-items: center; gap: 6px; }
+/* "→ master" and whether the PR can merge into it, under the PR. */
+.base-line { display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); white-space: pre; }
+.mergeable { display: inline-flex; }
+.mergeable svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mergeable.bad { color: var(--you); }
 /* The merge symbol before a merged PR's number, in the link's colour. */
 .merged-icon { display: inline-flex; vertical-align: -2px; margin-right: 4px; }
 .merged-icon svg { width: 14px; height: 14px; fill: currentColor; stroke: none; }
@@ -297,26 +314,41 @@ button.service-chip:hover { border-color: #8b95a5; }
 .service-pop dd { margin: 0; overflow-wrap: anywhere; }
 .service-pop dd.bad { color: #ff8f8f; }
 .service-pop dd.warn { color: var(--you); }
+/* The box that the count of commits since preflight and the count of peer comments open. */
+button.commits-link { font-size: inherit; }
+.list-pop { position: fixed; z-index: 30; width: min(480px, calc(100vw - 16px)); max-height: min(420px, calc(100vh - 16px)); overflow-y: auto; box-sizing: border-box; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); font-size: 13px; }
+.list-pop h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.list-pop ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.list-pop .subject { font-weight: 600; color: var(--fg); overflow-wrap: anywhere; }
+.list-pop a.subject { color: var(--accent); text-decoration: none; text-underline-offset: 3px; }
+.list-pop a.subject:hover { text-decoration: underline; }
+.list-pop small { display: block; font-family: var(--font-mono, monospace); font-size: 11px; color: var(--muted); }
+.list-pop p { margin: 4px 0 0; white-space: pre-wrap; color: var(--muted); overflow-wrap: anywhere; }
 
-/* "Where it stands": what the service computed, prose written by a model (dimmed while it is
-   older than the facts), a source that could not be read, and "Why?". */
-.stands .prose, .stands .computed { display: block; }
-.stands .computed { color: var(--muted); }
-.stands .prose.stale { opacity: 0.55; font-style: italic; }
+/* "Where it stands": a source that could not be read. */
 .stands .unknown { display: block; margin-top: 3px; font-size: 12px; color: var(--you); }
 .failed { margin: 4px 0 0; font-size: 12px; color: #ff8f8f; }
-details.why { margin-top: 6px; font-size: 12px; color: var(--muted); }
-details.why summary { cursor: pointer; width: max-content; color: var(--muted); }
-details.why summary:hover { color: var(--fg); }
-details.why dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin: 6px 0; }
-details.why dt { color: var(--muted); }
-details.why dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
-details.why dd small { color: var(--muted); }
-details.why ul.events { list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: 1px solid var(--line); }
-details.why ul.events time { color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The facts behind a row, in the box that its information icon opens. */
+.list-pop dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin: 0; font-size: 12px; }
+.list-pop dl.facts dt { color: var(--muted); }
+.list-pop dl.facts dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
+.list-pop dl.facts dd small { display: inline; font-family: inherit; font-size: inherit; color: var(--muted); }
+.list-pop ul.events { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); font-size: 12px; color: var(--fg); }
+.list-pop ul.events time { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* The board picker in the top bar. */
 .board-pick { font: inherit; color: #fff; background: #2a303a; border: 1px solid #3A3E47; border-radius: var(--radius-sm); padding: 2px 6px; cursor: pointer; }
 .board-pick:hover:not(:disabled) { background: #343b47; }
 .board-pick:disabled { color: var(--muted); cursor: progress; }
 .board-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.list-pop p.comment { color: var(--fg); }
+.list-pop h4 { margin: 10px 0 6px; font-size: 12px; font-weight: 600; color: var(--fg); }
+.list-pop h3 + h4 { margin-top: 0; }
+.list-pop p.reply { font-size: 12px; color: var(--muted); border-left: 2px solid var(--line); padding-left: 8px; }
+/* "Where it stands" starts with the teammates' comments: those to answer in orange, the answered
+   ones in green, after a speech bubble that is orange while any are left to answer. */
+button.peer-line { display: block; margin: 0 0 4px; padding: 0; font: inherit; font-size: 13px; text-align: left; background: none; border: 0; cursor: pointer; }
+button.peer-line:hover .yours, button.peer-line:hover .theirs { text-decoration: underline; text-underline-offset: 3px; }
+button.peer-line svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+button.peer-line, button.peer-line .theirs { color: var(--agent); }
+button.peer-line.yours, button.peer-line .yours { color: var(--you); }

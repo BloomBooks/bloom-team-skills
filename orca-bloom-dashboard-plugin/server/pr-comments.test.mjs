@@ -2,7 +2,7 @@
 // Run: node --test "orca-bloom-dashboard-plugin/**/*.test.mjs"
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { waitingComments } from "./pr-comments.mjs";
+import { peerComments, waitingComments } from "./pr-comments.mjs";
 
 const john = { username: "hatton", displayName: "John Hatton", agent: false, bot: false };
 const andrew = { username: "andrew-polk", displayName: "Andrew Polk", agent: false, bot: false };
@@ -48,4 +48,25 @@ test("the developer's reply to an agent's comment waits", () => {
 
 test("a comment that starts with a Markdown link is a person's", () => {
   assert.equal(waitingComments([discussion(false, comment(andrew, "[this page](https://example.com) says otherwise"))], "hatton").total, 1);
+});
+
+test("peer comments are a teammate's latest comment in each unresolved discussion, split by whose turn it is", () => {
+  const onLine = { ...discussion(false, comment(andrew, "rename this")), url: "https://reviewable.io/reviews/o/r/1#-a", location: { file: { path: "src/a.ts" }, line: 12 } };
+  const replied = { ...discussion(false, comment(andrew, "why?"), comment(agent, TAG + "Because...")), url: "https://reviewable.io/reviews/o/r/1#-b" };
+  const mine = discussion(false, comment(john, "and the PR body?"));
+  const resolved = discussion(true, comment(andrew, "done"));
+  const bot = discussion(false, comment(greptile, "P1: ..."));
+  assert.deepEqual(peerComments([onLine, replied, mine, resolved, bot], "hatton"), [
+    { who: "Andrew Polk", text: "rename this", answered: false, reply: "", url: "https://reviewable.io/reviews/o/r/1#-a", file: "src/a.ts", line: 12 },
+    { who: "Andrew Polk", text: "why?", answered: true, reply: "Because...", url: "https://reviewable.io/reviews/o/r/1#-b", file: null, line: null },
+  ]);
+});
+
+test("a teammate who marks a discussion satisfied has been answered; the latest teammate's comment is the one listed", () => {
+  const colin = { username: "colin", displayName: "Colin Suggett", agent: false, bot: false };
+  const satisfied = { ...discussion(false, comment(andrew, "nit: rename")), participants: [{ ...andrew, disposition: "satisfied" }] };
+  const two = discussion(false, comment(colin, "hmm"), comment(andrew, "agree"), comment(agent, TAG + "Fixed."));
+  const [a, b] = peerComments([satisfied, two], "hatton");
+  assert.deepEqual([a.answered, a.reply], [true, ""]);
+  assert.deepEqual([b.answered, b.who, b.text, b.reply], [true, "Andrew Polk", "agree", "Fixed."]);
 });

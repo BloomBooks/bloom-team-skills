@@ -3,6 +3,7 @@
 // a timer while a surface shows the worktree. Each read starts four or five git processes, so
 // nothing reads on a short timer.
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -15,6 +16,37 @@ async function baseOf(wt) {
   return bases.get(wt);
 }
 
+const repos = new Map();   // worktree -> origin's GitHub page, e.g. "https://github.com/BloomBooks/BloomDesktop", or null
+async function githubRepoOf(wt) {
+  if (!repos.has(wt)) {
+    const url = await git(wt, "remote", "get-url", "origin").catch(() => "");
+    const m = /github\.com[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/.exec(url);
+    repos.set(wt, m ? `https://github.com/${m[1]}/${m[2]}` : null);
+  }
+  return repos.get(wt);
+}
+
+/**
+ * The commits on the branch after `since`, newest first, following first parents:
+ * [{ sha, subject, body, url }], where `url` is the commit's page on GitHub, or null when the
+ * commit has not been pushed or origin is not on GitHub. Null when `since` is no longer in the
+ * branch's history.
+ */
+async function commitsAfter(wt, since) {
+  try { await git(wt, "merge-base", "--is-ancestor", since, "HEAD"); } catch { return null; }
+  const [log, unpushed, repo] = await Promise.all([
+    git(wt, "log", "--first-parent", "--format=%H%x1f%s%x1f%b%x1e", since + "..HEAD"),
+    // With no upstream nothing has been pushed; the rev-list fails and every commit counts as unpushed.
+    git(wt, "rev-list", "@{u}..HEAD").then(out => new Set(out.split(/\s+/).filter(Boolean))).catch(() => null),
+    githubRepoOf(wt),
+  ]);
+  return log.split("\x1e").map(s => s.trim()).filter(Boolean).map(entry => {
+    const [sha, subject, body = ""] = entry.split("\x1f");
+    const pushed = unpushed && !unpushed.has(sha);
+    return { sha, subject, body: body.trim(), url: pushed && repo ? `${repo}/commit/${sha}` : null };
+  });
+}
+
 /**
  * What the row and the panel need from a checkout:
  *   head, tree, headTime   HEAD's commit, its tree, and its commit time
@@ -23,18 +55,20 @@ async function baseOf(wt) {
  *   branch, upstream       the branch and whether it has an upstream
  *   unpushed               commits ahead of the upstream, or null with no upstream
  *   base, behind, ahead    the base branch, and commits behind and beyond it
- *   commitsSince           with `since` (the commit a preflight run ended on): commits after it,
- *                          or null when that commit is no longer in the branch's history
+ *   commitsSince           with `since` (the commit a preflight run ended on): how many commits
+ *                          follow it, or null when that commit is no longer in the branch's history
+ *   commitsSinceList       those commits, as commitsAfter gives them, or null
  * Throws when git cannot read the folder.
  */
 export async function readGit(wt, since = null) {
   const base = await baseOf(wt);
-  const [head, status, counts, commitsSince] = await Promise.all([
+  const [head, status, counts, commitsSinceList] = await Promise.all([
     git(wt, "log", "-1", "--format=%H %T %cI"),
     git(wt, "status", "--porcelain=v2", "--branch"),
     git(wt, "rev-list", "--left-right", "--count", `${base}...HEAD`).catch(() => ""),
-    since ? git(wt, "merge-base", "--is-ancestor", since, "HEAD").then(() => git(wt, "rev-list", "--count", "--first-parent", since + "..HEAD")).then(Number).catch(() => null) : null,
+    since ? commitsAfter(wt, since).catch(() => null) : null,
   ]);
+  const commitsSince = commitsSinceList ? commitsSinceList.length : null;
   const [sha, tree, headTime] = head.split(" ");
   let uncommitted = 0, untracked = 0, branch = "", upstream = false, unpushed = null;
   for (const line of status.split(/\r?\n/)) {
@@ -45,7 +79,20 @@ export async function readGit(wt, since = null) {
     else if (line && !line.startsWith("#") && !line.startsWith("! ")) uncommitted++;
   }
   const [behind, ahead] = counts ? counts.split(/\s+/).map(Number) : [null, null];
-  return { head: sha, tree, headTime, uncommitted, untracked, branch, upstream, unpushed: upstream ? unpushed ?? 0 : null, base: base.replace(/^origin\//, ""), behind, ahead, commitsSince };
+  return { head: sha, tree, headTime, uncommitted, untracked, branch, upstream, unpushed: upstream ? unpushed ?? 0 : null, base: base.replace(/^origin\//, ""), behind, ahead, commitsSince, commitsSinceList };
+}
+
+/**
+ * HEAD's commit and a digest of the uncommitted changes (the diff of tracked files and the names
+ * of untracked ones), to tell whether an agent changed the checkout: { head, changes }.
+ */
+export async function checkoutNow(wt) {
+  const [head, diff, status] = await Promise.all([
+    git(wt, "rev-parse", "HEAD"),
+    git(wt, "diff", "HEAD", "--binary"),
+    git(wt, "status", "--porcelain=v1", "-uall"),
+  ]);
+  return { head, changes: crypto.createHash("sha1").update(diff).update("\0").update(status).digest("hex") };
 }
 
 /**

@@ -18,6 +18,12 @@ test("an agent with no terminal is passed over, and none at all is null", () => 
   assert.equal(pickAgentTerminal([agent("x:1", "waiting")], []), null);
 });
 
+test("with no agent on a terminal, the Claude terminal that printed last is the target", () => {
+  const terms = [term("a", "1", "h1"), { ...term("b", "1", "h2"), agentIdentity: "claude", lastOutputAt: 5 }, { ...term("c", "1", "h3"), agentIdentity: "claude", lastOutputAt: 9 }];
+  assert.deepEqual(pickAgentTerminal([agent("x:1", "done")], terms), { handle: "h3", agent: null });
+  assert.equal(pickAgentTerminal([], [term("a", "1", "h1")]), null);
+});
+
 test("a named pane is that agent's terminal, or an error when it has closed", () => {
   const terms = [term("a", "1", "h1"), term("b", "1", "h2")];
   const agents = [agent("a:1", "waiting"), agent("b:1", "done")];

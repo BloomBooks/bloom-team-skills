@@ -99,8 +99,8 @@ that varies per repo is how the review gets *triggered* (next section).
   The trigger is idempotent per commit — when in doubt, re-triggering is cheap.
 - Navigating to the results page (Procedure §1) also triggers a review if none exists — but
   opening it in a normal *interactive* browser may just hit the auth wall (`auth.devin.ai`)
-  and is not a reliable trigger. Use the CI re-run, or the isolated-context chrome-devtools
-  navigation from Procedure §1.
+  and is not a reliable trigger. Use the CI re-run, or the one-shot headless load from
+  Procedure §1.
 
 ## Reading Devin state without the browser (gh signals)
 
@@ -138,8 +138,8 @@ gh pr view <n> --json state,mergedAt,commits,reviews,comments,statusCheckRollup
 longer renders findings sections at all — no Info tab, no "View results" gate, no Bugs/Flags
 blocks — so DOM/text greps read **"0 findings" even when findings exist**
 (`references/lessons.md`). Navigating the page is still how a review gets *triggered*
-(Procedure §1), but all review *state* is read from the page's own same-origin JSON API, fetched
-via `evaluate_script` from the isolated-context tab:
+(Procedure §1), but all review *state* is read from the page's own JSON API, with plain `curl`
+(next section):
 
 - **Jobs list** — which reviews exist and whether they're done:
   `GET /api/pr-review/jobs?pr_path=github.com%2F<owner>%2F<repo>%2Fpull%2F<n>`
@@ -172,9 +172,8 @@ render none at all; fix the endpoint usage instead.
 
 ### Reading it with plain `curl` (no browser needed)
 
-Both endpoints answer **unauthenticated `curl`**, so when chrome-devtools is broken — or you
-just want the findings without a browser — read them directly. This consumes no credits and
-needs no isolated context:
+Both endpoints answer **unauthenticated `curl`**, so this is how the skill reads them. It
+consumes no credits and needs no browser:
 
 ```bash
 PRPATH="github.com%2F<owner>%2F<repo>%2Fpull%2F<number>"
@@ -211,12 +210,8 @@ Two rules for the poll loop itself:
   the job, and nobody notices Devin finished. A loop printing the *same* error every iteration is
   the same failure wearing a different coat, which is what the rule above catches.
 
-What curl **cannot** do is *trigger* a review: only loading the review page does that (or the CI
-re-run in "Triggering a review", which is the better trigger anyway). So the fully browser-free
-route is: re-run `pr-automation.yml` to trigger → poll these two endpoints → mirror findings with
-`gh`. Everything in Procedure §2–§3 works the same way; just swap each `evaluate_script` fetch
-for the matching `curl`, and skip the tab-pinning rules (they only exist because of the shared
-browser context).
+What curl **cannot** do is *trigger* a review: only loading the review page in a browser that
+runs its JavaScript does that (Procedure §1), or the CI re-run in "Triggering a review".
 
 ## Devin's Overview — hand it back, it is a good PR summary
 
@@ -265,33 +260,22 @@ plain English for a normal engineer — not a dense status line that reads like 
 
 ### 1. Navigate to the Review Page
 
-Use the Chrome DevTools CLI with an **isolated context** (no shared cookies). This is critical — navigating while logged in to Devin consumes on-demand credits. The isolated context is unauthenticated but still shows all findings.
+Load the page once in a **headless** Chrome with a **fresh, throwaway profile**. Headless means no
+window appears on the developer's screen; the fresh profile means the load is unauthenticated,
+which is critical, because navigating while logged in to Devin consumes on-demand credits. Chrome
+runs the page's JavaScript (which is what registers the review), dumps the DOM, and exits by
+itself, so there is no tab or browser left to close:
 
 ```bash
-chrome-devtools new_page "https://app.devin.ai/review/<owner>/<repo>/pull/<number>" --isolatedContext "devin-noauth" &
-sleep 6
+CHROME="/c/Program Files/Google/Chrome/Application/chrome.exe"   # macOS: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+PROFILE=$(mktemp -d)
+"$CHROME" --headless=new --disable-gpu --user-data-dir="$PROFILE" --virtual-time-budget=20000 \
+  --dump-dom "https://app.devin.ai/review/<owner>/<repo>/pull/<number>" >/dev/null 2>&1
+rm -rf "$PROFILE"
 ```
 
-`new_page` sometimes never returns even though the tab opened fine (it has hung to the 300 s
-tool timeout), so **run it backgrounded** as above rather than waiting on it. Close this tab when
-done to avoid accumulating isolated-context tabs.
-
-**If any `chrome-devtools` command fails with `connect ENOENT \\.\pipe\chrome-devtools-mcp\server.sock`**
-— including `start`, `status` and `stop` — the cause is almost always a **stale pidfile**, not a
-broken install (no upgrade needed). The daemon records its pid in
-`%LOCALAPPDATA%\Temp\chrome-devtools-mcp\daemon.pid`; if that process is gone, `status` still
-cheerfully reports "daemon is running" while every command fails, and `start` tries to reach the
-dead daemon through the socket instead of spawning a new one — so the command that fixes the
-problem is disabled by the problem. Check and clear it:
-
-```bash
-PIDFILE="$LOCALAPPDATA/Temp/chrome-devtools-mcp/daemon.pid"
-PID=$(cat "$PIDFILE" 2>/dev/null)
-tasklist //FI "PID eq $PID" | grep -q "$PID" || rm -f "$PIDFILE"   # no live process → stale
-chrome-devtools start &                                            # runs in the foreground; background it
-```
-
-If that doesn't clear it, read the review without a browser at all (next section).
+It takes under ten seconds. Do not use the `chrome-devtools` CLI or a visible browser for this:
+the CLI's daemon opens a visible Chrome window that it never closes.
 
 ### 2. Wait for the review job for the current commit (via the jobs API)
 
@@ -301,27 +285,27 @@ If that doesn't clear it, read the review without a browser at all (next section
 HEAD_SHA=$(gh pr view <number> --repo <owner>/<repo> --json headRefOid --jq .headRefOid)
 ```
 
-**b. Completion = the jobs API says so — never the page text.** Poll the jobs endpoint from
-the isolated-context tab until the job whose `commit_sha == $HEAD_SHA` reaches a terminal
-`status`:
+**b. Completion = the jobs API says so — never the page text.** Poll the jobs endpoint until
+the job whose `commit_sha == $HEAD_SHA` reaches a terminal `status` (parse with `jq`, or a
+script file where `jq` is missing; see "Reading it with plain `curl`"):
 
 ```bash
-TAB=<id from new_page>   # e.g. "11"
-EXPECT="/review/<owner>/<repo>/pull/<number>"
 PRPATH="github.com%2F<owner>%2F<repo>%2Fpull%2F<number>"
-# poll until the HEAD-sha job is terminal, max ~30 min; select + verify tab EVERY iteration
+JOBS="<scratch>/devin-jobs.json"
+# poll until the HEAD-sha job is terminal, max ~30 min
 for i in $(seq 1 60); do
-  chrome-devtools select_page "$TAB" >/dev/null 2>&1
-  chrome-devtools evaluate_script "() => location.pathname" 2>/dev/null | grep -q "$EXPECT" || { sleep 25; continue; }
-  RES=$(chrome-devtools evaluate_script "async () => { const r = await fetch('/api/pr-review/jobs?pr_path=$PRPATH'); const j = await r.json(); const job = j.jobs.find(x => x.commit_sha === '$HEAD_SHA'); return job ? job.job_id + '|' + job.status + '|' + (job.versions[job.versions.length-1]||{}).id : 'nojob'; }" 2>/dev/null | grep -oE 'pr-review-job-[a-z0-9]+\|[a-z_]+\|version-[a-z0-9-]+' | head -1)
+  curl -s --compressed "https://app.devin.ai/api/pr-review/jobs?pr_path=$PRPATH" > "$JOBS"
+  RES=$(jq -r '[.jobs[] | select(.commit_sha=="'"$HEAD_SHA"'") | "\(.job_id)|\(.status)|\(.versions[-1].id)"][0] // "nojob"' "$JOBS") \
+    || { echo "PARSE FAILED: $(head -c 300 "$JOBS")"; break; }
   STATUS=$(echo "$RES" | cut -d'|' -f2)
-  [ -n "$STATUS" ] && [ "$STATUS" != "running" ] && { echo "TERMINAL: $RES"; break; }
+  [ "$RES" != "nojob" ] && [ "$STATUS" != "running" ] && { echo "TERMINAL: $RES"; break; }
   sleep 25
 done
+[ "$STATUS" = "running" ] || [ "$RES" = "nojob" ] && echo "TIMED OUT after 30 min: $RES"
 ```
 
-- `nojob` on the first minute or two → the navigation may not have registered the trigger yet;
-  reload the page once and keep polling. `nojob` persisting past ~3 min → re-trigger (§
+- `nojob` on the first minute or two → the load may not have registered the trigger yet;
+  run the §1 load once more and keep polling. `nojob` persisting past ~3 min → re-trigger (§
   "Triggering a review").
 - `status: completed` → proceed to §3, using the captured `job_id` and (latest) `version_id`.
 - Still `running` at the **30 min** cap → record the timeout (the caller reports it verbatim).
@@ -344,14 +328,6 @@ Handle it as its own named outcome, **`devin-unavailable (large PR)`**, not as a
 
 Rules that keep this loop honest (the incidents behind each are in `references/lessons.md`):
 
-- ⚠️ **Never string-compare the CLI's whole output** — `evaluate_script` wraps the value in a
-  banner and a fenced block. Extract it with a pattern match, as above.
-- ⚠️ **Pin the tab: select + verify `location.pathname` every iteration.** The `devin-noauth`
-  context is shared by every session on the machine and the selected tab drifts to the newest
-  page; the fetch is same-origin, so it must run from a tab that is actually on `app.devin.ai`.
-- ⚠️ **An empty result means the tab, not the job.** A vanished tab leaves `evaluate_script` on
-  `about:blank`, where the fetch returns an empty string. Don't just retry: `chrome-devtools
-  list_pages`, and if the tab is gone **reopen it** (backgrounded `new_page`, per §1).
 - Make the **first** check ~30 s after the trigger and don't gate on ever *observing* a `running`
   state; the job for `$HEAD_SHA` being `completed` is sufficient evidence.
 - Jobs for **older commits** in the list are the superseded reviews (what the old UI showed as
@@ -359,17 +335,19 @@ Rules that keep this loop honest (the incidents behind each are in `references/l
 
 ### 3. Enumerate Findings (from the job-result JSON)
 
-Fetch the result for the `job_id`/`version_id` captured in §2 (same tab-pinning rule):
+Fetch the result for the `job_id`/`version_id` captured in §2 into a file:
 
 ```bash
-chrome-devtools evaluate_script "async () => { const r = await fetch('/api/pr-review/job-result/<job_id>/<version_id>?pr_path=$PRPATH'); const j = await r.json(); window.__devinResult = j; const lg = j.lifeguard_result || {}; return JSON.stringify({ status: j.lifeguard_status, headSha: lg.head_sha, bugs: (lg.bugs||[]).length, flags: (lg.analyses||[]).length }); }"
+RESULT="<scratch>/devin-result.json"
+curl -s --compressed "https://app.devin.ai/api/pr-review/job-result/<job_id>/<version_id>?pr_path=$PRPATH" > "$RESULT"
+jq '{status: .lifeguard_status, headSha: .lifeguard_result.head_sha, bugs: (.lifeguard_result.bugs // [] | length), flags: (.lifeguard_result.analyses // [] | length)}' "$RESULT"
 ```
 
 Sanity checks before trusting it: `status` must be `complete`, `headSha` must equal
 `$HEAD_SHA`, and the finding `file_path`s must belong to *this* repo (a `build.gradle` finding
-on a TypeScript-only PR means you fetched from the wrong tab, not that Devin hallucinated).
-Stashing the JSON on `window.__devinResult` lets later `evaluate_script` calls slice out
-individual findings without re-fetching.
+on a TypeScript-only PR means you fetched the wrong PR, not that Devin hallucinated).
+Keeping the JSON in `$RESULT` lets later `jq` calls slice out individual findings without
+re-fetching.
 
 Collect from `lifeguard_result`:
 
@@ -612,5 +590,5 @@ posted, skipped, or fell back to file level) and a clean re-review after a fix c
 - A Resolved bug means Devin confirmed the PR already fixes what it found. If we **never posted** it, no GitHub action is needed. If we **did post** it in a prior run, resolve that thread now (step 6) so the comment we created doesn't linger looking unaddressed.
 - Titles are the matching key between a Devin finding and the GitHub thread we posted for it, both for dedup (step 5) and resolution (step 6). Keep the `[Devin] **Bug**: <Title>` / `[Devin] **Investigate**: <Title>` format stable.
 - Informational items are observations, not action items. Skip them.
-- Use the `chrome-devtools` **CLI** (Bash commands) for all browser automation in this skill — not the MCP plugin (disabled; spawns zombie node processes) and not the Orca browser.
-- Always use `--isolatedContext "devin-noauth"` when opening Devin pages. Navigating while logged in consumes on-demand credits; the isolated context is unauthenticated but still shows all findings.
+- The only browser this skill uses is the one-shot headless Chrome in §1, with a fresh profile: no visible window, nothing left open. Not the `chrome-devtools` CLI (its daemon leaves a visible Chrome window open), not the MCP plugin (spawns zombie node processes), and not the Orca browser. Everything else is `curl`.
+- Never load a Devin page while logged in: that consumes on-demand credits. The fresh profile is unauthenticated, and the API still returns all findings.

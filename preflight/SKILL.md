@@ -146,7 +146,7 @@ description — one problem at a time").
    End it with the **live checks**: each thing an agent did in a running Bloom while working on
    this PR and saw work, one line each, with the short commit sha it ran on. Keep the lines an
    earlier run recorded, and drop one when the code it exercised has changed since its commit.
-   These are what `add-test-ideas` turns into 👁️ badges.
+   These are what lets `add-test-ideas` take an item off the tester's list as already checked.
 6. **Notion Test Suite** — the cards this PR added to or changed in the team's Notion test
    inventory, each with its Test Case ID, title, URL and Automation state, or "None." Read the
    inventory to answer this; don't guess from memory of the session.
@@ -442,6 +442,13 @@ settled, by looking for added or changed tests, in any stack, in `git diff origi
   on a yes), or "no test needed" with the reason you would suggest (a docs-only change, a look only
   a person can judge, existing tests already cover it, tested in PR n/m of this stack). On this
   item `Leave as is` means the line stays `awaiting` and the PR can't be promoted yet.
+
+One test of the change settles that line and no more. `add-test-ideas` decides, item by item,
+which of the things worth checking need a person and which a test should check ("Who checks each
+item"), and it reports the items that a test should check and none does. When it reports any, add
+one decision item to the report that lists them, with "write these tests" first: for each, the
+test you would write and where it goes. On `Leave as is` they stay on the card under "Waiting for
+an automated test", where a person does them. This item does not hold the PR back.
 
 When the PR description is human-written (no preflight markers), the `Test of the change:` line
 goes in a PR comment instead, starting with the attribution tag. A trunk-only review slice (see below) has no test decision: its code is already merged.
@@ -836,9 +843,10 @@ skill may still *choose* to add a new "round 2" comment when history matters —
 already worked the old notes and only part needs retesting; that deliberate case is fine, blind  
 duplication is not.) The write is authorized by this skill invocation like the other tracker  
 writes. Base the write-up on the final diff for the current HEAD (this is why it lives here,  
-after the code has settled). Give it the tests its 🤖 badges may come from: the tests you saw pass
+after the code has settled). Give it the tests that its "already checked" items may come from: the tests you saw pass
 at HEAD (in Phase 4, a repo check, or CI) that are in the Automated Tests section or check the
-changed behavior, each with what it checks. Post it **even when the change has nothing user-testable** (a pure  
+changed behavior, each with what it checks. It tells you which items are waiting for an automated
+test; each run that leaves any is a decision for the developer (see "The test decision"). Post it **even when the change has nothing user-testable** (a pure  
 refactor, tooling, docs) — in that case the comment is `add-test-ideas`'s short "nothing for a  
 tester to do, because …" note; never skip the comment just because there's nothing to test. The  
 **only** reason to skip is a genuinely missing prerequisite — no ticket id or an unreachable  
@@ -900,7 +908,7 @@ publish it **once** — never through two targets, which yields two links and tw
 **Read `references/report-artifact.md` (in this skill's folder) now and follow it exactly** — it
 defines the publish target and steps (including the single URL to open in the browser and
 printing a bare URL), the visual style, the content blocks — including the **header links row,
-led by a link to the PR's own page**, which the render check and a pre-publish grep both verify —
+led by a link to the PR's own page** —
 the decision-item controls (`Leave as is` / `Leave comment` / `Other:` conventions), and the
 copy-back with its Copy and Send to Claude buttons.
 
@@ -961,7 +969,7 @@ after the developer had answered it.)
 
 - Every report links to the PR's own page from its header, and every chat summary prints the PR
 URL bare on its own line. A PR number in plain text, or a link only to the files view or a commit,
-is not that link (`references/report-artifact.md`, block 0 and the render check).
+is not that link (`references/report-artifact.md`, block 0).
 - Every report and chat summary **opens with the current narrative for the whole PR**, below the
 `INCOMPLETE:` lines of an incomplete run (problem /
 cause / fix, or purpose / what the PR does), maintained across runs — never replaced by notes on the latest run, and never

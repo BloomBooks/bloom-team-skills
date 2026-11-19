@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allowAction, codeSince, computeRow, groupOf, stateOf, wantsRow } from "./rows.mjs";
+import { allowAction, codeSince, computeRow, groupOf, prRowTitle, prSets, stateOf, wantsRow } from "./rows.mjs";
 
 const card = { id: "BL-1", url: "u", summary: "A card", state: "In Progress", approvedPlan: false, updated: "2026-11-01" };
 const pr = { url: "https://github.com/BloomBooks/BloomDesktop/pull/9", isDraft: true, mergeable: "MERGEABLE", checks: "SUCCESS", changedFiles: 3, additions: 10, deletions: 2, report: "https://bloombooks.github.io/dev-process-artifacts/r.html", reportDecisions: 0 };
@@ -31,6 +31,14 @@ test("a commit after preflight makes Preflight the step again, and says why", ()
   assert.equal(step(row, "preflight").note, "1 commit since preflight");
   assert.equal(step(row, "preflight").buttons[0].enabled, true);
   assert.equal(row.report.old, true);
+});
+
+test("the Preflight step carries the commits that its note counts", () => {
+  const list = [{ sha: "h3", subject: "Second", body: "", url: null }, { sha: "h2", subject: "First", body: "Why", url: "https://github.com/o/r/commit/h2" }];
+  const row = computeRow({ ...base, git: { ...git, head: "h3", tree: "t3", commitsSince: 2, commitsSinceList: list } });
+  assert.deepEqual(step(row, "preflight").commits, { text: "2 commits", list });
+  const uncommittedOnly = computeRow({ ...base, git: { ...git, uncommitted: 1, commitsSinceList: [] } });
+  assert.equal(step(uncommittedOnly, "preflight").commits, null);
 });
 
 test("a squash that keeps the tree leaves preflight valid; untracked files do not count", () => {
@@ -152,8 +160,9 @@ test("a card in Ready For Code Review is in peer review, and can still have comm
   assert.equal(row.comments.button.enabled, true);
 });
 
-test("Has Comments marks the peer review step", () => {
-  assert.equal(step(computeRow({ ...base, card: { ...card, state: "Has Comments" } }), "peer").state, "comments");
+test("Has Comments leaves the peer review step as it is on any card", () => {
+  const s = step(computeRow({ ...base, card: { ...card, state: "Has Comments" } }), "peer");
+  assert.deepEqual([s.label, s.state], ["Peer review", "later"]);
 });
 
 test("the rule that enables a button is the rule that allows the action", () => {
@@ -207,4 +216,51 @@ test("when Request Peer Review is not on offer, its label starts it anyway, and 
   assert.deepEqual(allowAction("request-peer-review", ref, activity, true), { ok: true });
   assert.match(allowAction("merge-without-peer-review", ref, activity, true).reason, /not the next step/);
   assert.equal(step(computeRow(base), "request").labelButton, null);
+});
+
+test("a PR's row title leaves out the card id and the stack position", () => {
+  assert.equal(prRowTitle("BL-17105 (2/3 in stack) Let each table text cell choose which languages it shows"), "Let each table text cell choose which languages it shows");
+  assert.equal(prRowTitle("Table overflow marks follow resizing (BL-17110)"), "Table overflow marks follow resizing");
+  assert.equal(prRowTitle("BL-1: Fix it (1 of 2)"), "Fix it");
+});
+
+const prRow = (id, card, number, head, base, repo = "o/r") => ({ id, card, pr: { number, repo, headRefName: head, baseRefName: base } });
+
+test("a stack across two cards is one set, from the PR on the base branch up", () => {
+  const sets = prSets([
+    prRow("BL-17078", "BL-17078", 8559, "BL-17078", "BL-16822-Inline-Fixes"),
+    prRow("BL-16822", "BL-16822", 8530, "BL-16822-Inline-Fixes", "master"),
+    prRow("BL-1", "BL-1", 10, "BL-1-x", "master"),
+    { id: "BL-2", card: "BL-2", pr: null },
+  ]);
+  assert.deepEqual(sets, [{ ids: ["BL-16822", "BL-17078"], cards: ["BL-16822", "BL-17078"], stack: { "BL-16822": { at: 1, of: 2 }, "BL-17078": { at: 2, of: 2 } } }]);
+});
+
+test("a card with two PRs that are not stacked is a set, by PR number", () => {
+  const sets = prSets([prRow("BL-5#12", "BL-5", 12, "b", "master"), prRow("BL-5#11", "BL-5", 11, "a", "master")]);
+  assert.deepEqual(sets, [{ ids: ["BL-5#11", "BL-5#12"], cards: ["BL-5"], stack: {} }]);
+});
+
+test("a card with a PR in a stack brings its other PRs into the stack's set, after the stack", () => {
+  const sets = prSets([
+    prRow("BL-5#20", "BL-5", 20, "lone", "master"),
+    prRow("BL-5#21", "BL-5", 21, "top", "bottom"),
+    prRow("BL-6", "BL-6", 19, "bottom", "master"),
+  ]);
+  assert.deepEqual(sets.map(s => [s.ids, s.stack]), [[["BL-6", "BL-5#21", "BL-5#20"], { "BL-6": { at: 1, of: 2 }, "BL-5#21": { at: 2, of: 2 } }]]);
+});
+
+test("PRs in different repos with the same branch names are not a stack", () => {
+  assert.deepEqual(prSets([prRow("A", "BL-1", 1, "x", "master", "o/one"), prRow("B", "BL-2", 2, "y", "x", "o/two")]), []);
+});
+
+test("a row counts its teammates' comments to answer apart from the answered ones", () => {
+  const c = (answered, who) => ({ who, text: "t", answered, reply: "", url: "u", file: null, line: null });
+  const toAnswer = [c(false, "Andrew Polk")], answered = [c(true, "John Thomson"), c(true, "John Thomson")];
+  const both = computeRow({ ...base, card: { ...card, state: "Has Comments" }, comments: { total: 1, from: [], peers: [...answered, ...toAnswer] } });
+  assert.deepEqual(both.peerComments, { parts: [{ text: "1 comment to answer", yours: true }, { text: "2 answered", yours: false }], toAnswer, answered });
+  assert.deepEqual([step(both, "peer").label, step(both, "peer").state], ["Peer review", "later"]);
+  const theirTurn = computeRow({ ...base, comments: { total: 0, from: [], peers: answered } });
+  assert.deepEqual(theirTurn.peerComments.parts, [{ text: "2 answered", yours: false }]);
+  assert.equal(computeRow(base).peerComments, null);
 });
