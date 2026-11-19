@@ -125,7 +125,9 @@ export async function knownWorktree(p) {
  * terminal. With `paneKey` (the session the Worktree panel follows), that agent or an error: a
  * prompt typed into another session goes to a conversation that knows nothing of the work.
  * Without it, a waiting agent comes first, then a working one, so the dashboard's Status pill
- * opens the terminal it describes.
+ * opens the terminal it describes. Orca can run Claude in a terminal that no agent of `worktree ps`
+ * points at (its agent record is lost or stale); a terminal whose agentIdentity is "claude" is
+ * then the target, with `agent` null.
  */
 export function pickAgentTerminal(agents, terminals, paneKey = null) {
   const terminalOf = a => terminals.find(t => `${t.tabId}:${t.leafId}` === a.paneKey);
@@ -139,7 +141,8 @@ export function pickAgentTerminal(agents, terminals, paneKey = null) {
     const t = terminalOf(a);
     if (t) return { handle: t.handle, agent: a };
   }
-  return null;
+  const claude = terminals.filter(t => t.agentIdentity === "claude").sort((x, y) => (y.lastOutputAt || 0) - (x.lastOutputAt || 0))[0];
+  return claude ? { handle: claude.handle, agent: null } : null;
 }
 
 export async function agentTerminal(wt, paneKey = null) {
@@ -152,9 +155,10 @@ export async function agentTerminal(wt, paneKey = null) {
 const startClaude = (wt, command) =>
   orca("terminal", "create", "--worktree", "path:" + wt, "--title", "Claude", "--command", command, "--focus");
 
-// Types `text` into the agent's terminal and shows it; refused while that agent works.
+// Types `text` into the agent's terminal and shows it; refused while that agent works. A terminal
+// with no agent record has no known state, and Orca's own checks in typePrompt still apply.
 async function promptAgent(target, text) {
-  if (agentState(target.agent) === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
+  if (target.agent && agentState(target.agent) === "working") throw new Error("Claude is busy in that worktree; open it and wait for it to finish");
   const started = await typePrompt(target.handle, text);
   await orca("terminal", "switch", "--terminal", target.handle);
   return started;
