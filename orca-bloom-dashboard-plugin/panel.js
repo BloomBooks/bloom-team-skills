@@ -92,7 +92,7 @@ const plainButton = { enabled: true, reason: "" };
 function rowBox(s) {
   const d = s.row;
   const links = el("span", { class: "links" });
-  if (d.pr) links.append(prLinks(d.pr, PR_TONE[d.prState]));
+  if (d.pr) links.append(prLine(d));
   links.append(folderButton(d));
   const card = el("div", { class: "card-cell" },
     el("span", { class: "title" }, d.title || ""),

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allowAction, codeSince, computeRow, groupOf, stateOf, wantsRow } from "./rows.mjs";
+import { allowAction, codeSince, computeRow, groupOf, prRows, prRowTitle, stateOf, wantsRow } from "./rows.mjs";
 
 const card = { id: "BL-1", url: "u", summary: "A card", state: "In Progress", approvedPlan: false, updated: "2026-11-01" };
 const pr = { url: "https://github.com/BloomBooks/BloomDesktop/pull/9", isDraft: true, mergeable: "MERGEABLE", checks: "SUCCESS", changedFiles: 3, additions: 10, deletions: 2, report: "https://bloombooks.github.io/dev-process-artifacts/r.html", reportDecisions: 0 };
@@ -207,4 +207,21 @@ test("when Request Peer Review is not on offer, its label starts it anyway, and 
   assert.deepEqual(allowAction("request-peer-review", ref, activity, true), { ok: true });
   assert.match(allowAction("merge-without-peer-review", ref, activity, true).reason, /not the next step/);
   assert.equal(step(computeRow(base), "request").labelButton, null);
+});
+
+test("PRs that each target the one before are listed as a stack, from the bottom up", () => {
+  const p = (number, head, base) => ({ number, headRefName: head, baseRefName: base });
+  const top = p(8599, "c", "b"), mid = p(8598, "b", "a"), low = p(8597, "a", "master");
+  assert.deepEqual(prRows([top, low, mid]), { prs: [low, mid, top], stacked: true });
+  const other = p(8500, "x", "master");
+  assert.deepEqual(prRows([top, other]), { prs: [other, top], stacked: false });
+  assert.deepEqual(prRows([low, other]), { prs: [other, low], stacked: false });
+  assert.deepEqual(prRows([low]), { prs: [low], stacked: false });
+  assert.deepEqual(prRows([]), { prs: [null], stacked: false });
+});
+
+test("a PR's row title leaves out the card id and the stack position", () => {
+  assert.equal(prRowTitle("BL-17105 (2/3 in stack) Let each table text cell choose which languages it shows"), "Let each table text cell choose which languages it shows");
+  assert.equal(prRowTitle("Table overflow marks follow resizing (BL-17110)"), "Table overflow marks follow resizing");
+  assert.equal(prRowTitle("BL-1: Fix it (1 of 2)"), "Fix it");
 });

@@ -68,6 +68,32 @@ export function wantsRow({ card, prs, gits }) {
 }
 
 /**
+ * A card's open PRs in the order their rows are listed, each PR on a row of its own. PRs that each
+ * target the one before (a PR whose base is another PR's branch) are a stack: `stacked` is true and
+ * `prs` runs from the PR on the card's base branch up to the last one. Otherwise `prs` is in PR
+ * number order. A card with no PR gives `prs` [null], one row with no PR.
+ *   prs  [{ number, headRefName, baseRefName }]
+ */
+export function prRows(prs) {
+  if (!prs.length) return { prs: [null], stacked: false };
+  const byNumber = [...prs].sort((a, b) => a.number - b.number);
+  if (prs.length === 1) return { prs: byNumber, stacked: false };
+  const heads = new Set(prs.map(p => p.headRefName));
+  const bottom = byNumber.filter(p => !heads.has(p.baseRefName));
+  const chain = [];
+  for (let p = bottom.length === 1 ? bottom[0] : null; p && !chain.includes(p); p = prs.find(q => q.baseRefName === p.headRefName)) chain.push(p);
+  return chain.length === prs.length ? { prs: chain, stacked: true } : { prs: byNumber, stacked: false };
+}
+
+/**
+ * A row's title when the card has several PRs: the PR's title without the card id and without a
+ * stack position such as "(2/3 in stack)", which the row shows on its own.
+ */
+export function prRowTitle(title) {
+  return title.replace(/\bBL-\d+\b:?/g, "").replace(/\(\s*\d+\s*(\/|of)\s*\d+[^)]*\)/, "").replace(/\(\s*\)/g, "").replace(/\s{2,}/g, " ").trim();
+}
+
+/**
  * The group a row is listed under: "nopr" with no PR, "large" for a PR over LARGE_FILES files or
  * LARGE_LINES changed lines, "cleanup" for a card with no worktree and no PR that has not changed
  * in CLEANUP_DAYS, and otherwise "near".

@@ -45,7 +45,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { PORT, ORIGIN, serviceDir, dashboardDir, repoDir, dataDir, dataFile, serviceKey, readJsonFile, writeJsonFile, ownEnvironment, orcaRunning, log } from "./env.mjs";
 import { emptyState, applyHook, applyProgress, applyInterrupt, checkLiveness, openRun, latestRun, sessionsIn, prune, isOpen, SKILLS } from "./runs.mjs";
-import { computeRow, allowAction, orderOf, wantsRow, GROUPS, ROW_STATES, IN_REVIEW } from "./rows.mjs";
+import { computeRow, allowAction, orderOf, wantsRow, prRows, prRowTitle, GROUPS, ROW_STATES, IN_REVIEW } from "./rows.mjs";
 import { readGit, gitWatcher } from "./git.mjs";
 import { writeProse, digestOf, proseUsage, config, llmDir, SETTLE_MS } from "./prose.mjs";
 import { addDecider, deciderPage, answerDecider, waitForAnswers, waitingDeciders, dropDecider, isAbandoned } from "./deciders.mjs";
@@ -372,7 +372,8 @@ async function readCard(id) {
   ]);
   if (!repos.size) repos.add("bloombooks/bloomdesktop");
   const tmp = dataFile(`gather-card-${process.pid}-${id}.json`);
-  const git = row.key ? refreshGit(row.key) : null;
+  const cardRows = [...rowsNow, ...inReviewNow].filter(r => r.card === id);
+  const git = Promise.all(cardRows.filter(r => r.key).map(r => refreshGit(r.key)));
   const orcaNow = readPs();
   try {
     try {
@@ -391,8 +392,7 @@ async function readCard(id) {
       prs: [...remote.prs.filter(p => !(p.card === id && next.repos.includes(p.repo))), ...next.prs],
     };
     cacheDirty = true;
-    const pr = next.prs.find(p => p.url === row.pr)?.url ?? next.prs[0]?.url;
-    await Promise.all([git, orcaNow, pr && readReview("comments", pr), pr && readReview("review", pr)]);
+    await Promise.all([git, orcaNow, ...next.prs.flatMap(p => [readReview("comments", p.url), readReview("review", p.url)])]);
   } finally {
     fs.rmSync(tmp, { force: true });
     recompute();
@@ -401,6 +401,8 @@ async function readCard(id) {
 
 // ---- rows --------------------------------------------------------------------------------------
 let rowsNow = [], inReviewNow = [];
+// What names a row: the card id, and the PR's number too when the card has a row for each PR.
+const rowId = (card, pr) => pr ? card + "#" + pr.number : card;
 function buildRows(now = Date.now()) {
   const known = worktrees();
   // A decider can never be answered to anyone once its session has ended, or once nothing waits
@@ -421,36 +423,47 @@ function buildRows(now = Date.now()) {
     const wts = [...known.entries()].filter(([, w]) => w.card === card.id || mine.some(p => p.headRefName === w.branch));
     if (!card.assignedToDeveloper) for (const [k] of wts) if (!gits.has(k)) refreshGit(k);
     if (!wantsRow({ card, prs: mine, gits: wts.map(([k]) => gits.get(k)?.value ?? null) })) continue;
-    // The PR that a worktree is on, when the card has several; the worktree on that PR's branch.
-    const pr = mine.find(p => wts.some(([, w]) => w.branch === p.headRefName)) ?? mine[0] ?? null;
-    const [key, wt] = wts.find(([, w]) => pr && w.branch === pr.headRefName) ?? wts[0] ?? [null, null];
-    // A worktree seen for the first time is read at once; after that its file watch and the
-    // timer keep it current.
-    if (key && !gits.has(key)) refreshGit(key);
-    const git = key ? gits.get(key) : null;
-    const rv = pr ? reviews.get(pr.url) : null, cm = pr ? comments.get(pr.url) : null;
-    const launch = key ? launches.get(key) : null;
-    const failing = {};
-    for (const s of ["github", "youtrack", "reviewable"]) if (sources[s].error) failing[s] = sources[s].error;
-    if (git?.error) failing.git = git.error;
-    if (rv?.error) failing.review = rv.error;
-    if (cm?.error) failing.comments = cm.error;
-    const row = computeRow({
-      card, pr, worktree: wt, git: git?.value ?? null,
-      preflight: key ? latestRun(runs, key, "preflight") : null, open: key ? openRun(runs, key) : null,
-      review: rv?.value ?? null, comments: cm?.value ?? null,
-      activity: key ? activityOf(key) : { orcaOk: !sources.orca.error && sources.orca.at > 0, orcaError: sources.orca.error },
-      launch, prose: proseFor(card.id), deciders: key ? deciders.filter(d => d.worktree === key) : [],
-      ages: { git: git?.at || 0, github: sources.github.at, youtrack: sources.youtrack.at, review: rv?.at || 0, comments: cm?.at || 0, orca: sources.orca.at },
-      failing,
-    }, now);
-    row.key = key;
-    row.events = key ? eventsOf(key) : [];
-    row.git = git?.value ?? null;
-    (review ? inReview : rows).push(row);
+    // Each PR has a row of its own, with the worktree on its branch. A card with one PR or none
+    // keeps the card's own worktree on its one row.
+    const { prs: listed, stacked } = prRows(mine);
+    listed.forEach((pr, at) => {
+      const [key, wt] = wts.find(([, w]) => pr && w.branch === pr.headRefName) ?? (listed.length === 1 ? wts[0] : null) ?? [null, null];
+      // A worktree seen for the first time is read at once; after that its file watch and the
+      // timer keep it current.
+      if (key && !gits.has(key)) refreshGit(key);
+      const git = key ? gits.get(key) : null;
+      const rv = pr ? reviews.get(pr.url) : null, cm = pr ? comments.get(pr.url) : null;
+      const launch = key ? launches.get(key) : null;
+      const failing = {};
+      for (const s of ["github", "youtrack", "reviewable"]) if (sources[s].error) failing[s] = sources[s].error;
+      if (git?.error) failing.git = git.error;
+      if (rv?.error) failing.review = rv.error;
+      if (cm?.error) failing.comments = cm.error;
+      const row = computeRow({
+        card, pr, worktree: wt, git: git?.value ?? null,
+        preflight: key ? latestRun(runs, key, "preflight") : null, open: key ? openRun(runs, key) : null,
+        review: rv?.value ?? null, comments: cm?.value ?? null,
+        activity: key ? activityOf(key) : { orcaOk: !sources.orca.error && sources.orca.at > 0, orcaError: sources.orca.error },
+        launch, prose: proseFor(rowId(card.id, listed.length > 1 ? pr : null)), deciders: key ? deciders.filter(d => d.worktree === key) : [],
+        ages: { git: git?.at || 0, github: sources.github.at, youtrack: sources.youtrack.at, review: rv?.at || 0, comments: cm?.at || 0, orca: sources.orca.at },
+        failing,
+      }, now);
+      row.key = key;
+      row.id = rowId(card.id, listed.length > 1 ? pr : null);
+      if (listed.length > 1) { row.title = prRowTitle(pr.title) || row.title; row.cardTitle = card.summary || ""; }
+      row.stack = stacked ? { at: at + 1, of: listed.length } : null;
+      row.events = key ? eventsOf(key) : [];
+      row.git = git?.value ?? null;
+      (review ? inReview : rows).push(row);
+    });
   }
+  // A card's rows stay together, in the group and place of its first row, in stack order.
   const rank = r => GROUPS.indexOf(r.group) * 100 + orderOf(r);
-  rows.sort((a, b) => rank(a) - rank(b) || a.card.localeCompare(b.card, undefined, { numeric: true }));
+  const first = new Map();
+  for (const r of rows) if (!first.has(r.card) || rank(r) < rank(first.get(r.card))) first.set(r.card, r);
+  for (const r of rows) r.group = first.get(r.card).group;
+  const cardRank = r => rank(first.get(r.card));
+  rows.sort((a, b) => cardRank(a) - cardRank(b) || a.card.localeCompare(b.card, undefined, { numeric: true }) || (a.stack?.at ?? 0) - (b.stack?.at ?? 0));
   rowsNow = rows; inReviewNow = inReview;
   watcher.set([...rows, ...inReview].map(r => r.worktree).filter(Boolean));
   return { rows, inReview, deciders };
@@ -515,8 +528,8 @@ function scheduleProse() {
       lastAgentMessage: session?.lastMessage || "",
     };
     const digest = digestOf(facts);
-    const was = proseFacts.get(r.card);
-    if (was?.digest !== digest) proseFacts.set(r.card, { digest, facts, since: now });
+    const was = proseFacts.get(r.id);
+    if (was?.digest !== digest) proseFacts.set(r.id, { digest, facts, since: now });
   }
   if (proseBusy || !visible()) return;
   const due = [...proseFacts.entries()].find(([card, f]) => proses.get(card)?.digest !== f.digest && now - f.since >= SETTLE_MS && !f.failedAt);
@@ -634,7 +647,7 @@ async function act(b) {
   // run again on what Orca says now.
   await readPs();
   const p = String(b.path || "");
-  const row = action === "create" ? [...rowsNow, ...inReviewNow].find(r => r.card === String(b.card || "")) : rowOfPath(p);
+  const row = action === "create" ? [...rowsNow, ...inReviewNow].find(r => r.card === String(b.card || "") && (!b.pr || r.pr === b.pr)) : rowOfPath(p);
   // The panel also acts on worktrees that belong to no card: only opening and typing a prompt.
   const ref = row ? { state: row.state, worktree: row.worktree, card: row.card, offered: row.offered } : { state: "", worktree: p || null, card: "", offered: [] };
   const key = norm(ref.worktree);

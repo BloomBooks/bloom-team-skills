@@ -105,6 +105,16 @@ ol.steps.run li.run-skipped > .lbl { color: var(--muted); text-decoration: line-
 ol.steps.sub { margin-top: 4px; font-weight: 400; }
 @media (prefers-reduced-motion: reduce) { ol.steps.run li.run-running > svg { animation: none; } }
 tr.agent-row > td:first-child { box-shadow: inset 3px 0 0 var(--agent); }
+/* The rows of a stack of PRs for one card: a line down their left edge joins them, from the
+   first row's title to the last row's, and the rule between them is dotted. */
+tr.stacked > td.card { position: relative; padding-left: 22px; }
+tr.stacked > td.card::before { content: ""; position: absolute; left: 10px; top: 0; bottom: 0; border-left: 2px solid var(--muted); }
+tr.stacked > td.card::after { content: ""; position: absolute; left: 7px; top: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+tr.stack-first > td.card::before { top: 18px; }
+tr.stack-last > td.card::before { bottom: auto; height: 18px; }
+tr.stacked:not(.stack-last) > td { border-bottom-style: dotted; }
+.pr-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.stack-at { font-size: 12px; color: var(--muted); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { ol.steps li.running > svg { animation: none; } }
 ol.steps li.comments { --tone: var(--you); }
 ol.steps li.comments .lbl { color: var(--you); }

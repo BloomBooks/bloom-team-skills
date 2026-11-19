@@ -127,10 +127,12 @@ function render(items) {
         el("span", { class: "title" }, d.title || ""),
         el("span", { class: "meta" }, el("span", { class: "id" }, stateIcon(d.ytState), cardLabel(d))));
       const links = el("span", { class: "links" });
-      if (d.pr) links.append(prLinks(d.pr, PR_TONE[d.prState]));
+      if (d.pr) links.append(prLine(d));
       if (d.worktree) links.append(folderButton(d));
       if (links.childNodes.length) cell.append(links);
-      tbody.append(el("tr", d.busy ? { class: "agent-row" } : {},
+      // The rows of a stack of PRs are joined by a line down their left edge.
+      const cls = [d.busy ? "agent-row" : "", d.stack ? "stacked" : "", d.stack?.at === 1 ? "stack-first" : "", d.stack && d.stack.at === d.stack.of ? "stack-last" : ""].filter(Boolean).join(" ");
+      tbody.append(el("tr", cls ? { class: cls } : {},
         el("td", { class: "card" }, cell),
         el("td", { class: "who" }, processCell(d)),
         el("td", {}, standsCell(d)),
@@ -158,7 +160,7 @@ function reviewItem(d) {
     el("span", { class: "title", title: d.title }, d.title || ""),
     comments,
     el("span", { class: "id" }, stateIcon(d.ytState), cardLabel(d)),
-    d.pr ? el("span", { class: "id" }, prLinks(d.pr, PR_TONE[d.prState])) : null,
+    d.pr ? el("span", { class: "id" }, prLine(d)) : null,
     d.worktree ? orcaButton(d) : null);
 }
 function renderInReview(items) {

@@ -63,12 +63,12 @@ function serviceButton(b, body, cls, text, key) {
   if (!b.enabled) btn.disabled = true;
   return btn;
 }
-const bodyOf = (d, id, anyway) => id === "create" ? { action: "create", card: d.card, front: FRONT } : { action: id, path: d.worktree, front: FRONT, ...(anyway ? { anyway: true } : {}) };
+const bodyOf = (d, id, anyway) => id === "create" ? { action: "create", card: d.card, pr: d.pr || "", front: FRONT } :{ action: id, path: d.worktree, front: FRONT, ...(anyway ? { anyway: true } : {}) };
 // The row's Orca button: opens its worktree, or makes one first when it has none (the sparkle).
 function orcaButton(d) {
   const b = d.worktree ? d.actions.open : d.actions.create;
   if (!d.worktree && !/^BL-\d+$/.test(d.card || "")) return null;
-  const btn = serviceButton(b, bodyOf(d, b.id), "orca-icon", "");
+  const btn = serviceButton(b, bodyOf(d, b.id), "orca-icon", "", b.id + ":" + (d.worktree || d.id));
   btn.title = b.enabled ? (d.worktree ? "Show this worktree in Orca" : "Make a worktree for this card and start Claude in it") : b.reason;
   btn.setAttribute("aria-label", btn.title);
   btn.innerHTML = orcaIcon(!d.worktree);
@@ -103,7 +103,7 @@ function processCell(d) {
         s.since ? el("span", { class: "elapsed", "data-since": String(s.since) }, elapsedText(s.since)) : null,
         s.runningNote ? el("small", {}, s.runningNote) : null);
     } else if (s.buttons?.length) {
-      const bs = s.buttons.map(b => serviceButton(b, bodyOf(d, b.id), "orca skill", b.label, "step:" + b.id + ":" + (d.worktree || d.card)));
+      const bs = s.buttons.map(b => serviceButton(b, bodyOf(d, b.id), "orca skill", b.label, "step:" + b.id + ":" + (d.worktree || d.id)));
       body = bs.length > 1 ? el("span", { class: "alts" }, ...bs) : bs[0];
     } else if (s.labelButton) {
       // The step is not the one on offer, and its label starts the skill anyway.
@@ -169,7 +169,7 @@ function agoText(t) {
 }
 const openWhy = new Set();   // the rows whose "Why?" is open, kept across redraws
 function whyDetails(d) {
-  const id = d.card + "|" + (d.worktree || "");
+  const id = d.id + "|" + (d.worktree || "");
   const box = el("details", { class: "why" }, el("summary", {}, "Why?"));
   box.open = openWhy.has(id);
   box.addEventListener("toggle", () => { box.open ? openWhy.add(id) : openWhy.delete(id); });
@@ -219,8 +219,13 @@ function commentsLine(text) {
   line.insertAdjacentHTML("afterbegin", '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>');
   return line;
 }
+// The card's id, linking to the card. On a row for one of the card's PRs, hovering it shows the
+// card's own title, since the row's title is the PR's.
 function cardLabel(d) {
-  return d.cardUrl ? toned(d.cardUrl, d.card, CARD_TONE[d.ytState]) : document.createTextNode(d.card || "");
+  if (!d.cardUrl) return document.createTextNode(d.card || "");
+  const a = toned(d.cardUrl, d.card, CARD_TONE[d.ytState]);
+  if (d.cardTitle) a.title = d.cardTitle;
+  return a;
 }
 
 const isToday = t => t.toDateString() === new Date().toDateString();
@@ -304,6 +309,14 @@ function prLinks(url, tone) {
   if (tone === PR_TONE.merged) markMerged(pr, "merged");
   const rv = reviewableLink(url, tone);
   return rv ? el("span", { class: "pr-links" }, pr, rv) : pr;
+}
+// A row's PR with Reviewable's rabbit, and "2 of 3 in stack" when the PR is one of a stack of PRs
+// for the card, counted from the PR on the base branch.
+function prLine(d) {
+  const links = prLinks(d.pr, PR_TONE[d.prState]);
+  if (!d.stack) return links;
+  const where = el("span", { class: "stack-at", title: `PR ${d.stack.at} of the ${d.stack.of} PRs for ${d.card}, each one built on the one before` }, `${d.stack.at} of ${d.stack.of} in stack`);
+  return el("span", { class: "pr-line" }, links, where);
 }
 // How long an agent has worked, as "for 12 min"; the rows redraw only when the state changes, so
 // the running steps' times are updated here.
