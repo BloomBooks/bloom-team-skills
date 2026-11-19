@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-11-19 — The `yarn` on PATH ignores `packageManager` and migrates a yarn 1 project to Yarn 4
+
+- **Cut:** On Hatton's machine `yarn` resolves to the vite-plus shim (`C:\Users\hatto\.vite-plus\bin\yarn.exe`). In a package whose package.json says `"packageManager": "yarn@1.22.19"`, `yarn install` ran Yarn 4.18.1, printed "Migrated your project to the latest Yarn version", rewrote `yarn.lock` and added `.yarnrc.yml` and `.yarn/`. `corepack yarn ...` honors the field and runs yarn 1.
+- **Idea:** Add a line to `windows-agent-gotchas`: in a repo with a yarn 1 lockfile, run `corepack yarn`, and check `yarn --version` before the first install.
+- **Context:** BloomReader-Lite (`D:\dev\BloomReader-Lite`), Claude Fable 5.2 following a prompt from Hatton.
+
 ## 2026-11-16 — BloomDesktop: after a master merge that bumps a front-end package, Bloom shows only a spinner
 
 - **Cut:** Preflight merged master, which bumped `@sillsdev/config-r`. After `pnpm install`, a restarted Bloom stayed on its loading spinner, and `run-bloom`'s `switchWorkspaceTab` said it could find no tab. The console showed that Vite was still serving its old pre-bundled copy: `does not provide an export named 'useConfigrValue'`. Neither `--restart` nor a reload fixed it. `launcherControl.mjs --shutdown`, then deleting `src/BloomBrowserUI/node_modules/.vite/deps`, then `--ensure-running` did.
