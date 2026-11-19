@@ -68,21 +68,56 @@ export function wantsRow({ card, prs, gits }) {
 }
 
 /**
- * A card's open PRs in the order their rows are listed, each PR on a row of its own. PRs that each
- * target the one before (a PR whose base is another PR's branch) are a stack: `stacked` is true and
- * `prs` runs from the PR on the card's base branch up to the last one. Otherwise `prs` is in PR
- * number order. A card with no PR gives `prs` [null], one row with no PR.
- *   prs  [{ number, headRefName, baseRefName }]
+ * The rows that the dashboard lists in a section of their own instead of sorting them into the
+ * groups: every stack of PRs (PRs in one repo that each target the one before, whichever cards they
+ * are for) and every card with more than one PR. A card with a PR in a stack brings its other PRs
+ * into that stack's section, so a card is never in two places.
+ *   rows  [{ id, card, pr: { number, repo, headRefName, baseRefName } or null }]
+ * Returns [{ ids, cards, stack }] with one entry per section: `ids` lists its rows in order, each
+ * stack from the PR on the base branch up and then the other PRs by card and number; `cards` lists
+ * the cards in that order; `stack` maps the id of each row in a stack to { at, of }.
  */
-export function prRows(prs) {
-  if (!prs.length) return { prs: [null], stacked: false };
-  const byNumber = [...prs].sort((a, b) => a.number - b.number);
-  if (prs.length === 1) return { prs: byNumber, stacked: false };
-  const heads = new Set(prs.map(p => p.headRefName));
-  const bottom = byNumber.filter(p => !heads.has(p.baseRefName));
-  const chain = [];
-  for (let p = bottom.length === 1 ? bottom[0] : null; p && !chain.includes(p); p = prs.find(q => q.baseRefName === p.headRefName)) chain.push(p);
-  return chain.length === prs.length ? { prs: chain, stacked: true } : { prs: byNumber, stacked: false };
+export function prSets(rows) {
+  const withPr = rows.filter(r => r.pr);
+  const headKey = r => r.pr.repo + "\0" + r.pr.headRefName;
+  const byHead = new Map(withPr.map(r => [headKey(r), r]));
+  const above = new Map();   // id -> the rows whose PRs target its branch
+  const below = new Map();   // id -> the row whose branch its PR targets
+  for (const r of withPr) {
+    const b = byHead.get(r.pr.repo + "\0" + r.pr.baseRefName);
+    if (!b || b === r) continue;
+    below.set(r.id, b);
+    above.set(b.id, [...(above.get(b.id) || []), r]);
+  }
+  const parent = new Map(withPr.map(r => [r.id, r.id]));
+  const find = id => { while (parent.get(id) !== id) id = parent.get(id); return id; };
+  const join = (a, b) => parent.set(find(a), find(b));
+  for (const [id, b] of below) join(id, b.id);
+  const byCard = new Map();
+  for (const r of withPr) byCard.set(r.card, [...(byCard.get(r.card) || []), r]);
+  for (const list of byCard.values()) for (const r of list.slice(1)) join(r.id, list[0].id);
+
+  const byNumber = (a, b) => a.pr.number - b.pr.number;
+  const components = new Map();
+  for (const r of withPr) components.set(find(r.id), [...(components.get(find(r.id)) || []), r]);
+  const sets = [];
+  for (const members of components.values()) {
+    if (members.length < 2) continue;
+    const ids = [], stack = {};
+    // Each stack from the PR on the base branch up; where two PRs target one branch, the lower
+    // number comes first.
+    for (const root of members.filter(r => !below.has(r.id) && above.has(r.id)).sort(byNumber)) {
+      const chain = [];
+      const walk = r => { chain.push(r); for (const a of (above.get(r.id) || []).sort(byNumber)) if (!chain.includes(a)) walk(a); };
+      walk(root);
+      chain.forEach((r, i) => { ids.push(r.id); stack[r.id] = { at: i + 1, of: chain.length }; });
+    }
+    const rest = members.filter(r => !stack[r.id]).sort((a, b) => a.card.localeCompare(b.card, undefined, { numeric: true }) || byNumber(a, b));
+    ids.push(...rest.map(r => r.id));
+    const cardOf = new Map(members.map(r => [r.id, r.card]));
+    sets.push({ ids, cards: [...new Set(ids.map(id => cardOf.get(id)))], stack });
+  }
+  return sets;
 }
 
 /**
@@ -108,9 +143,9 @@ export function groupOf({ card, pr, worktree }, now = Date.now()) {
 /**
  * The state of a card (see the list at the top) and the reasons for it, from:
  *   card      { id, state, approvedPlan }
- *   pr        { url, isDraft, mergeable, checks, reportDecisions } or null
+ *   pr        { url, baseRefName, isDraft, mergeable, checks, reportDecisions } or null
  *   worktree  { path } or null
- *   git       { head, tree, uncommitted, commitsSince } or null when it could not be read
+ *   git       { head, tree, uncommitted, commitsSince, commitsSinceList } or null when it could not be read
  *   preflight the worktree's newest preflight run, or null
  *   open      the worktree's open run of any skill, or null
  *   review    own-review.mjs's answer { files, reviewed, left, reviewable } or null when unread
@@ -186,7 +221,7 @@ export function allowAction(action, row, activity, anyway = false) {
  * The whole row for one card, ready to draw. Besides stateOf's arguments:
  *   activity  { working, asking, question, since, orcaOk, orcaError } for the worktree
  *   launch    { skill, at, failed } when a button was pressed and its run has not begun yet
- *   prose     { status, comments, next, at, model, stale } or null
+ *   prose     { next, at, model } or null
  *   deciders  the decider forms that sessions in the worktree wait on: [{ path, name, topic }]
  *   ages      { git, github, youtrack, review, comments, orca }: when each was last read (ms), and
  *   failing   { github: "error text", ... } for the sources whose last read failed
@@ -240,11 +275,15 @@ export function computeRow(input, now = Date.now()) {
     return "later";
   };
   const left = review ? review.files - review.reviewed : null;
+  const preflightNote = stepState("preflight") === "now" && ["preflight-needed", "preflight-stopped"].includes(state) ? reasons.join("; ") : "";
+  // The commits that the note counts, which the page lists when that count is pressed.
+  const commitsText = since.changed && git?.commitsSince > 0 ? plural(git.commitsSince, "commit") : "";
+  const commits = commitsText && preflightNote.includes(commitsText) && git.commitsSinceList ? { text: commitsText, list: git.commitsSinceList } : null;
   const steps = [
     { id: "code", label: act.working && runningStep === "code" ? "Agent working" : worktree ? "Code" : "Start coding", state: stepState("code"),
       buttons: stepState("code") === "now" ? [{ ...button(worktree ? "open" : "create"), label: worktree ? "Code" : "Start coding" }] : [] },
     { id: "preflight", label: runningStep === "preflight" ? SKILL_RUNNING.preflight : "Preflight", state: stepState("preflight"),
-      note: stepState("preflight") === "now" && ["preflight-needed", "preflight-stopped"].includes(state) ? reasons.join("; ") : "",
+      note: preflightNote, commits,
       buttons: stepState("preflight") === "now" && state !== "decision" ? [button("preflight")] : [] },
     { id: "review", label: left ? `Your review (${left} of ${plural(review.files, "file")} left${review.reviewable ? "" : "; couldn't read Reviewable"})` : "Your review", state: stepState("review"),
       link: pr ? pr.url : null, linkEnabled: !busy && !blocked, files: review?.left ?? null, reviewable: review?.reviewable ?? null },
@@ -255,7 +294,7 @@ export function computeRow(input, now = Date.now()) {
     buttons: stepState("request") === "now" ? [button("request-peer-review"), ...(card.approvedPlan ? [button("merge-without-peer-review")] : [])] : [],
     // Not on offer: the label starts the skill anyway.
     labelButton: !["now", "running"].includes(stepState("request")) && worktree && pr ? button("request-peer-review", true) : null });
-  steps.push({ id: "peer", label: card.state === "Has Comments" ? "Peer review: comments back" : "Peer review", state: card.state === "Has Comments" ? "comments" : stepState("peer") });
+  steps.push({ id: "peer", label: "Peer review", state: stepState("peer") });
   for (const s of steps) if (s.state === "running") { s.since = runningSince; s.runningNote = runningNote; }
 
   // A decider form that a session in the worktree is waiting on comes before a report's count:
@@ -265,6 +304,15 @@ export function computeRow(input, now = Date.now()) {
     : state === "decision" ? { kind: "you", text: "Needs your decision", url: pr?.report || null } : null;
   const reportOld = !!pr?.report && ["preflight-needed", "preflight-stopped", "code"].includes(state);
   const failed = launch?.failed ? `Typed ${SKILL_LABEL[launch.skill] ?? launch.skill} at ${clock(launch.at)}, but the session did not start it.` : "";
+
+  // The teammates' comments in unresolved discussions, split by whose turn it is, which "Where it
+  // stands" shows first. `parts` is its text in pieces, the comments to answer first.
+  const toAnswer = (comments?.peers || []).filter(c => !c.answered), answered = (comments?.peers || []).filter(c => c.answered);
+  const parts = [
+    ...(toAnswer.length ? [{ text: `${plural(toAnswer.length, "comment")} to answer`, yours: true }] : []),
+    ...(answered.length ? [{ text: `${answered.length} answered`, yours: false }] : []),
+  ];
+  const peerComments = parts.length ? { parts, toAnswer, answered } : null;
 
   // "Why does this row say that?": the rule that matched, then each fact it read, with the
   // source it came from and when that source was last read (the page turns `at` into an age).
@@ -283,6 +331,7 @@ export function computeRow(input, now = Date.now()) {
   return {
     card: card.id, cardUrl: card.url, title: card.summary || "", ytState: card.state, approvedPlan: !!card.approvedPlan,
     pr: pr?.url ?? null, prState: pr ? (pr.isDraft ? "draft" : "open") : null,
+    prBase: pr?.baseRefName ?? null, prMergeable: pr?.mergeable ?? null,
     worktree: worktree?.path ?? null, branch: worktree?.branch ?? null,
     group: groupOf(input, now), state, reasons, offered, steps, badge, busy,
     actions: { open: button("open"), create: button("create"), vscode: button("vscode") },
@@ -291,7 +340,7 @@ export function computeRow(input, now = Date.now()) {
     report: pr?.report ? { url: pr.report, old: reportOld, decisions: reportOld ? 0 : pr.reportDecisions || 0 } : null,
     question: act.asking ? activity.question || "" : "",
     comments: comments ? { total: comments.total, text: comments.total ? commentsText(comments) : "", button: button("process-pr-comments") } : null,
-    deciders, prose, failed, why,
+    deciders, prose, peerComments, failed, why,
     unknown: Object.entries(failing).map(([source, error]) => ({ source: { review: "your review", comments: "the PR's comments" }[source] ?? source, error, since: ages[source] || 0 })),
   };
 }

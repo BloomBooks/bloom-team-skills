@@ -118,31 +118,44 @@ function cardRefresh(d) {
 function render(items) {
   const groups = document.getElementById("groups");
   groups.replaceChildren();
+  // A stack of PRs and a card with several PRs each have a section of their own, before the groups.
+  const sets = [...new Set(items.filter(d => d.set).map(d => d.set.key))];
+  for (const key of sets) {
+    const rows = items.filter(d => d.set?.key === key);
+    groups.append(section(el("h2", {}, rows[0].set.title), rows));
+  }
   for (const g of GROUPS) {
     const rows = items.filter(d => d.group === g.key);
-    if (!rows.length) continue;
-    const tbody = el("tbody");
-    for (const d of rows) {
-      const cell = el("div", { class: "card-cell" },
-        el("span", { class: "title" }, d.title || ""),
-        el("span", { class: "meta" }, el("span", { class: "id" }, stateIcon(d.ytState), cardLabel(d))));
-      const links = el("span", { class: "links" });
-      if (d.pr) links.append(prLine(d));
-      if (d.worktree) links.append(folderButton(d));
-      if (links.childNodes.length) cell.append(links);
-      // The rows of a stack of PRs are joined by a line down their left edge.
-      const cls = [d.busy ? "agent-row" : "", d.stack ? "stacked" : "", d.stack?.at === 1 ? "stack-first" : "", d.stack && d.stack.at === d.stack.of ? "stack-last" : ""].filter(Boolean).join(" ");
-      tbody.append(el("tr", cls ? { class: cls } : {},
-        el("td", { class: "card" }, cell),
-        el("td", { class: "who" }, processCell(d)),
-        el("td", {}, standsCell(d)),
-        el("td", { class: "upd" }, cardRefresh(d), orcaButton(d))));
-    }
-    const table = el("table", {},
-      el("thead", {}, el("tr", {}, el("th", {}, "Links"), el("th", {}, "Process"), el("th", {}, "Where it stands"), el("th", {}, ""))),
-      tbody);
-    groups.append(el("section", { class: "group" }, el("h2", {}, g.name + " ", infoIcon(g.sub, g.key + "-tip")), el("div", { class: "table-scroll" }, table)));
+    if (rows.length) groups.append(section(el("h2", {}, g.name + " ", infoIcon(g.sub, g.key + "-tip")), rows));
   }
+}
+// A section of the board: its heading over a table with a row for each item.
+function section(heading, rows) {
+  const tbody = el("tbody", {}, ...rows.map(boardRow));
+  const table = el("table", {},
+    el("thead", {}, el("tr", {}, el("th", {}, "Links"), el("th", {}, "Process"), el("th", {}, "Where it stands"), el("th", {}, ""))),
+    tbody);
+  return el("section", { class: "group" }, heading, el("div", { class: "table-scroll" }, table));
+}
+function boardRow(d) {
+  const cell = el("div", { class: "card-cell" },
+    el("span", { class: "title" }, d.title || ""),
+    el("span", { class: "meta" }, el("span", { class: "id" }, stateIcon(d.ytState), cardLabel(d))));
+  const links = el("span", { class: "links" });
+  if (d.pr) links.append(prLine(d, false));
+  const base = baseLine(d);
+  if (base) links.append(base);
+  if (d.worktree) links.append(folderButton(d));
+  if (links.childNodes.length) cell.append(links);
+  // The rows of a stack of PRs are joined by a line down their left edge, with each PR's place
+  // in the stack in a circle on that line.
+  const cls = [d.busy ? "agent-row" : "", d.stack ? "stacked" : "", d.stack?.at === 1 ? "stack-first" : "", d.stack && d.stack.at === d.stack.of ? "stack-last" : ""].filter(Boolean).join(" ");
+  const stackAt = d.stack ? { "data-stack-at": d.stack.at, title: `PR ${d.stack.at} of the ${d.stack.of} PRs in this stack, each one built on the one before` } : {};
+  return el("tr", cls ? { class: cls } : {},
+    el("td", { class: "card", ...stackAt }, cell),
+    el("td", { class: "who" }, processCell(d)),
+    el("td", {}, standsCell(d)),
+    el("td", { class: "upd" }, cardRefresh(d), infoButton(d), orcaButton(d)));
 }
 
 // One card in peer review: its title, the comments waiting on its PR with the Process PR Comments

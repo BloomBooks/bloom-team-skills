@@ -24,11 +24,7 @@ export const config = () => ({ model: MODEL, prose: true, ...readJsonFile(dataFi
 // The folder that the headless sessions run in; the service ignores hook payloads from it.
 export const llmDir = () => path.join(dataDir(), "llm");
 
-const SYSTEM = `You write short status text for one row of a software developer's dashboard. You are given facts as JSON. Answer with one JSON object and nothing else: {"status": string, "comments": string, "next": string}.
-
-"status": one sentence of at most 14 words on how far the work itself has got toward review: code written or not, the PR, conflicts, CI, preflight, review, blockers. Example: "Draft PR conflicts with master; CI green." Do not mention worktrees, agents, branch names, commit hashes or commit counts. Use only the facts given.
-
-"comments": only when the card's state is "Has Comments": what the people who asked for changes said, in a few words each, with their first name. Example: "Colin: Undo does nothing after unlocking." Leave out comments written by an agent or a bot (they start with a bracketed tag). Otherwise "".
+const SYSTEM = `You write short status text for one row of a software developer's dashboard. You are given facts as JSON. Answer with one JSON object and nothing else: {"next": string}.
 
 "next": almost always "". The dashboard already shows the next step of the process (preflight, the developer's own review, processing PR comments, requesting peer review), so never restate that. Fill it only for something outside that process which the facts state plainly: waiting for another PR or person, or a check that must be done by hand before review.`;
 
@@ -43,7 +39,7 @@ export function parseAnswer(text) {
   if (!m) throw new Error("the answer holds no JSON object");
   const j = JSON.parse(m[0]);
   const s = v => typeof v === "string" ? v.trim().slice(0, 300) : "";
-  return { status: s(j.status), comments: s(j.comments), next: s(j.next) };
+  return { next: s(j.next) };
 }
 
 // A "Next:" note that only names a step of the process says what the Process column already
@@ -54,8 +50,8 @@ const usage = { calls: 0, failures: 0, inputTokens: 0, outputTokens: 0, costUsd:
 export function proseUsage() { return { ...usage, model: config().model, enabled: !!config().prose }; }
 
 /**
- * Asks the model for a row's prose from `facts` (a small JSON object). Returns { status, comments,
- * next, at, model, digest }. Throws when the call fails; the caller keeps the earlier prose.
+ * Asks the model for a row's prose from `facts` (a small JSON object). Returns { next, at,
+ * model, digest }. Throws when the call fails; the caller keeps the earlier prose.
  */
 export function writeProse(facts) {
   const { model } = config();

@@ -45,7 +45,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { PORT, ORIGIN, serviceDir, dashboardDir, repoDir, dataDir, dataFile, serviceKey, readJsonFile, writeJsonFile, ownEnvironment, orcaRunning, log } from "./env.mjs";
 import { emptyState, applyHook, applyProgress, applyInterrupt, checkLiveness, openRun, latestRun, sessionsIn, prune, isOpen, SKILLS } from "./runs.mjs";
-import { computeRow, allowAction, orderOf, wantsRow, prRows, prRowTitle, GROUPS, ROW_STATES, IN_REVIEW } from "./rows.mjs";
+import { computeRow, allowAction, orderOf, wantsRow, prSets, prRowTitle, GROUPS, ROW_STATES, IN_REVIEW } from "./rows.mjs";
 import { readGit, gitWatcher, checkoutNow } from "./git.mjs";
 import { commentRunSteps, unchanged, WORKING } from "./comment-runs.mjs";
 import { callService } from "../../bloom-services/sources.mjs";
@@ -95,7 +95,7 @@ let ps = [];                                       // `orca worktree ps`, the wo
 const gits = new Map(Object.entries(cache.gits || {}));          // norm(worktree) -> { value, at, error }
 const reviews = new Map(Object.entries(cache.reviews || {}));    // PR URL -> { value, at, error }
 const comments = new Map(Object.entries(cache.comments || {}));  // PR URL -> { value, at, error }
-const proses = new Map(Object.entries(cache.proses || {}));      // card -> { status, comments, next, at, model, digest }
+const proses = new Map(Object.entries(cache.proses || {}));      // card -> { next, at, model, digest }
 const launches = new Map();                        // norm(worktree) -> { skill, at, failed }
 const workingSeen = new Map();                     // norm(worktree) -> when its agent was first seen working
 const removedWorktrees = new Set();
@@ -484,6 +484,7 @@ function buildRows(now = Date.now()) {
     return false;
   });
   const rows = [], inReview = [];
+  const prOf = new Map();   // row id -> its PR, for prSets
   for (const card of remote?.cards || []) {
     const review = card.state === IN_REVIEW && card.assignedToDeveloper;
     if (!ROW_STATES.includes(card.state) && !review) continue;
@@ -493,8 +494,8 @@ function buildRows(now = Date.now()) {
     if (!wantsRow({ card, prs: mine, gits: wts.map(([k]) => gits.get(k)?.value ?? null) })) continue;
     // Each PR has a row of its own, with the worktree on its branch. A card with one PR or none
     // keeps the card's own worktree on its one row.
-    const { prs: listed, stacked } = prRows(mine);
-    listed.forEach((pr, at) => {
+    const listed = mine.length ? mine : [null];
+    listed.forEach(pr => {
       const [key, wt] = wts.find(([, w]) => pr && w.branch === pr.headRefName) ?? (listed.length === 1 ? wts[0] : null) ?? [null, null];
       // A worktree seen for the first time is read at once; after that its file watch and the
       // timer keep it current.
@@ -519,19 +520,39 @@ function buildRows(now = Date.now()) {
       row.key = key;
       row.id = rowId(card.id, listed.length > 1 ? pr : null);
       if (listed.length > 1) { row.title = prRowTitle(pr.title) || row.title; row.cardTitle = card.summary || ""; }
-      row.stack = stacked ? { at: at + 1, of: listed.length } : null;
+      row.stack = null;
+      row.set = null;
       row.events = key ? eventsOf(key) : [];
       row.git = git?.value ?? null;
+      if (pr) prOf.set(row.id, pr);
       (review ? inReview : rows).push(row);
     });
   }
-  // A card's rows stay together, in the group and place of its first row, in stack order.
+  // A stack of PRs and a card with several PRs each get a section of their own (prSets), listed
+  // before the groups, the section with the row nearest to hand-off first.
   const rank = r => GROUPS.indexOf(r.group) * 100 + orderOf(r);
-  const first = new Map();
-  for (const r of rows) if (!first.has(r.card) || rank(r) < rank(first.get(r.card))) first.set(r.card, r);
-  for (const r of rows) r.group = first.get(r.card).group;
-  const cardRank = r => rank(first.get(r.card));
-  rows.sort((a, b) => cardRank(a) - cardRank(b) || a.card.localeCompare(b.card, undefined, { numeric: true }) || (a.stack?.at ?? 0) - (b.stack?.at ?? 0));
+  const summaries = new Map((remote?.cards || []).map(c => [c.id, c.summary || ""]));
+  const inSet = new Map();   // row id -> { set, at }
+  for (const s of prSets(rows.map(r => ({ id: r.id, card: r.card, pr: prOf.get(r.id) ?? null })))) {
+    const set = { key: s.ids[0], title: `${s.cards.join(", ")}: ${summaries.get(s.cards[0]) || ""}` };
+    s.ids.forEach((id, at) => inSet.set(id, { set, at, stack: s.stack[id] ?? null }));
+  }
+  const setRank = new Map();
+  for (const r of rows) {
+    const s = inSet.get(r.id);
+    if (!s) continue;
+    setRank.set(s.set.key, Math.min(setRank.get(s.set.key) ?? Infinity, rank(r)));
+    r.set = s.set; r.stack = s.stack; r.group = "set";
+  }
+  const sortKey = r => { const s = inSet.get(r.id); return s ? [0, setRank.get(s.set.key), s.set.key, s.at] : [1, rank(r), r.card, 0]; };
+  rows.sort((a, b) => {
+    const [x, y] = [sortKey(a), sortKey(b)];
+    for (let i = 0; i < x.length; i++) {
+      if (x[i] === y[i]) continue;
+      return typeof x[i] === "string" ? x[i].localeCompare(y[i], undefined, { numeric: true }) : x[i] - y[i];
+    }
+    return 0;
+  });
   rowsNow = rows; inReviewNow = inReview;
   watcher.set([...rows, ...inReview].map(r => r.worktree).filter(Boolean));
   return { rows, inReview, deciders };
@@ -577,11 +598,7 @@ function recompute() {
 // ---- prose -------------------------------------------------------------------------------------
 const proseFacts = new Map();   // card -> { digest, facts, since }
 let proseBusy = false;
-function proseFor(card) {
-  const p = proses.get(card);
-  if (!p) return null;
-  return { ...p, stale: proseFacts.has(card) && proseFacts.get(card).digest !== p.digest };
-}
+const proseFor = card => proses.get(card) ?? null;
 function scheduleProse() {
   if (!config().prose) return;
   const now = Date.now();

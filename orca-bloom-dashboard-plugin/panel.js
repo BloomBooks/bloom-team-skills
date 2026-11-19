@@ -93,12 +93,14 @@ function rowBox(s) {
   const d = s.row;
   const links = el("span", { class: "links" });
   if (d.pr) links.append(prLine(d));
+  const base = baseLine(d);
+  if (base) links.append(base);
   links.append(folderButton(d));
   const card = el("div", { class: "card-cell" },
     el("span", { class: "title" }, d.title || ""),
     el("span", { class: "meta" }, el("span", { class: "id" }, stateIcon(d.ytState), cardLabel(d))),
     links);
-  const box = el("section", { class: "row-box" + (d.busy ? " agent-row" : "") }, el("div", { class: "head" }, card));
+  const box = el("section", { class: "row-box" + (d.busy ? " agent-row" : "") }, el("div", { class: "head" }, card, infoButton(d)));
   box.append(cell("Process", processCell(d)), cell("Where it stands", standsCell(d)));
   return box;
 }
