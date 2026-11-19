@@ -80,14 +80,31 @@ function cardFrom(i, assignedToDeveloper) {
     resolved: i.resolved ? new Date(i.resolved).toISOString() : null,
   };
 }
-// The developer's open PRs in one GitHub repo ("owner/name"), each with the decisions its report asks for.
-async function openPrs(repo) {
-  const text = run("gh", ["pr", "list", "-R", repo, "--author", "@me", "--state", "open", "--limit", "100", "--json",
-    "number,url,title,headRefName,baseRefName,isDraft,mergeable,reviewDecision,reviewRequests,additions,deletions,changedFiles,updatedAt,statusCheckRollup,body"]);
+const PR_FIELDS = "number,url,title,headRefName,baseRefName,isDraft,mergeable,reviewDecision,reviewRequests,additions,deletions,changedFiles,updatedAt,statusCheckRollup,body";
+// The developer's open PRs in one GitHub repo ("owner/name"), each with the decisions its report
+// asks for: those they opened, and those anyone opened from one of `branches`, the branches of the
+// developer's worktrees in that repo (a PR they took over from a teammate or a bot).
+async function openPrs(repo, branches = []) {
   // A failed list is an error, never an empty one: the server would report every PR in the repo
   // as merged or closed. Failing keeps the last facts, and the server reports the error once.
-  if (text == null) throw new Error(`gh pr list failed for ${repo}; is gh signed in and GitHub reachable?`);
-  const prs = JSON.parse(text).map(({ statusCheckRollup, body, ...p }) => ({
+  const list = args => {
+    const text = run("gh", ["pr", "list", "-R", repo, "--state", "open", ...args]);
+    if (text == null) throw new Error(`gh pr list failed for ${repo}; is gh signed in and GitHub reachable?`);
+    return JSON.parse(text);
+  };
+  const raw = list(["--author", "@me", "--limit", "100", "--json", PR_FIELDS]);
+  const wanted = new Set(branches.filter(Boolean));
+  if (wanted.size) {
+    // Every open PR, but only the fields that pick the taken-over ones; those few are read in full.
+    const mine = new Set(raw.map(p => p.number));
+    for (const p of list(["--limit", "500", "--json", "number,headRefName"])) {
+      if (mine.has(p.number) || !wanted.has(p.headRefName)) continue;
+      const text = run("gh", ["pr", "view", String(p.number), "-R", repo, "--json", PR_FIELDS]);
+      if (text == null) throw new Error(`gh pr view ${p.number} failed for ${repo}; is gh signed in and GitHub reachable?`);
+      raw.push(JSON.parse(text));
+    }
+  }
+  const prs = raw.map(({ statusCheckRollup, body, ...p }) => ({
     ...p, repo, card: cardOf(p.headRefName, p.title),
     reviewRequests: p.reviewRequests.map(r => r.login), checks: checksState(statusCheckRollup),
     report: reportOf(body),
@@ -99,14 +116,19 @@ async function openPrs(repo) {
 /**
  * Reads one card again, for a row's own refresh button: { card, prs } with the card from YouTrack
  * and its open PRs in `repos`. The PRs come from the same list as gather()'s, so a PR that names
- * the card in its branch or title counts. Throws when YouTrack or GitHub cannot be read.
+ * the card in its branch or title counts, and so does one on the branch of one of the card's
+ * worktrees. Throws when YouTrack, GitHub or Orca cannot be read.
  */
 export async function gatherCard(id, repos) {
   const dev = await developer();
   const i = await yt("/issues/" + id, { fields: FIELDS });
   const assignee = i.customFields?.find(c => c.name === "Assignee")?.value;
   const card = cardFrom(i, !i.resolved && assignee?.login === dev.youtrack.login);
-  const prs = (await Promise.all(repos.map(openPrs))).flat().filter(p => p.card === id);
+  const branches = (await orca("worktree", "list")).worktrees
+    .filter(w => !w.isArchived)
+    .map(w => (w.branch || "").replace("refs/heads/", ""))
+    .filter(b => cardOf(b, "") === id);
+  const prs = (await Promise.all(repos.map(r => openPrs(r, branches)))).flat().filter(p => p.card === id);
   return { card, prs, repos };
 }
 
@@ -190,10 +212,12 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
   const keptIds = new Set(kept.map(c => c.id));
   const onBoard = card => !board || keptIds.has(card);
 
-  // The developer's open PRs in every GitHub repo a card's worktree belongs to.
+  // The developer's open PRs in every GitHub repo a card's worktree belongs to, including those on
+  // a worktree's branch that someone else opened.
   const repos = new Set(worktrees.map(w => w.repo).filter(r => r?.startsWith("github:")).map(r => r.slice(7)));
   repos.add("bloombooks/bloomdesktop");
-  const prs = (await Promise.all([...repos].map(openPrs))).flat();
+  const branchesIn = repo => worktrees.filter(w => w.repo === "github:" + repo).flatMap(w => [w.branch, w.upstreamBranch]);
+  const prs = (await Promise.all([...repos].map(r => openPrs(r, branchesIn(r))))).flat();
 
   // board is null when every board was kept; boardActivity is set only when the board was chosen
   // by currentVersionBoard.
