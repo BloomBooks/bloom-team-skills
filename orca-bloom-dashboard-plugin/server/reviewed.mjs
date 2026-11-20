@@ -47,27 +47,34 @@ function gh(args) {
   }
 }
 
-// The GraphQL fields of a PR that prFacts reads.
-const PR_FIELDS = `url number title headRefName isDraft merged closed mergedAt mergedBy { login } author { login }
+// The GraphQL fields of a PR that prFacts reads. __typename tells a bot (Devin, Greptile, Copilot)
+// from a person; a person's name lets them be matched to a YouTrack user (isAssignee).
+const WHO = "author { login __typename ... on User { name } }";
+const PR_FIELDS = `url number title headRefName isDraft merged closed mergedAt createdAt mergedBy { login } author { login }
   repository { name }
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
-  comments(last: 100) { nodes { author { login } createdAt body } }
-  reviews(last: 100) { nodes { author { login } submittedAt body } }
+  comments(last: 100) { nodes { ${WHO} createdAt body } }
+  reviews(last: 100) { nodes { ${WHO} submittedAt body } }
   commits(last: 1) { nodes { commit { committedDate } } }`;
 
 /**
  * What the rules need from a PR as GraphQL returns it (PR_FIELDS), for the developer's GitHub
- * login me (lower case): the cards it names, its state, who merged it, the times of the
- * developer's own comments and reviews (mine, oldest first; an agent's posts left out), the time
- * of the author's latest comment, review or commit (authorAt), and the logins asked to review it.
+ * login me (lower case): the cards it names, its state, who merged it, the people who commented
+ * or reviewed (people: { login: { name, at } }, the times oldest first; the PR's author, bots and
+ * an agent's posts left out), the developer's own times among them (mine), the time of the
+ * author's latest comment, review or commit (authorAt), and the logins asked to review it.
  */
 export function prFacts(pr, me) {
   const author = login(pr.author);
-  const byMe = n => login(n.author) === me && !AGENT_POST.test(n.body || "");
-  const mine = [
-    ...pr.comments.nodes.filter(byMe).map(c => c.createdAt),
-    ...pr.reviews.nodes.filter(r => byMe(r) && r.submittedAt).map(r => r.submittedAt),
-  ].map(t => new Date(t).toISOString()).sort();
+  const people = {};
+  const add = (n, at) => {
+    const who = login(n.author);
+    if (!who || who === author || n.author.__typename === "Bot" || AGENT_POST.test(n.body || "")) return;
+    (people[who] ||= { name: n.author.name || "", at: [] }).at.push(new Date(at).toISOString());
+  };
+  for (const c of pr.comments.nodes) add(c, c.createdAt);
+  for (const r of pr.reviews.nodes) if (r.submittedAt) add(r, r.submittedAt);
+  for (const p of Object.values(people)) p.at.sort();
   // Reviewable's replies arrive as reviews, so the author's count too.
   const theirs = [
     ...pr.comments.nodes.filter(c => login(c.author) === author).map(c => c.createdAt),
@@ -78,10 +85,62 @@ export function prFacts(pr, me) {
     url: pr.url, repo: pr.repository?.name || "", number: pr.number, title: pr.title,
     cards: [...new Set((pr.title.match(CARDS) || pr.headRefName.match(CARDS) || []).map(c => c.toUpperCase()))],
     author, draft: !!pr.isDraft, merged: !!pr.merged, closed: !!pr.closed,
-    mergedAt: pr.mergedAt || "", mergedBy: login(pr.mergedBy),
+    mergedAt: pr.mergedAt || "", mergedBy: login(pr.mergedBy), openedAt: pr.createdAt || "",
     requested: (pr.reviewRequests?.nodes || []).map(n => login(n.requestedReviewer)).filter(Boolean),
-    mine, authorAt: theirs.at(-1) || "",
+    people, mine: people[me]?.at || [], authorAt: theirs.at(-1) || "",
   };
+}
+
+/**
+ * Whether the GitHub user `who` (a lower-case login; `name` their GitHub display name, or "") is
+ * among a card's assignees ([{ login, fullName }] from YouTrack). `known` maps a GitHub login to
+ * its YouTrack login when that is known (the developer's own); otherwise the same login, or the
+ * same full name, makes the match.
+ */
+export function isAssignee(who, name, assignees, known = {}) {
+  const lc = s => (s || "").toLowerCase();
+  return assignees.some(a => lc(a.login) === who || (known[who] && lc(a.login) === lc(known[who])) || (name && lc(a.fullName) === lc(name)));
+}
+
+/**
+ * A card's reviewers: the GitHub logins (lower case, sorted) of everyone who commented or
+ * reviewed on any of its PRs (prFacts records), apart from that PR's author, bots and an agent's
+ * posts, and apart from anyone who is or ever was assigned to the card (assignees, as for
+ * isAssignee): that is their own work, even on a PR the Bloom bot opened under someone else's
+ * account. "Back with you for review" is the cards whose reviewers include the developer, and
+ * "Review up for grabs" (up-for-grabs.mjs) the cards with none, so the two lists cannot disagree.
+ */
+export function cardReviewers(prs, assignees, known = {}) {
+  const out = new Set();
+  for (const p of prs) for (const [who, x] of Object.entries(p.people)) if (!isAssignee(who, x.name, assignees, known)) out.add(who);
+  return [...out].sort();
+}
+
+/**
+ * What the reviewer rules need from YouTrack about card `id`: { summary, state, assignees, readyAt }.
+ * assignees is everyone who is or ever was assigned to it ([{ login, fullName }]); readyAt is
+ * when it last moved to Ready For Code Review ("" if never). null when the card cannot be read.
+ */
+export async function cardFacts(yt, id) {
+  const i = await yt("/issues/" + id, { fields: "summary,customFields(name,value(name,login,fullName))" }).catch(() => null);
+  if (!i) return null;
+  const value = name => i.customFields?.find(c => c.name === name)?.value;
+  const history = await yt(`/issues/${id}/activities`, { categories: "CustomFieldCategory", fields: "timestamp,field(name),added(name,login,fullName),removed(name,login,fullName)", $top: "2000" });
+  const assignees = new Map();
+  for (const u of [value("Assignee")].flat()) if (u?.login) assignees.set(u.login, u);
+  for (const a of history) if (a.field?.name === "Assignee") for (const u of [...(a.added || []), ...(a.removed || [])]) if (u?.login) assignees.set(u.login, u);
+  const ready = Math.max(0, ...history.filter(a => a.field?.name === "State" && (a.added || []).some(v => v.name === READY_FOR_REVIEW)).map(a => a.timestamp));
+  return { summary: i.summary, state: value("State")?.name ?? "", assignees: [...assignees.values()], readyAt: ready ? new Date(ready).toISOString() : "" };
+}
+
+/**
+ * Every PR in the team's organizations whose title names one of `ids`, as prFacts records for
+ * the developer me: Map id -> [records]. GitHub's search matches the id as a word of the title;
+ * prFacts checks the branch too, so a record is kept only when its own cards include the id.
+ */
+export function cardPrs(ids, me) {
+  const data = graphqlBatches(ids.map((id, n) => `c${n}: search(query: ${JSON.stringify(`is:pr ${orgsQuery} ${id} in:title`)}, type: ISSUE, first: 50) { nodes { ... on PullRequest { ${PR_FIELDS} } } }`));
+  return new Map(ids.map((id, n) => [id, (data[`c${n}`]?.nodes || []).filter(p => p.url).map(p => prFacts(p, me)).filter(p => p.cards.includes(id))]));
 }
 
 // Runs GraphQL queries that are each "alias: field { ... }", 25 to a request, and returns
@@ -121,29 +180,22 @@ export async function reviewedCards(yt, githubLogin, youtrackLogin) {
   const lines = prs.map((p, n) => data[`p${n}`]?.pullRequest).filter(Boolean).map(pr => prFacts(pr, me))
     .filter(l => l.author !== me && l.mine.length);
 
-  // One line per card, with the card's own title and State.
+  // One line per card, with the card's own title and State, where the developer is one of the
+  // card's reviewers (cardReviewers): a card they are or were assigned to is their own work.
   const ids = [...new Set(lines.flatMap(l => l.cards))];
-  const issues = new Map(await Promise.all(ids.map(async id =>
-    [id, await yt("/issues/" + id, { fields: "summary,customFields(name,value(name,login))" }).catch(() => null)])));
-  // The cards the developer is or was assigned to: their own work, not a review.
-  const own = new Set(await Promise.all(ids.map(async id => {
-    const assignee = issues.get(id)?.customFields?.find(c => c.name === "Assignee")?.value;
-    if ([assignee].flat().some(u => u?.login === youtrackLogin)) return id;
-    const history = await yt(`/issues/${id}/activities`, { categories: "CustomFieldCategory", fields: "field(name),added(login),removed(login)", $top: "2000" }).catch(() => []);
-    const was = history.some(a => a.field?.name === "Assignee" && [...(a.added || []), ...(a.removed || [])].some(u => u?.login === youtrackLogin));
-    return was ? id : null;
-  })));
+  const facts = new Map(await Promise.all(ids.map(async id => [id, await cardFacts(yt, id)])));
+  const known = { [me]: youtrackLogin };
   const out = [];
   const recent = l => Date.parse(l.mine.at(-1)) >= since;
   const line = (l, more) => ({ pr: l.url, merged: l.merged, commentedAt: l.mine.at(-1), commentDates: l.mine, ...more });
   for (const l of lines) {
     if (!l.cards.length) { if (recent(l)) out.push(line(l, { id: `${l.repo}#${l.number}`, url: l.url, summary: l.title, state: "" })); continue; }
     for (const id of l.cards) {
-      if (own.has(id)) continue;
-      const i = issues.get(id);
-      const state = i?.customFields?.find(c => c.name === "State")?.value?.name ?? "";
+      const f = facts.get(id);
+      if (!cardReviewers([l], f?.assignees || [], known).includes(me)) continue;
+      const state = f?.state ?? "";
       if (!recent(l) && state !== READY_FOR_REVIEW) continue;
-      out.push(line(l, { id, url: "https://issues.bloomlibrary.org/youtrack/issue/" + id, summary: i?.summary || l.title, state }));
+      out.push(line(l, { id, url: "https://issues.bloomlibrary.org/youtrack/issue/" + id, summary: f?.summary || l.title, state }));
     }
   }
   return out.sort((a, b) => b.commentedAt.localeCompare(a.commentedAt));
@@ -161,12 +213,11 @@ export function backForReview(reviewed, githubLogin) {
   const cards = new Map();
   for (const r of reviewed) if (r.state === READY_FOR_REVIEW && /^BL-\d+$/.test(r.id) && !cards.has(r.id)) cards.set(r.id, r);
   const ids = [...cards.keys()];
-  // GitHub's search matches the id as a word of the title; the branch is checked by prFacts.
-  const data = graphqlBatches(ids.map((id, n) => `c${n}: search(query: ${JSON.stringify(`is:pr ${orgsQuery} ${id} in:title`)}, type: ISSUE, first: 50) { nodes { ... on PullRequest { ${PR_FIELDS} } } }`));
+  const byCard = cardPrs(ids, me);
   const out = [];
-  ids.forEach((id, n) => {
+  ids.forEach(id => {
     const card = cards.get(id);
-    const found = (data[`c${n}`]?.nodes || []).filter(p => p.url).map(p => prFacts(p, me));
+    const found = byCard.get(id);
     // A PR found only by its branch (reviewedCards' lines) is one of the card's too.
     const known = new Set(found.map(p => p.url));
     const missing = reviewed.filter(r => r.id === id && !known.has(r.pr));

@@ -90,7 +90,7 @@ const SKILL_ACTIONS = SKILLS;
 const cache = readJsonFile(dataFile("cache.json"), {}) || {};
 const runs = readJsonFile(dataFile("runs.json"), null) || emptyState();
 let remote = cache.remote || null;                 // gather.mjs's last good answer
-let extras = cache.extras || {};                   // { standup, backForReview, staleWorktrees, at } of the last full one
+let extras = cache.extras || {};                   // { standup, backForReview, upForGrabs, staleWorktrees, at } of the last full one
 let ps = [];                                       // `orca worktree ps`, the worktrees with their agents
 const gits = new Map(Object.entries(cache.gits || {}));          // norm(worktree) -> { value, at, error }
 const reviews = new Map(Object.entries(cache.reviews || {}));    // PR URL -> { value, at, error }
@@ -288,7 +288,7 @@ function gather(full) {
       for (const p of next.prs) { const was = remote?.prs.find(x => x.url === p.url); if (was && (was.isDraft !== p.isDraft || was.checks !== p.checks || was.mergeable !== p.mergeable)) note(null, `${p.card || "PR " + p.number}: PR ${p.number} is ${p.isDraft ? "draft" : "ready"}, ${p.mergeable}, CI ${p.checks || "none"}`); }
       remote = next;
       boards = next.boards || boards;
-      if (full) { extras = { standup: next.standup, backForReview: next.backForReview, staleWorktrees: next.staleWorktrees, at: now }; removedWorktrees.clear(); }
+      if (full) { extras = { standup: next.standup, backForReview: next.backForReview, upForGrabs: next.upForGrabs, staleWorktrees: next.staleWorktrees, at: now }; removedWorktrees.clear(); }
       if (board === null && next.board) writeJsonFile(dataFile("board.json"), { board: next.board });
       sources.github = { at: now, error: "" }; sources.youtrack = { at: now, error: "" };
       sources.gather.at = now;
@@ -573,7 +573,7 @@ function buildState() {
   return {
     service: status(), board: remote?.board ?? boardWanted() ?? "", boards, developer: (dev.name || "").split(" ")[0],
     rows, inReview, deciders, reviewRequests: remote?.reviewRequests ?? null,
-    backForReview: extras.backForReview ?? null, standup: extras.standup ?? null, standupAt: STANDUP,
+    backForReview: extras.backForReview ?? null, upForGrabs: extras.upForGrabs ?? null, standup: extras.standup ?? null, standupAt: STANDUP,
     staleWorktrees: extras.staleWorktrees?.filter(w => !removedWorktrees.has(norm(w.path))) ?? null,
     tasks: readTasks(dataFile("tasks.json")), checkedAt: sources.gather.at, gathering: sources.gather.running,
   };
