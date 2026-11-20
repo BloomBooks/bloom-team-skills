@@ -111,6 +111,19 @@ An existing test is one already on the base branch; tests your branch added are 
 until it merges. No approval is needed to add new tests, or for mechanical updates that leave what a test checks
 unchanged: a rename, a moved file, a changed method signature.
 
+## Test what the code does, not what it shows
+
+A test earns its place by checking behavior: what the code works out or does in response to
+something, such as which settings a search finds, what gets saved, or what happens on a click. Do
+not write tests of static things, the text, color, position, size or spacing that the code simply
+declares. Such a test restates the code it tests, so it can only fail when someone changes that
+code on purpose. And there is no end to them: covering a page's static facts would take a test for
+every line length, every margin, every background color.
+
+The reasoning to catch in yourself is "every change gets a test that fails without it". A change
+to how something looks has nothing to fail but the declaration itself. Check it by looking at it,
+and show the developer a screenshot.
+
 ## A required quality step that cannot run stops the work
 
 The developer relies on knowing that the reviews, the walkaround, `/simplify` and the test suites
