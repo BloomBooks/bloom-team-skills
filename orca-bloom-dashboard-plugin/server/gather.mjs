@@ -15,6 +15,7 @@ import { pathToFileURL } from "node:url";
 import { developer } from "../../developer.mjs";
 import { callService } from "../../bloom-services/sources.mjs";
 import { reviewedCards, backForReview as cardsBackForReview } from "./reviewed.mjs";
+import { reviewRequests as requestsFor } from "./review-requests.mjs";
 import { standupDays, teamRepos } from "./standup.mjs";
 import { cardOf, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
 import { agentState, orca as orcaCli } from "../../orca-worktrees.mjs";
@@ -134,9 +135,9 @@ export async function gatherCard(id, repos) {
 
 /**
  * Gathers the facts and returns them: { gatheredAt, core, board, boardActivity, boards, cards, worktrees,
- * prs, standup, backForReview, staleWorktrees }. `board` as on the command line; `core` leaves
- * out the last three and each worktree's git state, which makes it one YouTrack query, one
- * `orca worktree list` and one `gh pr list` per repo. Throws when Orca, YouTrack or GitHub cannot
+ * prs, reviewRequests, standup, backForReview, staleWorktrees }. `board` as on the command line;
+ * `core` leaves out the last three and each worktree's git state, which makes it one YouTrack
+ * query, one `orca worktree list`, one `gh pr list` per repo and one GitHub search. Throws when Orca, YouTrack or GitHub cannot
  * be read: a failed read is an error, never an empty list.
  */
 export async function gather({ board: boardArg = null, core = false } = {}) {
@@ -219,6 +220,12 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
   const branchesIn = repo => worktrees.filter(w => w.repo === "github:" + repo).flatMap(w => [w.branch, w.upstreamBranch]);
   const prs = (await Promise.all([...repos].map(r => openPrs(r, branchesIn(r))))).flat();
 
+  // The open PRs that ask the developer for a review, from every board and repo
+  // (review-requests.mjs). null when GitHub would not give them, so the page keeps no stale list.
+  let reviewRequests = null;
+  try { reviewRequests = requestsFor(dev.github); }
+  catch (e) { console.warn("could not list the review requests: " + String(e.stderr || e.message).split("\n")[0]); }
+
   // board is null when every board was kept; boardActivity is set only when the board was chosen
   // by currentVersionBoard.
   // The cards whose PRs the developer reviewed lately, from every board (reviewed.mjs), and of
@@ -282,7 +289,7 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
     return list.sort((a, b) => a.warnings.length - b.warnings.length || a.card.localeCompare(b.card, undefined, { numeric: true }));
   }
 
-return { gatheredAt: new Date().toISOString(), core, board, boardActivity, boards, cards: kept, standup, backForReview, staleWorktrees, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };
+return { gatheredAt: new Date().toISOString(), core, board, boardActivity, boards, cards: kept, reviewRequests, standup, backForReview, staleWorktrees, worktrees: worktrees.filter(w => onBoard(w.card)), prs: prs.filter(p => onBoard(p.card)) };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {

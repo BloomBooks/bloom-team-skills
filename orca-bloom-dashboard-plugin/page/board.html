@@ -36,6 +36,11 @@
     <ul class="lines" id="decider-list"></ul>
   </section>
 
+  <section class="group" id="requests" hidden>
+    <h2>Waiting for your review <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="requests-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="requests-tip">Open PRs in BloomBooks and sillsdev that ask you, by name, for a review, the one that has waited longest first. A PR leaves the list when you submit a review, and comes back when its author asks again. Read every minute while this window shows.</span></span></h2>
+    <ul class="lines" id="requests-list"></ul>
+  </section>
+
   <section class="group" id="back" hidden>
     <h2>Back with you for review <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="back-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="back-tip">Cards in Ready For Code Review whose PRs you reviewed, judged by the card's open PR: orange when its author has responded since your last comment, or it is a new PR you haven't commented on; amber when the card is probably in the wrong State: Has Comments if the author hasn't responded, Ready For Testing if you merged its last PR and none is open.</span></span></h2>
     <ul class="lines" id="back-list"></ul>
@@ -212,6 +217,7 @@ function show(state) {
   checkedAt = state.checkedAt; gathering = state.gathering;
   showChecked();
   renderDeciders(state.deciders);
+  renderRequests(state.reviewRequests);
   render(state.rows);
   renderInReview(state.inReview);
   renderBack(state.backForReview);
@@ -285,9 +291,10 @@ const FOLLOW_UP = {
   new: { text: "New PR to review", title: "A PR on a card you reviewed before, with no comment from you yet" },
   forgot: { text: "Move to Has Comments?", title: "In Ready For Code Review, but the author hasn't responded since your last comment on this PR" },
   merged: { text: "Move to Ready For Testing?", title: "You merged the card's last PR and it has no open one, but the card is still in Ready For Code Review" },
+  requested: { text: "Review requested", title: "Someone asked you, by name, to review this PR" },
 };
 // The follow-ups whose next step is reviewing the PR, rather than moving the card.
-const REVIEW_NEXT = new Set(["responded", "new"]);
+const REVIEW_NEXT = new Set(["responded", "new", "requested"]);
 // One line of a list: the card's title and State, its id (a PR that names no card links the PR
 // itself, a repo's line its commits), its PR at the far right, and, when given, a time.
 function lineItem(f, time, timeTitle) {
@@ -303,9 +310,20 @@ function lineItem(f, time, timeTitle) {
     f.pr && !isPr ? el("span", { class: "id" }, REVIEW_NEXT.has(f.followUp) ? prLinks(f.pr, PR_TONE[prState]) : markMerged(toned(f.pr, "PR " + f.pr.split("/").pop(), PR_TONE[prState]), prState)) : null,
     time ? el("span", { class: "when", title: timeTitle + " " + new Date(time).toLocaleString() }, localTime(time)) : null);
 }
+// The PRs that ask for the developer's review (review-requests.mjs). A PR that names no card shows
+// its repo and number as plain text, so that its PR link carries Reviewable's rabbit like the rest.
+let requestedPrs = new Set();
+function renderRequests(items) {
+  requestedPrs = new Set((items || []).map(f => f.pr));
+  const ul = document.getElementById("requests-list");
+  ul.replaceChildren(...(items || []).map(f => lineItem({ ...f, url: f.url === f.pr ? null : f.url, followUp: "requested", summary: f.summary + (f.draft ? " (draft)" : "") },
+    f.openedAt, `Opened by ${f.author}`)));
+  document.getElementById("requests").hidden = !ul.childNodes.length;
+}
+// A PR that asks for the developer's review is listed only under "Waiting for your review".
 function renderBack(items) {
   const ul = document.getElementById("back-list");
-  ul.replaceChildren(...(items || []).map(f => lineItem(f, f.commentedAt, "You last commented")));
+  ul.replaceChildren(...(items || []).filter(f => !requestedPrs.has(f.pr)).map(f => lineItem(f, f.commentedAt, "You last commented")));
   document.getElementById("back").hidden = !ul.childNodes.length;
 }
 // A History day's heading: "Today", the weekday within the last week ("Friday"), or the weekday

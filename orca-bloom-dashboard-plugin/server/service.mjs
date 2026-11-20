@@ -572,7 +572,7 @@ function buildState() {
   const { rows, inReview, deciders } = buildRows();
   return {
     service: status(), board: remote?.board ?? boardWanted() ?? "", boards, developer: (dev.name || "").split(" ")[0],
-    rows, inReview, deciders,
+    rows, inReview, deciders, reviewRequests: remote?.reviewRequests ?? null,
     backForReview: extras.backForReview ?? null, standup: extras.standup ?? null, standupAt: STANDUP,
     staleWorktrees: extras.staleWorktrees?.filter(w => !removedWorktrees.has(norm(w.path))) ?? null,
     tasks: readTasks(dataFile("tasks.json")), checkedAt: sources.gather.at, gathering: sources.gather.running,

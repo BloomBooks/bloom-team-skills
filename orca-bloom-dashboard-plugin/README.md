@@ -76,7 +76,7 @@ flowchart TB
 | Preflight's phases, and its end with the commit and tree | `progress.mjs` (a file in `progress/`, then a nudge) | pushed | each step |
 | An agent is working, asks a question, was interrupted | Orca: the plugin pushes `agent.status.changed`, then one `orca worktree ps` | pushed | each change; every 5 min as a check; every 5 s while visible with no plugin connected |
 | HEAD, tree, uncommitted files, ahead and behind | git | file watch on the worktree's git folder; after a tool call in a session there | each change; every 60 s while visible |
-| Cards, PRs (draft, mergeable, CI, report), worktrees | `gather.mjs --core` | polled | every 60 s while visible; at once on Refresh, on `tell.mjs`, on becoming visible |
+| Cards, PRs (draft, mergeable, CI, report), worktrees, PRs that ask the developer by name for a review (`review-requests.mjs`) | `gather.mjs --core` | polled | every 60 s while visible; at once on Refresh, on `tell.mjs`, on becoming visible |
 | History, "Back with you for review", worktrees of resolved cards | `gather.mjs` | polled | every 15 min while visible; Refresh |
 | The developer's review marks; comments waiting | GitHub and Reviewable, one request at a time | polled | every 60 s while visible for a PR whose step depends on it, otherwise every 5 min; at once when the window gains focus |
 | Prose | `claude -p` | computed | when the facts it describes have changed and stayed so for 2 min |
