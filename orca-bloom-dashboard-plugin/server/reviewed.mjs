@@ -2,7 +2,7 @@
 // (standup.mjs, from reviewedCards) and for the dashboard's "Back with you for review" list (from
 // backForReview).
 //
-// reviewedCards asks GitHub for BloomBooks PRs opened by someone else that the developer reviewed
+// reviewedCards asks GitHub for PRs in the team's organizations (ORGS) opened by someone else that the developer reviewed
 // or commented on, and keeps those where the developer commented or reviewed in the last DAYS days
 // (Reviewable posts its comments as the reviewer's GitHub reviews, so they count). Each PR becomes
 // one line per card its title names (or, failing that, its branch), with the card's title and
@@ -23,6 +23,7 @@
 // Run on its own to see both lists: node reviewed.mjs
 
 import { execFileSync } from "node:child_process";
+import { orgsQuery } from "./row-facts.mjs";
 
 const DAYS = 14;
 // How far back the search for PRs reaches. Past DAYS, a review stays on the list only when its
@@ -106,7 +107,7 @@ export async function reviewedCards(yt, githubLogin, youtrackLogin) {
   const found = new Map(); // url -> { owner, repo, number }
   for (const who of ["reviewed-by", "commenter"]) {
     for (let page = 1; ; page++) {
-      const r = gh(["api", "-X", "GET", "search/issues", "-f", `q=is:pr org:BloomBooks ${who}:${githubLogin} -author:${githubLogin} updated:>=${day}`, "-f", "per_page=100", "-f", "page=" + page]);
+      const r = gh(["api", "-X", "GET", "search/issues", "-f", `q=is:pr ${orgsQuery} ${who}:${githubLogin} -author:${githubLogin} updated:>=${day}`, "-f", "per_page=100", "-f", "page=" + page]);
       for (const i of r.items) {
         const [owner, repo] = i.repository_url.split("/").slice(-2);
         found.set(i.html_url, { owner, repo, number: i.number });
@@ -161,7 +162,7 @@ export function backForReview(reviewed, githubLogin) {
   for (const r of reviewed) if (r.state === READY_FOR_REVIEW && /^BL-\d+$/.test(r.id) && !cards.has(r.id)) cards.set(r.id, r);
   const ids = [...cards.keys()];
   // GitHub's search matches the id as a word of the title; the branch is checked by prFacts.
-  const data = graphqlBatches(ids.map((id, n) => `c${n}: search(query: ${JSON.stringify(`is:pr org:BloomBooks ${id} in:title`)}, type: ISSUE, first: 50) { nodes { ... on PullRequest { ${PR_FIELDS} } } }`));
+  const data = graphqlBatches(ids.map((id, n) => `c${n}: search(query: ${JSON.stringify(`is:pr ${orgsQuery} ${id} in:title`)}, type: ISSUE, first: 50) { nodes { ... on PullRequest { ${PR_FIELDS} } } }`));
   const out = [];
   ids.forEach((id, n) => {
     const card = cards.get(id);

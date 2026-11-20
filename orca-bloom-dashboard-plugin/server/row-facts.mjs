@@ -58,6 +58,11 @@ export const reportOf = body => (String(body || "").match(/Preflight report:[^\n
 // the report's own wording of "nothing is waiting" varies from run to run.
 export const countDecisions = html => String(html).split(/<[^>]*>/).filter(t => /^\s*Leave as is\s*$/i.test(t)).length;
 
+// The GitHub organizations whose PRs the dashboard searches for the developer's reviews and
+// stand-up. GitHub's search treats several org: qualifiers as "any of these".
+export const ORGS = ["BloomBooks", "sillsdev"];
+export const orgsQuery = ORGS.map(o => "org:" + o).join(" ");
+
 // Where preflight publishes its reports (dev-process-artifacts.md). A PR's description is written
 // by whoever opened the PR, so the dashboard fetches a report only from here, and follows no
 // redirect: anything else in a "Preflight report:" line would have the developer's machine

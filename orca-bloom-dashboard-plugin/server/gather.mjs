@@ -15,7 +15,7 @@ import { pathToFileURL } from "node:url";
 import { developer } from "../../developer.mjs";
 import { callService } from "../../bloom-services/sources.mjs";
 import { reviewedCards, backForReview as cardsBackForReview } from "./reviewed.mjs";
-import { bloomRepos, standupDays } from "./standup.mjs";
+import { standupDays, teamRepos } from "./standup.mjs";
 import { cardOf, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
 import { agentState, orca as orcaCli } from "../../orca-worktrees.mjs";
 import { removalWarnings, statusEntries } from "./stale-worktrees.mjs";
@@ -237,7 +237,7 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
   // null in the same way.
   let standup = null;
   if (!core) try {
-    standup = await standupDays({ yt, githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: bloomRepos((await orca("repo", "list")).repos), reviewed: reviewed || [] });
+    standup = await standupDays({ yt, githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: teamRepos((await orca("repo", "list")).repos), reviewed: reviewed || [] });
   } catch (e) { console.warn("could not list the standup days: " + e.message); }
 
   // The worktrees whose card is resolved, from every board, with the signs of work left in each

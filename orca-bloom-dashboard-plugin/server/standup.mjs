@@ -21,7 +21,7 @@
 //   which also leaves out comments that agents posted for them).
 // A line is a card when its PR's title or branch, its worktree's branch, or its commit's message
 // names one; a PR that names no card is the line "<repo>#<number>", and other work in a repo is the
-// line "<repo>". Repos are the BloomBooks repos that Orca knows. Agents commit under the developer's
+// line "<repo>". Repos are the repos Orca knows in the team's organizations (ORGS). Agents commit under the developer's
 // git name, so their commits count.
 //
 // The team's stand-up meeting is at STANDUP each weekday, on the clock in Denver (8:45 MST in
@@ -42,6 +42,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { ORGS, orgsQuery } from "./row-facts.mjs";
 import { mayHoldPrompt, promptText, typedPrompt } from "./transcripts.mjs";
 
 export const WEEKDAYS = 3;
@@ -120,7 +121,7 @@ const normPath = p => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "").to
 /**
  * yt(path, params) calls the YouTrack REST API; githubLogin, youtrackLogin and gitName identify
  * the developer; worktrees are gather.mjs's worktree records ({ card, path, base }); repos are
- * the BloomBooks repos Orca knows ({ name, slug: "BloomBooks/x", path }); reviewed is
+ * the team's repos Orca knows ({ name, slug: "BloomBooks/x", path }); reviewed is
  * reviewedCards' list. Returns [{ date, finished, worked, reviewed }] for the days from
  * historyStart() on that have any activity, newest day first, each list
  * [{ id, url, summary, state, pr, prState, at, beforeStandup }] newest first, where at is the
@@ -144,7 +145,7 @@ export async function standupDays({ yt, githubLogin, youtrackLogin, gitName, wor
   // ---- the developer's PRs: ready for review, merged, and their commits
   const found = new Map();
   for (let page = 1; ; page++) {
-    const r = gh(["api", "-X", "GET", "search/issues", "-f", `q=is:pr org:BloomBooks author:${githubLogin} updated:>=${sinceDay}`, "-f", "per_page=100", "-f", "page=" + page]);
+    const r = gh(["api", "-X", "GET", "search/issues", "-f", `q=is:pr ${orgsQuery} author:${githubLogin} updated:>=${sinceDay}`, "-f", "per_page=100", "-f", "page=" + page]);
     for (const i of r.items) {
       const [owner, repo] = i.repository_url.split("/").slice(-2);
       found.set(i.html_url, { owner, repo, number: i.number });
@@ -328,13 +329,13 @@ export async function standupDays({ yt, githubLogin, youtrackLogin, gitName, wor
 }
 
 /**
- * The BloomBooks repos among the ones Orca knows (`orca repo list`'s `repos`), as standupDays
+ * The repos in the team's organizations (ORGS) among the ones Orca knows (`orca repo list`'s `repos`), as standupDays
  * wants them: { name, slug, path }.
  */
-export function bloomRepos(repos) {
+export function teamRepos(repos) {
   return (repos || [])
     .map(r => ({ path: r.path, key: r.gitRemoteIdentity?.canonicalKey || "" }))
-    .filter(r => /^github\.com\/bloombooks\//i.test(r.key))
+    .filter(r => ORGS.some(o => r.key.toLowerCase().startsWith(`github.com/${o.toLowerCase()}/`)))
     .map(r => ({ path: r.path, slug: r.key.slice("github.com/".length), name: r.key.split("/").pop() }));
 }
 
@@ -358,7 +359,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "
   }).filter(Boolean);
   const dev = await developer();
   const reviewed = await reviewedCards(yt, dev.github, dev.youtrack.login);
-  for (const day of await standupDays({ yt, githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: bloomRepos((await orca("repo", "list")).repos), reviewed })) {
+  for (const day of await standupDays({ yt, githubLogin: dev.github, youtrackLogin: dev.youtrack.login, gitName: dev.git, worktrees, repos: teamRepos((await orca("repo", "list")).repos), reviewed })) {
     console.log(day.date);
     for (const kind of ["finished", "worked", "reviewed"]) for (const c of day[kind]) console.log(`  ${kind.padEnd(9)} ${c.beforeStandup ? "early " : "      "}${c.id.padEnd(22)} ${c.state.padEnd(21)} ${c.summary}`);
   }

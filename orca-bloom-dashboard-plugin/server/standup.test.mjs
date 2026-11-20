@@ -1,7 +1,7 @@
 // Tests for the rules of History in standup.mjs (reviewed.mjs has its own). Run: node --test "orca-bloom-dashboard-plugin/**/*.test.mjs"
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { beforeStandup, bloomRepos, dayOf, historyStart, readyTimes } from "./standup.mjs";
+import { beforeStandup, dayOf, historyStart, readyTimes, teamRepos } from "./standup.mjs";
 
 const ready = at => ({ __typename: "ReadyForReviewEvent", createdAt: at });
 const draft = at => ({ __typename: "ConvertToDraftEvent", createdAt: at });
@@ -42,12 +42,13 @@ test("work counts as before stand-up only on a weekday before 8:45 in Denver", (
   assert.equal(beforeStandup("2026-11-13T15:00:00Z"), true);   // Friday 8:00 MST
 });
 
-test("bloomRepos keeps the BloomBooks repos Orca knows", () => {
+test("teamRepos keeps the repos Orca knows in the team's organizations", () => {
   const repos = [
     { path: "D:/bloom", gitRemoteIdentity: { canonicalKey: "github.com/BloomBooks/BloomDesktop" } },
+    { path: "D:/l10n", gitRemoteIdentity: { canonicalKey: "github.com/sillsdev/l10nsharp" } },
     { path: "D:/other", gitRemoteIdentity: { canonicalKey: "github.com/someone/else" } },
     { path: "D:/none" },
   ];
-  assert.deepEqual(bloomRepos(repos), [{ path: "D:/bloom", slug: "BloomBooks/BloomDesktop", name: "BloomDesktop" }]);
-  assert.deepEqual(bloomRepos(undefined), []);
+  assert.deepEqual(teamRepos(repos), [{ path: "D:/bloom", slug: "BloomBooks/BloomDesktop", name: "BloomDesktop" }, { path: "D:/l10n", slug: "sillsdev/l10nsharp", name: "l10nsharp" }]);
+  assert.deepEqual(teamRepos(undefined), []);
 });
