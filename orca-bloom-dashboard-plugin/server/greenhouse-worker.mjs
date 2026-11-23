@@ -21,7 +21,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { dataFile, readJsonFile, writeJsonFile, log } from "./env.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { cleanSettings, plan, sameValues, shutDownReason, hoursBegan, hoursOpened, workerGate } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, plan, sameValues, shutDownReason, hoursBegan, workerGate } from "./greenhouse-worker-plan.mjs";
 import { workerValues } from "./greenhouse-worker-rules.mjs";
 
 const settingsFile = () => dataFile("greenhouse-worker.json");
@@ -61,11 +61,14 @@ export function savedSettings() {
   const saved = readJsonFile(settingsFile(), null);
   return saved ? cleanSettings(saved) : null;
 }
+// The page saves each change as it is made, so the worker is considered once the changes stop.
+const SETTLE_MS = 5_000;
+let settleTimer = null;
 export function saveSettings(input) {
-  const before = savedSettings();
   const settings = cleanSettings(input);
   writeJsonFile(settingsFile(), settings);
-  if (hoursOpened(before, settings, new Date())) startWorker();
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => startIfMayWork("its settings changed"), SETTLE_MS);
   return settings;
 }
 
@@ -134,7 +137,7 @@ function everyMinute() {
   const since = lastCheck;
   lastCheck = now.getTime();
   const settings = savedSettings();
-  if (settings && hoursBegan(settings, { now, since })) startWorker();
+  if (settings && hoursBegan(settings, { now, since })) startIfMayWork("its hours began");
   checkShutDown("tick", since);
 }
 
@@ -167,23 +170,40 @@ const orcaExe = () => {
 const execFileP = promisify(execFile);
 const START_NAME = "Greenhouse worker's hours";
 const orcaJson = async args => JSON.parse((await execFileP(orcaExe(), [...args, "--json"], { windowsHide: true })).stdout).result;
-/** Starts a run of the Greenhouse worker bot for the hours that have just begun, as an Orca
- * automation that runs once, a few seconds from now. A message to the bot (`orca orchestration
- * send`) would need an Orca terminal to send it from, which the service lacks. Orca keeps such an
- * automation after its run, so the ones that earlier starts made are removed first. The bot asks
- * workerGate before each item, so a start when it may not work ends at once. */
-async function startWorker() {
-  const prompt = "Your hours on this machine have begun. Work as your SOUL.md says: before each claim run `node greenhouse.mjs gate`, and stop when it says that you may not work.";
+// The states of an automation's run after it has ended. Any other state is a run still under way.
+const RUN_ENDED = new Set(["completed", "failed", "cancelled", "canceled", "skipped_precheck", "error", "timed_out"]);
+let starting = false;
+/** Starts a run of the Greenhouse worker bot when the gate says that it may work now and no run
+ * that the service started is still under way. `why` goes in the log. */
+async function startIfMayWork(why) {
+  if (starting) return;
+  starting = true;
   try {
-    for (const a of (await orcaJson(["automations", "list"])).automations) {
-      if (a.name === START_NAME) await orcaJson(["automations", "remove", a.id]);
-    }
-    const by = new Date(Date.now() + 5_000).toISOString();
-    await orcaJson(["automations", "create", "--name", START_NAME, "--bot", "Greenhouse Worker", "--once", "--by", by, "--prompt", prompt]);
-    log("greenhouse worker: started the worker for its hours");
+    const gate = await workerGateNow();
+    if (!gate.mayWork) return log(`greenhouse worker: not started (${why}): ${gate.reason}`);
+    await startWorker(why);
   } catch (error) {
-    log("greenhouse worker: starting the worker failed: " + String(error.stderr || error.message).trim());
+    log(`greenhouse worker: starting the worker failed (${why}): ` + String(error.stderr || error.message).trim());
+  } finally {
+    starting = false;
   }
+}
+
+/** Starts a run of the Greenhouse worker bot, as an Orca automation that runs once, a few seconds
+ * from now. A message to the bot (`orca orchestration send`) would need an Orca terminal to send it
+ * from, which the service lacks. Orca keeps such an automation after its run, so the one that the
+ * last start made is removed first, unless its run is still under way, when nothing is started. */
+async function startWorker(why) {
+  for (const a of (await orcaJson(["automations", "list"])).automations) {
+    if (a.name !== START_NAME) continue;
+    const runs = (await orcaJson(["automations", "runs", "--id", a.id])).runs;
+    if (runs.some(r => !RUN_ENDED.has(r.status))) return log(`greenhouse worker: already working (${why})`);
+    await orcaJson(["automations", "remove", a.id]);
+  }
+  const prompt = "Work on the Greenhouse as your SOUL.md says: before each claim run `node greenhouse.mjs gate`, and stop when it says that you may not work.";
+  const by = new Date(Date.now() + 5_000).toISOString();
+  await orcaJson(["automations", "create", "--name", START_NAME, "--bot", "Greenhouse Worker", "--once", "--by", by, "--prompt", prompt]);
+  log(`greenhouse worker: started the worker (${why})`);
 }
 
 /** Milliseconds since the last keyboard or mouse input and whether the machine is on AC power, as

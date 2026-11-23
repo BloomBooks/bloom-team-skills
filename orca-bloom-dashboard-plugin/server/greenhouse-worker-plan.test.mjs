@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cleanSettings, cleanValues, plan, sameValues, shutDownReason, hoursBegan, hoursOpened, workerGate, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, cleanValues, plan, sameValues, shutDownReason, hoursBegan, workerGate, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
 
 // November 2026: the 19th and the 26th are Thursdays. Times are local, as the plan's are.
 const at = (day, hour, minute = 0) => new Date(2026, 10, day, hour, minute);
@@ -172,18 +172,6 @@ test("sameValues sees custom values copied from Auto as Auto's, and an edited on
 test("a developer at the keyboard keeps the machine on after the worker stops", () => {
   assert.equal(shutDownReason(shutting(), { event: "workerStopped", now: at(19, 19), idleMs: 60_000 }), null);
   assert.equal(shutDownReason(shutting(), { event: "workerStopped", now: at(19, 19), idleMs: 30 * 60_000 }), "the Greenhouse worker stopped");
-});
-
-test("saving settings starts the worker when the save puts now inside its hours", () => {
-  const now = at(19, 17);
-  const hours = { ...withWorker("16:00", "18:00"), preset: "conservative" };
-  const later = { ...withWorker("19:00", "20:00"), preset: "conservative" };
-  assert.equal(hoursOpened(null, hours, now), true);
-  assert.equal(hoursOpened({ ...hours, preset: "off" }, hours, now), true);
-  assert.equal(hoursOpened(later, hours, now), true);
-  assert.equal(hoursOpened(hours, { ...hours, keepPerWorkday: 0.2 }, now), false);
-  assert.equal(hoursOpened(hours, later, now), false);
-  assert.equal(hoursOpened(later, { ...hours, preset: "off" }, now), false);
 });
 
 test("the worker is started once, at the first check after its hours begin", () => {
