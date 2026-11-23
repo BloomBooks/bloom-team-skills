@@ -283,7 +283,9 @@ The Greenhouse worker, an Orca bot, follows these settings through the service
   says yes, `greenhouse.mjs` sets the lender's offer in the Greenhouse to what they have used plus
   what is lendable.
 - **The start.** At the first check after the worker's hours begin (`hoursBegan`), the service hands
-  the bot named "Greenhouse Worker" a run with `orca orchestration send`. It does the same when the
+  the bot named "Greenhouse Worker" a run, through an Orca automation named "Greenhouse worker's
+  hours" that runs once (`orca automations create --once`). Orca keeps it after the run, so each
+  start removes the one before. It does the same when the
   page saves settings that put now inside the worker's hours, as turning the worker on or moving its
   hours to include now does (`hoursOpened`); other changes while the hours run start nothing.
 - **The shutdown.** With "Shut the machine down" chosen and the worker not Off, the service runs

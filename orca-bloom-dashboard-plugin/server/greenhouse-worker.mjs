@@ -20,6 +20,7 @@ import readline from "node:readline";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { dataFile, readJsonFile, writeJsonFile, log } from "./env.mjs";
 import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { cleanSettings, plan, sameValues, shutDownReason, hoursBegan, hoursOpened, workerGate } from "./greenhouse-worker-plan.mjs";
 import { workerValues } from "./greenhouse-worker-rules.mjs";
 
@@ -163,13 +164,26 @@ const orcaExe = () => {
   const installed = path.join(process.env.LOCALAPPDATA ?? "", "Programs", "Orca", "resources", "bin", "orca.exe");
   return fs.existsSync(installed) ? installed : "orca";
 };
-/** Hands the Greenhouse worker bot its run for the hours that have just begun. The bot asks
+const execFileP = promisify(execFile);
+const START_NAME = "Greenhouse worker's hours";
+const orcaJson = async args => JSON.parse((await execFileP(orcaExe(), [...args, "--json"], { windowsHide: true })).stdout).result;
+/** Starts a run of the Greenhouse worker bot for the hours that have just begun, as an Orca
+ * automation that runs once, a few seconds from now. A message to the bot (`orca orchestration
+ * send`) would need an Orca terminal to send it from, which the service lacks. Orca keeps such an
+ * automation after its run, so the ones that earlier starts made are removed first. The bot asks
  * workerGate before each item, so a start when it may not work ends at once. */
-function startWorker() {
-  const body = "Your hours on this machine have begun. Work as your SOUL.md says: before each claim run `node greenhouse.mjs gate`, and stop when it says that you may not work.";
-  execFile(orcaExe(), ["orchestration", "send", "--to", "bot:Greenhouse Worker", "--type", "handoff", "--subject", "Work on the Greenhouse until your hours on this machine end", "--body", body], { windowsHide: true }, error => {
-    log(error ? "greenhouse worker: starting the worker failed: " + error.message : "greenhouse worker: started the worker for its hours");
-  });
+async function startWorker() {
+  const prompt = "Your hours on this machine have begun. Work as your SOUL.md says: before each claim run `node greenhouse.mjs gate`, and stop when it says that you may not work.";
+  try {
+    for (const a of (await orcaJson(["automations", "list"])).automations) {
+      if (a.name === START_NAME) await orcaJson(["automations", "remove", a.id]);
+    }
+    const by = new Date(Date.now() + 5_000).toISOString();
+    await orcaJson(["automations", "create", "--name", START_NAME, "--bot", "Greenhouse Worker", "--once", "--by", by, "--prompt", prompt]);
+    log("greenhouse worker: started the worker for its hours");
+  } catch (error) {
+    log("greenhouse worker: starting the worker failed: " + String(error.stderr || error.message).trim());
+  }
 }
 
 /** Milliseconds since the last keyboard or mouse input and whether the machine is on AC power, as
