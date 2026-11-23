@@ -54,9 +54,27 @@ overwrites an existing link or touches skills that aren't part of this repo.
    load, or a pull changed its access, its button or its panel), and the output lists the access it
    asks for. Show the developer that list and ask once whether to approve it, since the plugin runs
    code under their account. On a yes, run the same command with `--approve`.
-7. **Report.** Summarise: pull result, which links were newly created, which already existed, any
+7. **Set up the Greenhouse worker.** The worker is an Orca bot that does the Bloom test
+   Greenhouse's work items on the part of the developer's Claude plan that they lend. Its
+   instructions live in the public repository BloomBooks/greenhouse, kept in
+   `~/.claude/greenhouse-repo`, which nobody edits:
+   - When that folder is missing, `git clone https://github.com/BloomBooks/greenhouse.git
+     ~/.claude/greenhouse-repo`; otherwise `git -C ~/.claude/greenhouse-repo pull --ff-only`.
+   - Run `node ~/.claude/greenhouse-repo/bots/install.mjs greenhouse-worker` and act on its exit code:
+     - **0**: installed. When this is the first install, tell the developer to press Bloom
+       Greenhouse in Orca's status bar and set how much of their plan to lend and when; the worker
+       stays Off until they do.
+     - **3**: there is no Orca bot named "Greenhouse Worker". Orca makes a bot only when its owner
+       creates it, so tell the developer to create one in Orca, named exactly `Greenhouse Worker`,
+       and then run `/update-team-skills` again. Do not ask whether they want the worker; this
+       line in the report is enough.
+     - **4**: the developer has not yet authorized what the worker does under their GitHub login.
+       The output says what that is. Ask them with `AskUserQuestion`, quoting it. On a yes, run the
+       same command with `--authorize`. On a no, leave it; the worker is not installed.
+     - **1**: the output lists what is missing on this machine. Report it.
+8. **Report.** Summarise: pull result, which links were newly created, which already existed, any
    removed, whether the hook was installed, whether the TEAM-AGENTS.md import was added, and
-   what step 6 printed. A running session notices changed and newly linked
+   what steps 6 and 7 printed. A running session notices changed and newly linked
    skills within a few seconds, so no restart is needed.
 
 ## Commands

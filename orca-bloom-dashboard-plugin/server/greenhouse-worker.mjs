@@ -200,7 +200,7 @@ let reading = null;
 function readUsage() {
   reading ??= (async () => {
     try {
-      if (!fs.existsSync(usageScript())) throw new Error(`${usageScript()} is missing. Run set-claude-token.mjs from the greenhouse repository's bots folder once on this machine.`);
+      if (!fs.existsSync(usageScript())) throw new Error(`${usageScript()} is missing. /update-team-skills installs it with the Greenhouse worker.`);
       const { readWeeklyUsage } = await import(pathToFileURL(usageScript()).href);
       last.usage = await readWeeklyUsage();
       last.at = Date.now();
