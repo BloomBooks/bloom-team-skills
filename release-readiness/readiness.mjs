@@ -26,7 +26,7 @@ import { callService, configure } from "../bloom-services/sources.mjs";
 // `to` the one whose push publishes the release.
 const REPOS = {
     blorg: { name: "Bloom Library release", repo: "BloomBooks/BloomLibrary2", from: "master", to: "release" },
-    "b-p": { name: "bloom-player release", repo: "BloomBooks/bloom-player", from: "alpha", to: "master" },
+    "b-p": { name: "bloom-player release", repo: "BloomBooks/bloom-player", from: "master", to: "release" },
 };
 // What uses bloom-player, and where each records the version it ships: a lockfile on the branch
 // or tag it publishes from. `ref` "latest release" is the repo's latest GitHub release; "beta" is
@@ -177,7 +177,7 @@ function playerConsumers(betaVersion) {
         else if (ref === "latest release") ref = github(`repos/${c.repo}/releases/latest`).tag_name;
         const lock = execFileSync("gh", ["api", `repos/${c.repo}/contents/${c.lock}?ref=${ref}`, "-H", "Accept: application/vnd.github.raw"], { encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "pipe"] });
         const version = lockedPlayerVersion(lock);
-        const behind = github(`repos/BloomBooks/bloom-player/compare/v${version}...master?per_page=250`);
+        const behind = github(`repos/BloomBooks/bloom-player/compare/v${version}...release?per_page=250`);
         if (behind.total_commits > behind.commits.length) throw new Error(`${c.name}: ${behind.total_commits} bloom-player commits are past v${version}, more than GitHub lists at once`);
         return { name: c.name, repo: c.repo, ref, playerVersion: version, pending: behind.commits.map(asChange) };
     });
@@ -199,7 +199,7 @@ if (target) {
         const beta = (await publishConfigs()).find((c) => c.channel === "beta");
         if (!beta) throw new Error("TeamCity has no live Beta Publish config, so the Bloom Desktop beta branch is unknown");
         for (const c of playerConsumers(beta.version)) {
-            report.push({ config: `bloom-player master not yet in ${c.name}`, repo: c.repo, shippedFrom: c.ref, playerVersion: c.playerVersion, channel: "consumer", ...(await waiting(c.pending)), versionCardsNotWaiting: null });
+            report.push({ config: `bloom-player release not yet in ${c.name}`, repo: c.repo, shippedFrom: c.ref, playerVersion: c.playerVersion, channel: "consumer", ...(await waiting(c.pending)), versionCardsNotWaiting: null });
         }
     }
 }
