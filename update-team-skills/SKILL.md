@@ -61,9 +61,11 @@ overwrites an existing link or touches skills that aren't part of this repo.
    - When that folder is missing, `git clone https://github.com/BloomBooks/greenhouse.git
      ~/.claude/greenhouse-repo`; otherwise `git -C ~/.claude/greenhouse-repo pull --ff-only`.
    - Run `node ~/.claude/greenhouse-repo/bots/install.mjs greenhouse-worker` and act on its exit code:
-     - **0**: installed. When this is the first install, tell the developer to press Bloom
-       Greenhouse in Orca's status bar and set how much of their plan to lend and when; the worker
-       stays Off until they do.
+     - **0**: installed. Pass on each line of its output that starts with `Next:`, with any path in
+       it in full. On the first install there are two: set the bot's avatar in Orca's bot settings
+       to the picture it names (no `orca` command sets an avatar), and press Bloom Greenhouse in
+       Orca's status bar to set how much of the plan to lend and when; the worker stays Off until
+       the developer does.
      - **3**: there is no Orca bot named "Greenhouse Worker". Orca makes a bot only when its owner
        creates it, so tell the developer to create one in Orca, named exactly `Greenhouse Worker`,
        and then run `/update-team-skills` again. Do not ask whether they want the worker; this
