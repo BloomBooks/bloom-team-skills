@@ -23,6 +23,10 @@
       {
         "id": "dashboard.show",
         "title": "Show the Bloom dashboard"
+      },
+      {
+        "id": "greenhouseWorker.show",
+        "title": "Show Bloom Greenhouse"
       }
     ],
     "events": [
@@ -44,6 +48,13 @@
         "tooltip": "Show the Bloom dashboard",
         "command": "dashboard.show",
         "tone": "warning"
+      },
+      {
+        "id": "greenhouse-worker",
+        "text": "Bloom Greenhouse",
+        "icon": "bot",
+        "tooltip": "The Greenhouse worker's settings, and the Greenhouse's status",
+        "command": "greenhouseWorker.show"
       }
     ],
     "panels": [

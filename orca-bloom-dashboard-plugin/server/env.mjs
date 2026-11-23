@@ -29,6 +29,8 @@ export const dataFile = name => path.join(dataDir(), name);
  *   config.json        { model, prose } (prose.mjs)
  *   board.json         { board } the Kanban Board the rows are for
  *   tasks.json         the developer's to-do items; the one file nothing can work out again
+ *   greenhouse-worker.json  the developer's settings on the Bloom Greenhouse window's My Greenhouse worker tab
+ *   greenhouse-history.jsonl  hourly readings of the plan, prompt times and bot activity, for its presets (greenhouse-worker.mjs)
  *   progress/          a preflight run's phases, one file per worktree (progress.mjs)
  *   deciders/          the forms waiting for the developer's answers (deciders.mjs)
  */

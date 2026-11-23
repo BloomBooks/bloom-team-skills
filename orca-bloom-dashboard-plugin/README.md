@@ -62,6 +62,8 @@ flowchart TB
 | `server/deciders.mjs` | the decider forms that wait for answers |
 | `page/row.js`, `page/dashboard.css` | drawing a row. The page and the panel both load them, and they hold no rule |
 | `worker.ts`, `panel-facts.mjs`, `panel.js` | Orca's side: the worker relays, `panel-facts.mjs` reads what only Orca knows, `panel.js` draws |
+| `server/greenhouse-worker-plan.mjs` | how much of the developer's Claude plan the Greenhouse worker may use (`plan`), and which settings are valid (`cleanSettings`) |
+| `server/greenhouse-worker-rules.mjs` | the values of the Auto preset, from this machine's history (`workerValues`) |
 
 `rows.mjs` and `runs.mjs` are plain functions of their arguments, tested in `server/*.test.mjs`.
 
@@ -250,10 +252,83 @@ running, the decider serves its form itself.
 ## The Orca plugin
 
 `orca-plugin.json` describes one plugin: the Bloom Dashboard button in the status bar, which also
-says how many cards wait for the developer, and the Worktree panel. Orca lets a panel load only
+says how many cards wait for the developer, the Bloom Greenhouse button beside it, and the Worktree
+panel. Orca lets a panel load only
 files inside its plugin's folder, which is why `page/row.js` and `page/dashboard.css` live in this
 one. `orca-plugins.mjs` loads the plugin, and first takes out of Orca the two plugins that the
 `dashboard/` folder used to hold.
+
+## The Bloom Greenhouse window
+
+The Bloom Greenhouse button in the status bar shows a window (`page/greenhouse.html`, served at
+`/greenhouse`) with two tabs. Greenhouse Status shows the Greenhouse's own app, from
+`GREENHOUSE_URL` or else the address that bloom-bot's tool server gives (`GET /greenhouse`), as the
+greenhouse repository's `greenhouse.mjs` does. On My Greenhouse worker the developer chooses how much of their Claude plan the
+Greenhouse worker may use: Off, Auto, or Custom. What no history can
+tell is theirs to set in every mode: the hours when the worker may have this machine (days, and a
+start and end that may run past midnight), whether to wake the machine from sleep when those hours
+begin, and whether to shut it down after the worker. The worker runs at no other time, and only on
+AC power, which no setting changes. The page saves each change to `greenhouse-worker.json` in the data folder.
+
+The Greenhouse worker, an Orca bot, follows these settings through the service
+(`greenhouse-worker.mjs`):
+
+- **The gate.** Before each claim, and every 20 minutes during an item, the worker runs
+  `greenhouse.mjs gate <lender>` from the greenhouse repository, which asks
+  `GET /greenhouse-worker/gate`. `workerGate` in `greenhouse-worker-plan.mjs` says no outside the
+  worker's hours, with the worker Off, on battery, while the developer is at the machine (keyboard
+  or mouse input, or a prompt, within the minutes before they count as away, unless the worker may
+  run while they use it), with nothing lendable, or with the 5-hour period at its ceiling; and
+  `stopNow` at the 5-hour hard stop. `presence.ps1` reads the input and power state. When the gate
+  says yes, `greenhouse.mjs` sets the lender's offer in the Greenhouse to what they have used plus
+  what is lendable.
+- **The start.** At the first check after the worker's hours begin (`hoursBegan`), the service hands
+  the bot named "Greenhouse Worker" a run with `orca orchestration send`.
+- **The shutdown.** With "Shut the machine down" chosen and the worker not Off, the service runs
+  Windows' `shutdown /s /t 300` when the worker's hours end, or when a session of the bot ends a
+  turn inside those hours, which is how the worker stops when the gate says no or the Greenhouse
+  has no work. It does not when the developer sent a prompt or used the keyboard or mouse in the
+  last 20 minutes, or when the machine wakes more than 5 minutes after the hours ended.
+`shutDownReason` in `greenhouse-worker-plan.mjs` decides; `shutdown /a` cancels in the 5 minutes
+of warning.
+
+An Auto setting works out every other value from the last 4 weeks of this machine's history
+(`workerValues` in `server/greenhouse-worker-rules.mjs`), and the page shows each one with where it
+came from, without a field to change it:
+
+- the workdays: each weekday with 20 or more prompts on at least 3 of its last 4 occurrences;
+- the work hours: from a time that 9 in 10 of those days began after to one that 9 in 10 ended
+  before;
+- the share kept for each workday: the developer's heaviest workday;
+- the ceiling on a 5-hour period in work hours: from their usual peak in one;
+- the minutes before they count as away: from the pauses between their prompts.
+
+Each keeps a quarter more than the history shows, and each uses a starting value until enough is
+recorded. Choosing Custom copies the values that Auto shows into fields, which then stay as the
+developer sets them. Choosing an Auto setting again discards them, after the page asks.
+
+The history is `greenhouse-history.jsonl` in the data folder: a reading of the plan once an hour
+while the service runs, the time of each prompt from the hooks, and the times when an Orca bot's
+session (a folder under `~/.orca/bots`) was at work, so that a bot's use is not taken for the
+developer's. The first time the service runs, it adds the developer's prompts of the 28 days before
+from the Claude Code transcripts on this machine, so that the workdays, the hours and the pauses
+need no wait. The plan's readings cannot be had that way. Lines older than 60 days are dropped.
+
+`plan` in `server/greenhouse-worker-plan.mjs` turns the settings and the plan's usage into what
+the page draws:
+
+```
+lendable = (1 - usage) - keepPerWorkday x the workdays still ahead before the week resets
+```
+
+The worker's hours are not work hours: the plan takes them out of each workday, so a 5-hour period
+that ends inside them gets the higher ceiling. A workday counts as the part of the work hours left
+to it that lies ahead. The usage comes from
+`~/.config/claude-usage/claude-usage.mjs`, which the greenhouse repository's `set-claude-token.mjs`
+installs; one read is a one-token request to Claude. The page reads it when it opens, when its
+window shows again, and every five minutes while it shows. The button's text ("Bloom Greenhouse · 20%
+lendable") uses a read that is at most 15 minutes old. The hourly reading for the history goes on
+whatever the developer chose, since the presets need it before the worker is turned on.
 
 ## Tests
 

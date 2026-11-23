@@ -37,6 +37,11 @@
 //   POST /decider, GET /decide/<id>, POST /decide/<id>/answers, GET /decider/<id>/wait
 //   GET  /status           what the page's service indicator shows; no key
 //   GET  /hooks            the newest hook payloads, for checking what sessions send (x-bloom-key)
+//   GET  /greenhouse       the Bloom Greenhouse page; GET /greenhouse-worker/state and
+//                          POST /greenhouse-worker/settings are its own (x-dashboard-token);
+//                          GET /greenhouse-worker/summary is the status bar button's text (x-bloom-key)
+//                          GET /greenhouse-worker/gate: whether the Greenhouse worker may claim an
+//                          item now (x-bloom-key; greenhouse.mjs's `gate` asks it)
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -60,6 +65,7 @@ import { unconfirmed } from "./stale-worktrees.mjs";
 import { orca, norm, setLog, bringOrcaToFront, openWorktree, createWorktree, runSkill, sendPrompt, openInVsCode } from "../../orca-worktrees.mjs";
 import { developer } from "../../developer.mjs";
 import { openChange, openCommit } from "./open-change.mjs";
+import { workerState, workerSummary, workerGateNow, saveSettings, recordHook, startRecording } from "./greenhouse-worker.mjs";
 
 const execFileP = promisify(execFile);
 const args = process.argv.slice(2);
@@ -705,10 +711,12 @@ function restart(why) {
 // other than main says so, as the status bar button does, so that its window can be told from
 // one that another checkout's dashboard opened.
 const windowTitle = () => "Bloom Dashboard" + (code.branch && !["main", "master"].includes(code.branch) ? ` [${code.branch}]` : "");
-async function showWindow() {
-  if ([...streams.values()].length && process.platform === "win32") {
+// The Bloom Greenhouse window. No stream says whether one is open, so it is always looked for.
+const GREENHOUSE_WINDOW = { address: "/greenhouse", title: "Bloom Greenhouse", size: "1200,940", mayBeOpen: true };
+async function showWindow({ address = "/", title = windowTitle(), size = "1280,900", mayBeOpen = [...streams.values()].length > 0 } = {}) {
+  if (mayBeOpen && process.platform === "win32") {
     try {
-      await execFileP("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(serviceDir, "raise-window.ps1"), "-Title", windowTitle()], { windowsHide: true });
+      await execFileP("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(serviceDir, "raise-window.ps1"), "-Title", title], { windowsHide: true });
       return "raised";
     } catch {}   // exit 1: no window with that title, so open one
   }
@@ -719,7 +727,7 @@ async function showWindow() {
   if (!chrome) throw new Error("Chrome was not found in " + dirs.join(", "));
   // The developer's own Chrome profile is named, so that the page's links open where they are
   // signed in to GitHub and Reviewable.
-  const a = [`--app=${ORIGIN}/`, "--window-size=1280,900"];
+  const a = [`--app=${ORIGIN}${address}`, `--window-size=${size}`];
   if (process.platform === "win32") a.unshift(`--user-data-dir=${path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "User Data")}`);
   spawn(chrome, a, { detached: true, stdio: "ignore" }).unref();
   return "opened";
@@ -857,17 +865,20 @@ function readBody(req, limit = 4 << 20) {
   });
 }
 const json = text => { try { return JSON.parse(text || "{}"); } catch { return {}; } };
-function page() {
-  const html = fs.readFileSync(path.join(dashboardDir, "page", "board.html"), "utf8");
+function page(file = "board.html") {
+  const html = fs.readFileSync(path.join(dashboardDir, "page", file), "utf8");
   return html.replace(/<head[^>]*>/i, m => `${m}<script>window.DASHBOARD_TOKEN=${JSON.stringify(TOKEN)};window.DASHBOARD_ASSETS=${assets};</script>`);
 }
-const STATIC = { ".css": "text/css", ".js": "text/javascript", ".png": "image/png" };
+// A request from one of the service's own pages carries the token that the page was served with.
+const fromPage = req => req.headers["x-dashboard-token"] === TOKEN && (!req.headers.origin || req.headers.origin === ORIGIN);
+const STATIC = { ".css": "text/css", ".js": "text/javascript", ".png": "image/png", ".svg": "image/svg+xml" };
 
 // The newest hook payloads, cut short, for GET /hooks: what a session really sent.
 const hookTrace = [];
 function onHook(p, pid) {
   // The service's own headless calls (prose.mjs) are sessions too; they are not the developer's work.
   if (p.cwd && norm(p.cwd).startsWith(norm(llmDir()))) return;
+  recordHook(p);
   sources.hooks = { at: Date.now(), count: sources.hooks.count + 1 };
   const worktree = worktreeOf(p.cwd || "");
   hookTrace.push({ at: Date.now(), pid, worktree, ...Object.fromEntries(Object.entries(p).map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 160) : k === "tool_response" ? "…" : v])) });
@@ -900,6 +911,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (pathname === "/hooks") return keyed ? send(res, 200, hookTrace) : send(res, 403, { ok: false });
+      if (pathname === "/greenhouse") return send(res, 200, page("greenhouse.html"), "text/html");
+      if (pathname === "/greenhouse-worker/summary") return keyed ? send(res, 200, workerSummary()) : send(res, 403, { ok: false });
+      if (pathname === "/greenhouse-worker/gate") return keyed ? send(res, 200, await workerGateNow()) : send(res, 403, { ok: false });
+      if (pathname === "/greenhouse-worker/state") return keyed || fromPage(req) ? send(res, 200, await workerState()) : send(res, 403, { ok: false, error: "forbidden" });
       if (pathname === "/state" || pathname === "/worktree") {
         if (!keyed) return send(res, 403, { ok: false, error: "forbidden" });
         sources.worker.at = Date.now();
@@ -929,7 +944,7 @@ const server = http.createServer(async (req, res) => {
       }
       const ext = path.extname(pathname);
       const file = path.join(dashboardDir, "page", pathname.slice(1));
-      if (STATIC[ext] && !pathname.includes("..") && /^\/(row\.js|dashboard\.css|icons\/icon-\d+\.png)$/.test(pathname) && fs.existsSync(file)) {
+      if (STATIC[ext] && !pathname.includes("..") && /^\/(row\.js|dashboard\.css|icons\/icon-\d+\.png|icons\/greenhouse-worker\.(png|svg))$/.test(pathname) && fs.existsSync(file)) {
         res.writeHead(200, { "content-type": STATIC[ext], "cache-control": "no-store" });
         return res.end(fs.readFileSync(file));
       }
@@ -968,6 +983,7 @@ const server = http.createServer(async (req, res) => {
       if (b.kind === "progress") readProgressRecords();
       else if (b.kind === "card-changed" || b.kind === "pr-changed" || b.kind === "refresh") { sources.gather.at = 0; if (visible()) gather(false); }
       else if (b.kind === "show") return send(res, 200, { ok: true, how: await showWindow() });
+      else if (b.kind === "show-greenhouse") return send(res, 200, { ok: true, how: await showWindow(GREENHOUSE_WINDOW) });
       else if (b.kind === "board") { remote = null; extras = {}; cacheDirty = true; gather(true); }
       return send(res, 200, { ok: true });
     }
@@ -981,9 +997,14 @@ const server = http.createServer(async (req, res) => {
       tick();
       return send(res, 200, { ok: true });
     }
+    if (pathname === "/greenhouse-worker/settings") {
+      if (!keyed && !fromPage(req)) return send(res, 403, { ok: false, error: "forbidden" });
+      saveSettings(json(await readBody(req, 1e5)));
+      return send(res, 200, { ok: true, ...(await workerState({ read: false })) });
+    }
     if (pathname === "/action") {
       // The page's own token, or the key when the Orca plugin relays a panel's button.
-      if (!keyed && (req.headers["x-dashboard-token"] !== TOKEN || (req.headers.origin && req.headers.origin !== ORIGIN))) return send(res, 403, { ok: false, error: "forbidden" });
+      if (!keyed && !fromPage(req)) return send(res, 403, { ok: false, error: "forbidden" });
       const body = await readBody(req, 1e5);
       log("action " + body.slice(0, 300));
       try { return send(res, 200, { ok: true, ...((await act(json(body))) || {}) }); }
@@ -1016,6 +1037,7 @@ server.on("listening", () => {
   watchProgress();
   readProgressRecords();
   readPs();
+  startRecording();
   for (const key of new Set(runs.runs.filter(r => r.skill === "preflight").map(r => r.worktree))) if (key) refreshGit(key);
   setInterval(tick, 5000);
   setInterval(saveCache, 30_000);

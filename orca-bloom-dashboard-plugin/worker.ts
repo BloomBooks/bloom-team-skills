@@ -10,7 +10,8 @@
 // - The panel's requests ("worktree.state", "action") are passed to the service, since a panel
 //   cannot reach the network. What only Orca knows about the focused worktree (its Claude
 //   sessions, the selected pane, the transcript's last prompts) is read here, in panel-facts.mjs.
-// - The status bar button asks the service to show the dashboard window.
+// - The Bloom Dashboard button asks the service to show the dashboard window, and the Bloom
+//   Greenhouse button the window with the Greenhouse worker's settings and the Greenhouse's status.
 // - A service that does not answer is started (server/start.mjs); nothing else starts one.
 //   Each request for the state names Orca's process (this worker's parent), and the service exits
 //   once that process is gone.
@@ -87,20 +88,40 @@ export default function activate(orca: OrcaWorkerApi): void {
   }
   void follow()
 
-  orca.commands.register('dashboard.show', async () => {
+  // Asks the service to show one of its windows, starting the service first when it does not answer.
+  async function show(kind: string, what: string): Promise<string> {
     try {
-      await service('/tell', { kind: 'show' })
-      return 'Showing the dashboard.'
+      await service('/tell', { kind })
+      return `Showing ${what}.`
     } catch {
       startedAt = 0
       startService()
       for (let i = 0; i < 40; i++) {
         await sleep(500)
-        try { await service('/tell', { kind: 'show' }); return 'Started the dashboard.' } catch {}
+        try { await service('/tell', { kind }); return `Started the dashboard service and showed ${what}.` } catch {}
       }
       throw new Error('the dashboard service did not start; see ~/.claude/bloom-dashboard/service.log')
     }
-  })
+  }
+  orca.commands.register('dashboard.show', () => show('show', 'the dashboard'))
+  orca.commands.register('greenhouseWorker.show', () => show('show-greenhouse', 'Bloom Greenhouse'))
+
+  // The Bloom Greenhouse button says how much of the developer's Claude plan is lendable to the
+  // Greenhouse now. The service works that out; it is asked once a minute.
+  let workerText = ''
+  async function followGreenhouseWorker(): Promise<void> {
+    for (;;) {
+      try {
+        const { text } = await service('/greenhouse-worker/summary')
+        if (text !== workerText) {
+          workerText = text
+          orca.host.call('statusBar.update', { id: 'greenhouse-worker', text }).catch(() => {})
+        }
+      } catch {}
+      await sleep(60_000)
+    }
+  }
+  void followGreenhouseWorker()
 
   // The panel's state: what Orca knows about the focused worktree, then the service's row for it.
   orca.panels.handle('worktree.state', async (input: any) => {
