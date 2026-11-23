@@ -20,7 +20,7 @@ import readline from "node:readline";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { dataFile, readJsonFile, writeJsonFile, log } from "./env.mjs";
 import { execFile } from "node:child_process";
-import { cleanSettings, plan, sameValues, shutDownReason, hoursBegan, workerGate } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, plan, sameValues, shutDownReason, hoursBegan, hoursOpened, workerGate } from "./greenhouse-worker-plan.mjs";
 import { workerValues } from "./greenhouse-worker-rules.mjs";
 
 const settingsFile = () => dataFile("greenhouse-worker.json");
@@ -61,8 +61,10 @@ export function savedSettings() {
   return saved ? cleanSettings(saved) : null;
 }
 export function saveSettings(input) {
+  const before = savedSettings();
   const settings = cleanSettings(input);
   writeJsonFile(settingsFile(), settings);
+  if (hoursOpened(before, settings, new Date())) startWorker();
   return settings;
 }
 

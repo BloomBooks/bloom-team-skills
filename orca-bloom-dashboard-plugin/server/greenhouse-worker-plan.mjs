@@ -166,6 +166,15 @@ export function hoursBegan(settings, { now, since }) {
   return workerSpans(settings, new Date(since), now).some(s => s.start > since && s.start <= t && t - s.start <= HOURS_ENDED_GRACE_MS);
 }
 
+/** Whether saving `after` in place of `before` (null when nothing was saved) puts `now` inside the
+ * worker's hours, as turning the worker on or moving its hours to include now does, so that the
+ * service starts it then, as it would have when the hours began. Any other change while the worker's
+ * hours run starts nothing, since the page saves each change as it is made. */
+export function hoursOpened(before, after, now) {
+  const inHours = s => !!s && s.preset !== "off" && !!spanAt(s, now);
+  return inHours(after) && !inHours(before);
+}
+
 const percentOf = share => `${Math.round(share * 1000) / 10}%`;
 
 /**
