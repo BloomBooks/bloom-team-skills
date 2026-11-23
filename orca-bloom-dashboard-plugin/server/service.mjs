@@ -268,14 +268,22 @@ const watcher = gitWatcher(wtPath => refreshGit(norm(wtPath)));
 const boardWanted = () => readJsonFile(dataFile("board.json"), null)?.board ?? null;
 let boards = remote?.boards || [];   // the boards with the developer's cards, kept while a new board is gathered
 let gathering = null;
+// What the running gather reads ({ full, board }), and a gather asked for while it ran that it
+// does not cover ({ full }): a full one during a core one, or any after the board changed.
+// That one runs as soon as the running one ends, so a change of board is never lost.
+let gatheringFor = null, gatherAgain = null;
 function gather(full) {
-  if (gathering) return gathering;
+  if (gathering) {
+    if ((full && !gatheringFor.full) || boardWanted() !== gatheringFor.board) gatherAgain = { full: !!full || !!gatherAgain?.full };
+    return gathering;
+  }
   sources.gather.running = true;
   recompute();
+  // board.json: no file means "pick the current version's board", "" means every board.
+  const board = boardWanted();
+  gatheringFor = { full: !!full, board };
   gathering = (async () => {
     const tmp = dataFile(`gather-${process.pid}.json`);
-    // board.json: no file means "pick the current version's board", "" means every board.
-    const board = boardWanted();
     try {
       // In a process of its own: gather.mjs runs gh and git synchronously, which would hold up
       // the hooks.
@@ -307,6 +315,7 @@ function gather(full) {
       gathering = null;
     }
     recompute();
+    if (gatherAgain) { const again = gatherAgain; gatherAgain = null; gather(again.full); }
   })();
   return gathering;
 }
