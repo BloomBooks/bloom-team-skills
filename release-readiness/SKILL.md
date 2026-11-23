@@ -1,6 +1,6 @@
 ---
 name: release-readiness
-description: Say what holds up publishing Bloom's next beta and release. Reads the changes waiting in TeamCity for every live Beta Publish and Release Publish config, checks each YouTrack card they name, and lists the version's open cards whose code isn't in yet. Use when asked "what's outstanding for the next beta/release?", "can we publish 6.5?", "which [6.5] cards are still open?", or "are we ready to ship?".
+description: Say what holds up publishing Bloom's next beta and release. Reads the changes waiting in TeamCity for every live Beta Publish and Release Publish config, checks each YouTrack card they name, and lists the version's open cards whose code isn't in yet. With an optional `blorg` or `b-p` argument, does the same for the next Bloom Library or bloom-player release, from the commits waiting to be merged into its release branch. Use when asked "what's outstanding for the next beta/release?", "can we publish 6.5?", "which [6.5] cards are still open?", "are we ready to ship?", "can we release blorg?" or "what's waiting in bloom-player alpha?".
 ---
 
 # Release readiness
@@ -9,8 +9,16 @@ The question is the one a developer answers by hand before a publish: open the T
 pending changes, see which cards they name, and check whether each card is closed. A card whose
 code is waiting but which isn't resolved holds up the publish, because its code goes out with the
 next build. This skill does that for **both the release and the beta every time**: every Beta
-Publish and Release Publish config in TeamCity's Bloom / Publish project that isn't paused. It
-takes no arguments.
+Publish and Release Publish config in TeamCity's Bloom / Publish project that isn't paused.
+
+An optional argument asks about another repo instead. Each releases by merging one branch into
+another, so what waits is the commits on the first branch that the second lacks (leaving out ones
+already cherry-picked, by their first line):
+
+| Argument | Repo | Waits on | Published by |
+| --- | --- | --- | --- |
+| `blorg` | BloomBooks/BloomLibrary2 | `master` (alpha.bloomlibrary.org) | a push to `release` (bloomlibrary.org) |
+| `b-p` | BloomBooks/bloom-player | `alpha` (npm `alpha`) | a push to `master` (npm `latest`), and then each product that ships it |
 
 ## Gather
 
@@ -18,8 +26,21 @@ Run the script with the `node.exe` itself (on Windows, the Volta `node` shim goe
 which cuts URLs at `&`; the script keeps every URL inside Node, so any `node.exe` works):
 
 ```bash
-node ~/.claude/skills/release-readiness/readiness.mjs > "$TEMP/readiness.json"
+node ~/.claude/skills/release-readiness/readiness.mjs [blorg|b-p] > "$TEMP/readiness.json"
 ```
+
+With `blorg` or `b-p`, the first entry is the branch merge, whose `lastBuild` is the head of the
+release branch (when it last published). Every entry from these repos has `versionCardsNotWaiting`
+null: their cards carry no version prefix, so leave out "Not in yet" (step 4 below).
+
+bloom-player reaches users only through the products that ship it, so `b-p` adds one entry per
+product (`channel: "consumer"`): what is on bloom-player's `master` that the product's shipped
+version lacks. `playerVersion` is the version it ships, read from the lockfile where it publishes
+from (`shippedFrom`): Bloom Library's `release` branch, the Bloom Desktop beta's `Version<beta>`
+branch (the live Beta Publish config's version), Bloom Reader's `release` branch, and BloomPUB
+Viewer's latest GitHub release. Report each as its own section after the merge, titled with the
+product and version ("Bloom Reader, on bloom-player 2.20.2"), with the same holding-up, no-card and
+resolved lines; a card that holds one up is merged but not yet shipped there.
 
 It prints one entry per config, release first:
 
