@@ -36,17 +36,17 @@
     <ul class="lines" id="decider-list"></ul>
   </section>
 
-  <section class="group" id="requests" hidden>
-    <h2>Waiting for your review <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="requests-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="requests-tip">Open PRs in BloomBooks and sillsdev that ask you, by name, for a review, the one that has waited longest first. A PR leaves the list when you submit a review, and comes back when its author asks again. Read every minute while this window shows.</span></span></h2>
-    <ul class="lines" id="requests-list"></ul>
-  </section>
-
   <section class="group" id="back" hidden>
     <h2>Back with you for review <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="back-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="back-tip">Cards in Ready For Code Review whose PRs you reviewed, judged by the card's open PR: orange when its author has responded since your last comment, or it is a new PR you haven't commented on; amber when the card is probably in the wrong State: Has Comments if the author hasn't responded, Ready For Testing if you merged its last PR and none is open.</span></span></h2>
     <ul class="lines" id="back-list"></ul>
   </section>
 
   <div id="groups"></div>
+
+  <section class="group" id="requests" hidden>
+    <h2>Waiting for your review <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="requests-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="requests-tip">Open PRs in BloomBooks and sillsdev that ask you, by name, for a review, the one that has waited longest first. A PR leaves the list when you submit a review, and comes back when its author asks again. Read every minute while this window shows.</span></span></h2>
+    <ul class="lines" id="requests-list"></ul>
+  </section>
 
   <section class="group" id="grabs" hidden>
     <h2>Review up for grabs <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="grabs-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="grabs-tip">Cards in Ready For Code Review on this board that nobody reviews yet, the one that has waited longest first: no one but the card's assignees, bots and agents has commented or reviewed on any of its PRs. The first comment or review makes that person the card's reviewer, and the card moves to their "Back with you for review". A PR that asks someone else, by name, for a review is theirs. Read every 15 minutes while this window shows.</span></span></h2>
