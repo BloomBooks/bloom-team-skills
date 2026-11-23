@@ -498,7 +498,8 @@ function buildRows(now = Date.now()) {
     note(d.worktree, `dropped the decider "${d.name}": ${why}`);
     return false;
   });
-  const rows = [], inReview = [];
+  const rows = [];
+  let inReview = [];
   const prOf = new Map();   // row id -> its PR, for prSets
   for (const card of remote?.cards || []) {
     const review = card.state === IN_REVIEW && card.assignedToDeveloper;
@@ -547,8 +548,15 @@ function buildRows(now = Date.now()) {
   // before the groups, the section with the row nearest to hand-off first.
   const rank = r => GROUPS.indexOf(r.group) * 100 + orderOf(r);
   const summaries = new Map((remote?.cards || []).map(c => [c.id, c.summary || ""]));
+  // A row in Ready For Code Review whose PR is in a stack with a row above joins that stack's
+  // section, so the stack shows whole and which of its PRs waits on a reviewer.
+  const sets = prSets([...rows, ...inReview].map(r => ({ id: r.id, card: r.card, pr: prOf.get(r.id) ?? null })));
+  const inRows = new Set(rows.map(r => r.id));
+  const joining = new Set(sets.filter(s => s.ids.some(id => inRows.has(id))).flatMap(s => s.ids).filter(id => !inRows.has(id)));
+  rows.push(...inReview.filter(r => joining.has(r.id)));
+  inReview = inReview.filter(r => !joining.has(r.id));
   const inSet = new Map();   // row id -> { set, at }
-  for (const s of prSets(rows.map(r => ({ id: r.id, card: r.card, pr: prOf.get(r.id) ?? null })))) {
+  for (const s of sets.filter(s => s.ids.some(id => inRows.has(id)))) {
     const set = { key: s.ids[0], title: `${s.cards.join(", ")}: ${summaries.get(s.cards[0]) || ""}` };
     s.ids.forEach((id, at) => inSet.set(id, { set, at, stack: s.stack[id] ?? null }));
   }
