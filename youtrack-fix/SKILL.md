@@ -43,9 +43,9 @@ You will be given a card id starting with `BL-`, or its URL
    3. Tell the developer which worktree and branch took the card, and stop here.
 3. **Plan.** Read the code as needed and write a short plan. Ask the user for anything you need
    clarified, then present the plan and ask whether to proceed. List in it the existing tests
-   whose expectations the change will alter, and why. Approving the plan approves changing those
-   tests, and only those (see "Changing an existing test needs the developer's approval" in
-   `TEAM-AGENTS.md`).
+   whose expectations the change will alter because the card asks for that behavior to change,
+   and why. Only those tests change with the code (see "Never change a test to make your product
+   change pass" in `TEAM-AGENTS.md`).
 4. **Branch.** The project's `AGENTS.md` names the target branch (and a `[6.X]` prefix on the
    card's summary overrides it — see the repo's issue-tracker section; confirm with the user if
    they disagree); step 2 needs it too. If you are not already on the card's branch, branch off

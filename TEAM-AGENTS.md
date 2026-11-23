@@ -114,18 +114,32 @@ the card **in the same step**. Otherwise a reviewer who follows an old card link
 PR nobody is updating. The procedure is in `youtrack-api`, "Guide a reviewer through a stack of
 PRs".
 
-## Changing an existing test needs the developer's approval
+## Never change a test to make your product change pass
 
-A test that fails after your change is usually reporting a real problem, and editing the test is
-the quickest way to hide it. So before you change what an existing automated test asserts or
-expects, delete it, skip it, or narrow what it covers, ask the developer first and say why the
-test is wrong rather than the code. This holds during preflight too, when a bot or a failing suite
-makes the edit look routine. Updating a snapshot or visual-regression baseline counts: show the
-old and new output side by side when you ask.
+A test that fails after you changed product code is usually reporting a real problem, and editing
+the test is the quickest way to hide it. So when an existing test fails because of your change,
+fix the code. Do not change what the test asserts or expects, delete it, skip it, or narrow what
+it covers, on your own judgment. None of the cases below needs the developer.
 
-An existing test is one already on the base branch; tests your branch added are yours to change
-until it merges. No approval is needed to add new tests, or for mechanical updates that leave what a test checks
-unchanged: a rename, a moved file, a changed method signature.
+**The task asked for the behavior to change.** A test that expects the old behavior is updated to
+expect the new one, and the PR description names each such test.
+
+**You believe the test itself is wrong** (it asserts a bug, or it breaks on something that it does
+not mean to check). Ask a separate agent running on Opus to approve the change: give it the
+test, your product change and your reason, and let it read the code. Do not tell it what to
+conclude. Change the test only if it agrees, and put its verdict and reason in the PR description.
+If it disagrees, fix the code, or leave the test red and say so in your report.
+
+**A snapshot or visual-regression baseline differs.** Compare the old and new output yourself.
+Accept the new baseline when the task asked for that difference or when the difference is
+harmless (anti-aliasing, a pixel of movement), and attach both images to the PR. Any other
+difference is a failing test.
+
+**The branch changes only tests.** Cleaning tests up, merging them, splitting them, speeding them
+up, renaming or moving them, and adding new ones needs no approval, and such a PR may merge
+without human review. When a test-only PR deletes a test or loosens what one asserts, as a fix for
+a flaky test often does, its description states the reason, and a different agent from the one
+that wrote it reviews the PR against that reason before it merges.
 
 ## Test what the code does, not what it shows
 

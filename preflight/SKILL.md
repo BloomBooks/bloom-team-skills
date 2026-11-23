@@ -316,10 +316,10 @@ everything else) when it is any of:
   conversation, a decision-report answer, their reply on a thread); a limitation that an agent
   wrote into the test ideas, a code comment or an earlier thread reply is not that, and is no
   reason to dismiss a finding;
-- **changing what an existing test asserts or expects** (including a snapshot or visual
-  baseline), or skipping or deleting it, unless the developer already approved that change (see
-  "Changing an existing test needs the developer's approval" in `TEAM-AGENTS.md`). Leave the
-  suite red and say in the report that it waits on this decision.
+- **an existing test that still fails** after you followed "Never change a test to make your
+  product change pass" in `TEAM-AGENTS.md`: you could not fix the code, and the Opus agent did
+  not agree that the test is wrong. Leave the suite red and say so in the report. A test change
+  that the rule allows needs no decision from the developer.
 
 Disagreeing with a **bot** does *not* need the user when the bot is wrong about what the code
 does — post a reply and move on. A bot that is right about the behavior is not mistaken, however
