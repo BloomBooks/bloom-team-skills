@@ -5,7 +5,8 @@
 //                                   been updated today, it starts a detached copy with --now and
 //                                   exits at once, so the session never waits for the network.
 //   node auto-update.mjs --now      Pull and link, in the foreground. Prints what it did.
-//   node auto-update.mjs --install  Add the SessionStart hook to ~/.claude/settings.json.
+//   node auto-update.mjs --install  Add the SessionStart hook to ~/.claude/settings.json, and the
+//                                   TEAM-AGENTS.md import to ~/.claude/CLAUDE.md.
 //
 // The pull is `git pull --ff-only`, and only when the clone is on main with no uncommitted changes
 // to tracked files: people edit skills in their clone, and this must never touch that work.
@@ -15,6 +16,7 @@
 // The dashboard service is then set up from the clone (orca-bloom-dashboard-plugin/install.mjs): its Claude
 // Code hooks, the service itself, and its Orca plugin, which starts the service with Orca. Orca does not run the
 // plugin until the developer approves its access, which /update-team-skills asks for.
+// Each run also makes sure ~/.claude/CLAUDE.md imports this clone's TEAM-AGENTS.md.
 //
 // ~/.claude/bloom-team-skills-update.json records the last successful update day; each run's
 // result is appended to ~/.claude/bloom-team-skills-update.log.
@@ -32,6 +34,7 @@ const skillsDir = path.join(claudeDir, "skills");
 const stampFile = path.join(claudeDir, "bloom-team-skills-update.json");
 const logFile = path.join(claudeDir, "bloom-team-skills-update.log");
 const settingsFile = path.join(claudeDir, "settings.json");
+const claudeMdFile = path.join(claudeDir, "CLAUDE.md");
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -139,12 +142,32 @@ function installDashboard() {
     return r.status === 0 || r.status === 3 ? `dashboard: ${lines.filter((l) => !l.startsWith("To approve")).join("; ")}` : `dashboard not set up: ${lines.at(-1) || "exit " + r.status}`;
 }
 
+// TEAM-AGENTS.md holds the rules that apply in every session, and Claude Code only loads it through
+// an @-import in the developer's global CLAUDE.md. Adds that import when no line imports a
+// TEAM-AGENTS.md yet; an existing one, wherever it points, is the developer's and is left alone.
+// Returns what it did, or "" when the import was already there.
+function ensureTeamAgentsImport() {
+    let text = "";
+    try {
+        text = fs.readFileSync(claudeMdFile, "utf8");
+    } catch (e) {
+        if (e.code !== "ENOENT") return `could not read ${claudeMdFile}: ${e.message}`;
+    }
+    if (/^@\S*TEAM-AGENTS\.md\s*$/m.test(text)) return "";
+    const eol = text.includes("\r\n") ? "\r\n" : "\n";
+    const gap = text === "" ? "" : text.endsWith(eol) ? eol : eol + eol;
+    const line = `@${path.join(repo, "TEAM-AGENTS.md").replaceAll("\\", "/")}`;
+    fs.writeFileSync(claudeMdFile, `${text}${gap}# Team-wide agent rules${eol}${eol}${line}${eol}`);
+    return `added ${line} to ${claudeMdFile}`;
+}
+
 async function runNow() {
     const result = pull();
     const linked = linkNewSkills();
     const unlinked = unlinkGoneSkills();
+    const imported = ensureTeamAgentsImport();
     const plugins = installDashboard();
-    log(`${result.msg}${linked.length ? `; linked ${linked.join(", ")}` : ""}${unlinked.length ? `; removed the links of ${unlinked.join(", ")}` : ""}${plugins ? `; ${plugins}` : ""}`);
+    log(`${result.msg}${linked.length ? `; linked ${linked.join(", ")}` : ""}${unlinked.length ? `; removed the links of ${unlinked.join(", ")}` : ""}${imported ? `; ${imported}` : ""}${plugins ? `; ${plugins}` : ""}`);
     // A skipped or failed pull leaves the day unrecorded, so the next session tries again.
     if (result.ok) fs.writeFileSync(stampFile, JSON.stringify({ day: today() }) + "\n");
 }
@@ -186,6 +209,7 @@ function install() {
 const arg = process.argv[2];
 if (arg === "--install") {
     install();
+    console.log(ensureTeamAgentsImport() || "TEAM-AGENTS.md import already in CLAUDE.md");
 } else if (arg === "--now") {
     await runNow();
 } else if (!updatedToday()) {

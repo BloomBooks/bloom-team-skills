@@ -74,6 +74,22 @@ from a name written into the skill. `node developer.mjs` prints the record kept 
 `import { developer } from "../developer.mjs"`. When it cannot settle a login it exits with code
 2 and lists the candidates: ask the developer, then save the answer with `--set`.
 
+## Team shorthand
+
+The team writes these short forms in prompts, cards and chat. Read them as the full name; write
+the full name in anything you post.
+
+| Shorthand | Means |
+|---|---|
+| `b-p` | bloom-player, the book player (repo `BloomBooks/bloom-player`) |
+| `blorg` | Bloom Library, https://bloomlibrary.org (repo `BloomBooks/BloomLibrary2`) |
+| `RAB` | Reading App Builder, which Bloom's Publish > Apps drives |
+| `TC` | TeamCity (the build server) or Team Collection (Bloom's shared-collection feature); the context says which |
+| harvester | the Bloom harvester, which processes books uploaded to Bloom Library and makes their BloomPUB, ePUB and thumbnails (repo `BloomBooks/bloom-harvester`) |
+
+When a short form you meet isn't here and its meaning isn't clear, ask rather than guess, then
+suggest adding it.
+
 ## Branch and worktree names start with the ticket id
 
 Name a branch **`<TICKET-ID>-<1–3 words>`** — the tracker id first, then just enough words to

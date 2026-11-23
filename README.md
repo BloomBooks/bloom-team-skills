@@ -208,8 +208,9 @@ plugin's access, its button or its panel.
 This repo also carries [`TEAM-AGENTS.md`](TEAM-AGENTS.md) — the few rules that should be
 active in **every** repo and session (currently: proactively logging papercuts). Skills only
 activate when a request matches them; always-on behavior has to live in context that's loaded
-each session. Wire it up once by adding a line to your personal global `~/.claude/CLAUDE.md`,
-pointing at your clone:
+each session. `update-team-skills` (and its daily auto-update) wires it up for you: when no line
+in your personal global `~/.claude/CLAUDE.md` imports a `TEAM-AGENTS.md`, it adds one pointing at
+your clone, such as:
 
 ```
 @C:/dev/bloom-team-skills/TEAM-AGENTS.md

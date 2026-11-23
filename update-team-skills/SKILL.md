@@ -43,6 +43,9 @@ overwrites an existing link or touches skills that aren't part of this repo.
    new skill folders and removes the links of step 4, without delaying the session. It pulls only when the clone is on `main` with no
    uncommitted changes to tracked files. It also sets up the dashboard as in step 6, without
    approving its Orca plugin. Results go to `~/.claude/bloom-team-skills-update.log`.
+   The same command, and each daily run, also adds `@<repo>/TEAM-AGENTS.md` to
+   `~/.claude/CLAUDE.md` when no line there imports a `TEAM-AGENTS.md` yet, so the team-wide rules
+   load in every session.
 6. **Set up the dashboard.** Run `node <repo>/orca-bloom-dashboard-plugin/install.mjs`. It writes the
    dashboard service's Claude Code hooks into `~/.claude/settings.json`, starts the service from
    the clone when Orca is running, and loads its Orca plugin (the Bloom
@@ -52,7 +55,8 @@ overwrites an existing link or touches skills that aren't part of this repo.
    asks for. Show the developer that list and ask once whether to approve it, since the plugin runs
    code under their account. On a yes, run the same command with `--approve`.
 7. **Report.** Summarise: pull result, which links were newly created, which already existed, any
-   removed, whether the hook was installed, and what step 6 printed. A running session notices changed and newly linked
+   removed, whether the hook was installed, whether the TEAM-AGENTS.md import was added, and
+   what step 6 printed. A running session notices changed and newly linked
    skills within a few seconds, so no restart is needed.
 
 ## Commands
