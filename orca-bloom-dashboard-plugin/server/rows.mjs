@@ -54,16 +54,19 @@ export function codeSince(run, git) {
 
 /**
  * Whether a card gets a row. The dashboard reads every card assigned to the developer and every
- * card that one of their worktrees names. A card assigned to someone else gets a row only while
- * the developer still has work on it: an open PR of theirs, or a worktree with uncommitted changes
+ * card that one of their worktrees names. A card assigned to another person gets no row, whatever
+ * PRs or worktrees the developer has on it. A card with no assignee gets a row only while the
+ * developer still has work on it: an open PR of theirs, or a worktree with uncommitted changes
  * to tracked files or commits beyond its base. A worktree whose git has not been read yet (null)
  * counts as work, so a slow or failed read never hides a row.
- *   card  { assignedToDeveloper }
+ *   card  { assignedToDeveloper, assignedToOther }
  *   prs   the developer's open PRs for the card
  *   gits  the git state of each of the card's worktrees (see codeSince), or null where unread
  */
 export function wantsRow({ card, prs, gits }) {
-  if (card.assignedToDeveloper || prs.length) return true;
+  if (card.assignedToDeveloper) return true;
+  if (card.assignedToOther) return false;
+  if (prs.length) return true;
   return gits.some(g => !g || g.uncommitted > 0 || g.ahead > 0);
 }
 

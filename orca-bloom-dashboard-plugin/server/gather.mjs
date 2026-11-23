@@ -66,15 +66,18 @@ async function currentVersionBoard() {
 }
 
 const FIELDS = "idReadable,summary,updated,resolved,customFields(name,value(name,login)),tags(name)";
-function cardFrom(i, assignedToDeveloper) {
+// youtrackLogin is the developer's; a card assigned to someone else gets no row (rows.mjs, wantsRow).
+function cardFrom(i, youtrackLogin) {
   const id = i.idReadable;
+  const assignee = i.customFields?.find(c => c.name === "Assignee")?.value?.login ?? null;
   return {
     id,
     url: "https://issues.bloomlibrary.org/youtrack/issue/" + id,
     summary: i.summary,
     state: field(i, "State"),
     board: field(i, "Kanban Board"),
-    assignedToDeveloper,
+    assignedToDeveloper: !i.resolved && assignee === youtrackLogin,
+    assignedToOther: !!assignee && assignee !== youtrackLogin,
     // A card tagged "Approved Plan" may be merged without peer review (merge-without-peer-review).
     approvedPlan: (i.tags || []).some(t => t.name === "Approved Plan"),
     updated: new Date(i.updated).toISOString().slice(0, 10),
@@ -124,8 +127,7 @@ async function openPrs(repo, branches = []) {
 export async function gatherCard(id, repos) {
   const dev = await developer();
   const i = await yt("/issues/" + id, { fields: FIELDS });
-  const assignee = i.customFields?.find(c => c.name === "Assignee")?.value;
-  const card = cardFrom(i, !i.resolved && assignee?.login === dev.youtrack.login);
+  const card = cardFrom(i, dev.youtrack.login);
   const branches = (await orca("worktree", "list")).worktrees
     .filter(w => !w.isArchived)
     .map(w => (w.branch || "").replace("refs/heads/", ""))
@@ -201,7 +203,7 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
   const cards = [];
   for (const id of ids) {
     const i = assigned.find(a => a.idReadable === id) ?? (await yt("/issues/" + id, { fields: FIELDS }).catch(() => null));
-    if (i) cards.push(cardFrom(i, assigned.some(a => a.idReadable === id)));
+    if (i) cards.push(cardFrom(i, dev.youtrack.login));
   }
 
   // The boards that hold these cards, with how many each holds, for the page's board picker.

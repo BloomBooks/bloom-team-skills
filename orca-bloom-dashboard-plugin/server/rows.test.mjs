@@ -195,7 +195,7 @@ test("the row explains itself: the rule that matched and each fact with its sour
   assert.deepEqual(row.unknown, [{ source: "reviewable", error: "timeout", since: 0 }]);
 });
 
-test("a card assigned to someone else gets a row only while the developer has work on it", () => {
+test("a card with no assignee gets a row only while the developer has work on it", () => {
   const theirs = { ...card, assignedToDeveloper: false };
   const clean = { ...git, ahead: 0, uncommitted: 0, untracked: 1 };
   assert.equal(wantsRow({ card: theirs, prs: [], gits: [clean, clean] }), false);
@@ -204,6 +204,11 @@ test("a card assigned to someone else gets a row only while the developer has wo
   assert.equal(wantsRow({ card: theirs, prs: [], gits: [{ ...clean, uncommitted: 2 }] }), true);
   assert.equal(wantsRow({ card: theirs, prs: [], gits: [null] }), true);
   assert.equal(wantsRow({ card: { ...card, assignedToDeveloper: true }, prs: [], gits: [] }), true);
+});
+
+test("a card assigned to another person gets no row, even with the developer's PRs and work on it", () => {
+  const other = { ...card, assignedToDeveloper: false, assignedToOther: true };
+  assert.equal(wantsRow({ card: other, prs: [pr], gits: [{ ...git, ahead: 1, uncommitted: 2 }, null] }), false);
 });
 
 test("when Request Peer Review is not on offer, its label starts it anyway, and only that skill", () => {
