@@ -138,8 +138,10 @@ it.**
 
 After that, the first Claude Code session each day pulls the latest in the background
 (`update-team-skills/auto-update.mjs`) and links any newly added skill; a running session picks
-both up within seconds. The pull happens only when your clone is on `main` with no uncommitted
-changes to tracked files, so skill edits in progress are never touched; each run is logged to
+both up within seconds. When your clone is on a branch other than `main` (you are working on a
+skill), it merges `main` into that branch instead, without pushing, so your other skills stay
+current. The pull happens only when the clone has no uncommitted changes to tracked files, so skill
+edits in progress are never touched; each run is logged to
 `~/.claude/bloom-team-skills-update.log`. `/update-team-skills` still does the same thing on demand,
 and installs the hook on a machine set up before it existed.
 

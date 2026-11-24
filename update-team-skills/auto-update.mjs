@@ -7,9 +7,12 @@
 //   node auto-update.mjs --now      Pull and link, in the foreground. Prints what it did.
 //   node auto-update.mjs --install  Add the SessionStart hook to ~/.claude/settings.json, and the
 //                                   TEAM-AGENTS.md import to ~/.claude/CLAUDE.md.
+//   node auto-update.mjs --pull     Only the pull (see pull()), even with uncommitted changes; for
+//                                   /update-team-skills. Exit code 1 when it did not happen.
 //
-// The pull is `git pull --ff-only`, and only when the clone is on main with no uncommitted changes
-// to tracked files: people edit skills in their clone, and this must never touch that work.
+// The pull is `git pull --ff-only` on main, or a merge of origin/main into any other branch, and
+// only when the clone has no uncommitted changes to tracked files: people edit skills in their
+// clone, and this must never touch that work.
 // Any skill folder that has no link in ~/.claude/skills gets one. A running Claude Code session
 // notices changed and newly linked skills within a few seconds, so the session that started the
 // pull gets the new text too.
@@ -64,13 +67,19 @@ function git(...args) {
     return { ok: r.status === 0, out: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim() || String(r.error ?? "") };
 }
 
-function pull() {
+// On main, a fast-forward pull. On any other branch, origin/main merged into it, since the skills
+// run from whatever this clone has checked out: a developer working on a skill in a branch here
+// would otherwise run last week's versions of every other skill. A merge that conflicts is aborted,
+// leaving the branch as it was. With uncommitted changes to tracked files, nothing is done unless
+// `allowDirty` (a developer running /update-team-skills, whose git then refuses a merge that would
+// touch those files); a background run must never touch work in progress.
+function pull({ allowDirty = false } = {}) {
     const branch = git("rev-parse", "--abbrev-ref", "HEAD");
     if (!branch.ok) return { ok: false, msg: `not a git clone: ${branch.out}` };
-    if (branch.out !== "main") return { ok: false, msg: `skipped pull: the clone is on ${branch.out}, not main` };
     const dirty = git("status", "--porcelain", "--untracked-files=no");
     if (!dirty.ok) return { ok: false, msg: `git status failed: ${dirty.out}` };
-    if (dirty.out) return { ok: false, msg: "skipped pull: the clone has uncommitted changes" };
+    if (dirty.out && !allowDirty) return { ok: false, msg: "skipped pull: the clone has uncommitted changes" };
+    if (branch.out !== "main") return mergeMain(branch.out);
     const before = git("rev-parse", "HEAD").out;
     const r = git("pull", "--ff-only", "--quiet");
     if (!r.ok) return { ok: false, msg: `pull failed: ${r.out.split("\n").slice(-2).join(" ")}` };
@@ -78,6 +87,23 @@ function pull() {
     if (before === after) return { ok: true, msg: "already up to date" };
     const n = git("rev-list", "--count", `${before}..${after}`).out;
     return { ok: true, msg: `pulled ${n} commit(s), now ${after.slice(0, 9)}` };
+}
+
+function mergeMain(branch) {
+    const fetched = git("fetch", "--quiet", "origin", "main");
+    if (!fetched.ok) return { ok: false, msg: `fetch of main failed: ${fetched.out.split("\n").slice(-2).join(" ")}` };
+    const n = git("rev-list", "--count", "HEAD..origin/main").out;
+    if (n === "0") return { ok: true, msg: `on ${branch}, which already has everything in main` };
+    const r = git("merge", "--no-edit", "--quiet", "origin/main");
+    if (r.ok) return { ok: true, msg: `on ${branch}: merged ${n} commit(s) from main, now ${git("rev-parse", "HEAD").out.slice(0, 9)} (not pushed)` };
+    const conflicts = git("diff", "--name-only", "--diff-filter=U").out.split("\n").filter(Boolean);
+    if (conflicts.length) git("merge", "--abort");
+    return {
+        ok: false,
+        msg: conflicts.length
+            ? `on ${branch}: merging main conflicts in ${conflicts.join(", ")}, so the merge was undone and the branch lacks main's last ${n} commit(s)`
+            : `on ${branch}: merging main failed: ${r.out.split("\n").slice(-2).join(" ")}`,
+    };
 }
 
 function linkNewSkills() {
@@ -212,6 +238,10 @@ if (arg === "--install") {
     console.log(ensureTeamAgentsImport() || "TEAM-AGENTS.md import already in CLAUDE.md");
 } else if (arg === "--now") {
     await runNow();
+} else if (arg === "--pull") {
+    const result = pull({ allowDirty: true });
+    console.log(result.msg);
+    process.exit(result.ok ? 0 : 1);
 } else if (!updatedToday()) {
     spawn(process.execPath, [scriptPath, "--now"], { detached: true, stdio: "ignore", windowsHide: true }).unref();
 }

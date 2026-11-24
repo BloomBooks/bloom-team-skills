@@ -26,9 +26,13 @@ overwrites an existing link or touches skills that aren't part of this repo.
 
    Either way, confirm the resolved path is a git repo that contains these skill folders before
    acting. If neither resolves, ask the user where their clone is.
-2. **Pull.** `git pull` in that repo. Report the result (already up to date / fast-forwarded N
-   commits / failed). If the pull fails (diverged history, conflicts, dirty tree), surface the git
-   output and continue to step 3 anyway — linking is independent of the pull and still worth doing.
+2. **Pull.** Run `node <repo>/update-team-skills/auto-update.mjs --pull` and report the line it
+   prints. On `main` it fast-forwards. On any other branch (a developer working on a skill in their
+   clone) it merges `origin/main` into that branch and does not push, because the skills run from
+   whatever the clone has checked out, and a plain `git pull` there brings in nothing from `main`.
+   A merge that conflicts is undone and the output names the files; tell the developer their branch
+   lacks main's changes until they merge it by hand. On exit code 1, pass the output on and continue
+   to step 3 anyway — linking is independent of the pull and still worth doing.
 3. **Link any unlinked skills.** For every top-level folder in the repo that contains a `SKILL.md`,
    ensure `~/.claude/skills/<folder>` exists as a symlink to it. Create the ones that are missing;
    leave existing links alone. Only link folders that have a `SKILL.md` (so docs and other root
@@ -39,9 +43,9 @@ overwrites an existing link or touches skills that aren't part of this repo.
    remove links that point outside this repo — those are the developer's own / other skills.
 5. **Install the daily auto-update.** Run `node <repo>/update-team-skills/auto-update.mjs --install`.
    It adds a SessionStart hook to `~/.claude/settings.json` (or reports it is already there). From
-   then on, the first Claude Code session each day starts a background `git pull --ff-only`, links
-   new skill folders and removes the links of step 4, without delaying the session. It pulls only when the clone is on `main` with no
-   uncommitted changes to tracked files. It also sets up the dashboard as in step 6, without
+   then on, the first Claude Code session each day starts a background pull as in step 2, links
+   new skill folders and removes the links of step 4, without delaying the session. It pulls only
+   when the clone has no uncommitted changes to tracked files. It also sets up the dashboard as in step 6, without
    approving its Orca plugin. Results go to `~/.claude/bloom-team-skills-update.log`.
    The same command, and each daily run, also adds `@<repo>/TEAM-AGENTS.md` to
    `~/.claude/CLAUDE.md` when no line there imports a `TEAM-AGENTS.md` yet, so the team-wide rules
@@ -95,8 +99,8 @@ non-terminating and never reaches the `catch`.
 $skills = "$HOME\.claude\skills"
 # 1. Find the repo from this skill's own symlink
 $repo = Split-Path (Get-Item "$skills\update-team-skills").Target -Parent
-# 2. Pull
-git -C $repo pull
+# 2. Pull (on a branch other than main: merge origin/main into it)
+node "$repo\update-team-skills\auto-update.mjs" --pull
 # 3. Link any folder with a SKILL.md that isn't linked yet
 Get-ChildItem $repo -Directory | Where-Object { Test-Path "$($_.FullName)\SKILL.md" } | ForEach-Object {
   $link = Join-Path $skills $_.Name
@@ -113,7 +117,7 @@ Get-ChildItem $repo -Directory | Where-Object { Test-Path "$($_.FullName)\SKILL.
 ```bash
 skills=~/.claude/skills
 repo="$(dirname "$(readlink -f "$skills/update-team-skills")")"
-git -C "$repo" pull
+node "$repo/update-team-skills/auto-update.mjs" --pull
 for d in "$repo"/*/; do
   name="$(basename "$d")"
   [ -f "$d/SKILL.md" ] || continue
