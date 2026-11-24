@@ -190,7 +190,8 @@ async function startIfMayWork(why) {
 }
 
 /** Starts a run of the Greenhouse worker bot, as an Orca automation that runs once, a few seconds
- * from now. A message to the bot (`orca orchestration send`) would need an Orca terminal to send it
+ * from now, in a chat of its own: in the bot's main chat, where its owner talks to it, an interrupt
+ * from the owner would end the run while it holds a claim. A message to the bot (`orca orchestration send`) would need an Orca terminal to send it
  * from, which the service lacks. Orca keeps such an automation after its run, so the one that the
  * last start made is removed first, unless its run is still under way, when nothing is started. */
 async function startWorker(why) {
@@ -202,7 +203,7 @@ async function startWorker(why) {
   }
   const prompt = "Work on the Greenhouse as your SOUL.md says: before each claim run `node greenhouse.mjs gate`, and stop when it says that you may not work.";
   const by = new Date(Date.now() + 5_000).toISOString();
-  await orcaJson(["automations", "create", "--name", START_NAME, "--bot", "Greenhouse Worker", "--once", "--by", by, "--prompt", prompt]);
+  await orcaJson(["automations", "create", "--name", START_NAME, "--bot", "Greenhouse Worker", "--runs-in", "new", "--results-to", "chat", "--once", "--by", by, "--prompt", prompt]);
   log(`greenhouse worker: started the worker (${why})`);
 }
 
