@@ -128,6 +128,8 @@ function isGreenhouseWorker(folder) {
 }
 
 const SHUT_DOWN_WARNING_S = 300;
+// How long a stop of the worker waits for a chat that it handed work to before it counts as the end.
+const HANDOFF_WAIT_MS = 60_000;
 let shutDownStarted = false;
 let lastCheck = Date.now();
 /** Runs once a minute: starts the worker when its hours have just begun, and shuts the machine down
@@ -151,6 +153,12 @@ async function checkShutDown(event, since) {
   const now = new Date();
   const reason = shutDownReason(settings, { event, now, since, lastPromptAt: lastAt("prompt"), idleMs });
   if (!reason) return;
+  // A chat of the worker that stops may have handed the next work item to a new chat, which is
+  // starting while this one ends; the new chat's own stop comes later.
+  if (event === "workerStopped") {
+    await new Promise(resolve => setTimeout(resolve, HANDOFF_WAIT_MS));
+    if (await workerBusy().catch(() => false)) return log("greenhouse worker: a chat of the worker stopped, and another is at work");
+  }
   if (process.platform !== "win32") { log(`greenhouse worker: ${reason}, but shutting down is only done on Windows`); return; }
   shutDownStarted = true;
   log(`greenhouse worker: ${reason}; shutting the machine down in ${SHUT_DOWN_WARNING_S / 60} minutes`);
@@ -189,12 +197,22 @@ async function startIfMayWork(why) {
   }
 }
 
+/** Whether a chat of the worker bot other than its Home Chat is at work. Each chat of the worker
+ * hands the next work item to a new chat, so the run that the service started may have ended while
+ * the worker carries on in a later chat. */
+async function workerBusy() {
+  const chats = new Set((await orcaJson(["bot", "chats", "--bot", "Greenhouse Worker"])).chats.filter(c => !c.home && !c.closed).map(c => c.id));
+  return (await orcaJson(["agent", "list"])).agents.some(a => chats.has(a.orcaSessionId) && a.state !== "done");
+}
+
 /** Starts a run of the Greenhouse worker bot, as an Orca automation that runs once, a few seconds
  * from now, in a chat of its own: in the bot's main chat, where its owner talks to it, an interrupt
  * from the owner would end the run while it holds a claim. A message to the bot (`orca orchestration send`) would need an Orca terminal to send it
  * from, which the service lacks. Orca keeps such an automation after its run, so the one that the
- * last start made is removed first, unless its run is still under way, when nothing is started. */
+ * last start made is removed first, unless its run is still under way, when nothing is started.
+ * Nothing is started either while a chat of the worker is at work. */
 async function startWorker(why) {
+  if (await workerBusy()) return log(`greenhouse worker: already working (${why})`);
   for (const a of (await orcaJson(["automations", "list"])).automations) {
     if (a.name !== START_NAME) continue;
     const runs = (await orcaJson(["automations", "runs", "--id", a.id])).runs;

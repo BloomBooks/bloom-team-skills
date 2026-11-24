@@ -285,14 +285,15 @@ The Greenhouse worker, an Orca bot, follows these settings through the service
   week when that is less.
 - **The start.** At the first check after the worker's hours begin (`hoursBegan`), and 5 seconds
   after the page last saved a change to the settings, the service asks the gate. When it says yes
-  and no run that the service started is still under way, the service hands the bot named
+  and no run that the service started, and no chat of the worker, is still under way, the service hands the bot named
   "Greenhouse Worker" a run, through an Orca automation named "Greenhouse worker's hours" that runs
   once (`orca automations create --once`). Orca keeps it after the run, so each start removes the
   one before. The service log says each time why it did or did not start the worker.
 - **The shutdown.** With "Shut the machine down" chosen and the worker not Off, the service runs
   Windows' `shutdown /s /t 300` when the worker's hours end, or when a session of the bot ends a
-  turn inside those hours, which is how the worker stops when the gate says no or the Greenhouse
-  has no work. It does not when the developer sent a prompt or used the keyboard or mouse in the
+  turn inside those hours and, a minute later, no other chat of the worker is at work (each work
+  item hands the next to a new chat), which is how the worker stops when the gate says no or the
+  Greenhouse has no work. It does not when the developer sent a prompt or used the keyboard or mouse in the
   last 20 minutes, or when the machine wakes more than 5 minutes after the hours ended.
 `shutDownReason` in `greenhouse-worker-plan.mjs` decides; `shutdown /a` cancels in the 5 minutes
 of warning.
