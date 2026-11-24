@@ -56,10 +56,13 @@ overwrites an existing link or touches skills that aren't part of this repo.
    code under their account. On a yes, run the same command with `--approve`.
 7. **Set up the Greenhouse worker.** The worker is an Orca bot that does the Bloom test
    Greenhouse's work items on the part of the developer's Claude plan that they lend. Its
-   instructions live in the public repository BloomBooks/greenhouse, kept in
-   `~/.claude/greenhouse-repo`, which nobody edits:
-   - When that folder is missing, `git clone https://github.com/BloomBooks/greenhouse.git
-     ~/.claude/greenhouse-repo`; otherwise `git -C ~/.claude/greenhouse-repo pull --ff-only`.
+   instructions live in the private repository BloomBooks/greenhouse, kept in
+   `~/.claude/greenhouse-repo`, which nobody edits. Reach it through the developer's `gh` login,
+   since plain `git` may have no GitHub credentials:
+   - When that folder is missing, `gh repo clone BloomBooks/greenhouse ~/.claude/greenhouse-repo`;
+     otherwise `git -c credential.helper= -c "credential.helper=!gh auth git-credential" -C
+     ~/.claude/greenhouse-repo pull --ff-only`. When `gh` is not logged in, tell the developer to
+     run `gh auth login` and skip the rest of this step.
    - Run `node ~/.claude/greenhouse-repo/bots/install.mjs greenhouse-worker` and act on its exit code:
      - **0**: installed. Pass on each line of its output that starts with `Next:`, with any path in
        it in full. On the first install there are two: set the bot's avatar in Orca's bot settings
