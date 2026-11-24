@@ -180,8 +180,8 @@ const percentOf = share => `${Math.round(share * 1000) / 10}%`;
  * share or what is left of the week, whichever is less. The worker's own use so far is the
  * Greenhouse's to count: greenhouse.mjs sets the offer to the smaller of `weekShare` and what the
  * worker used plus what is left of the week. `until` is when the worker's
- * hours end. `stopNow` asks a worker in the middle of an item to hand it back, because the 5-hour
- * period has reached fiveHourHardStop. Anything else lets an item in progress finish.
+ * hours end. `stopNow` asks a worker in the middle of a work item to pause it, because the 5-hour
+ * period has reached fiveHourHardStop. Anything else lets a work item in progress finish.
  */
 export function workerGate(settings, p, { now, idleMs = null, lastPromptAt = 0, onAc = null }) {
   const span = spanAt(settings, now);
