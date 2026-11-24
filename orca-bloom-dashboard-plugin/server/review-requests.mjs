@@ -1,5 +1,5 @@
 // The open PRs on which someone has asked the developer, by name, for a review: the dashboard's
-// "Waiting for your review" list. A request to a team the developer is on does not count, nor
+// "Review Requested" list. A request to a team the developer is on does not count, nor
 // does a PR whose request was taken back or answered (GitHub drops the request once the
 // developer submits a review, and adds it again when the author re-requests one).
 //

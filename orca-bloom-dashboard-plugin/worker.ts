@@ -77,7 +77,7 @@ export default function activate(orca: OrcaWorkerApi): void {
         failures = 0
         if (state.version === version) continue
         version = state.version
-        const waiting = state.deciders.length + (state.reviewRequests?.length ?? 0) + [...state.rows, ...state.inReview].filter((r: any) => r.badge).length
+        const waiting = state.deciders.length + (state.backForReview?.length ?? 0) + [...state.rows, ...state.inReview].filter((r: any) => r.badge).length
         orca.host.call('statusBar.update', { id: 'dashboard', text: LABEL + (waiting ? ` · ${waiting} waiting for you` : ''), tone: waiting ? 'warning' : 'neutral' }).catch(() => {})
         orca.panels.post('state', { version })
       } catch {

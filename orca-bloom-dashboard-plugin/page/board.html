@@ -44,7 +44,7 @@
   <div id="groups"></div>
 
   <section class="group" id="requests" hidden>
-    <h2>Waiting for your review <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="requests-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="requests-tip">Open PRs in BloomBooks and sillsdev that ask you, by name, for a review, the one that has waited longest first. A PR leaves the list when you submit a review, and comes back when its author asks again. Read every minute while this window shows.</span></span></h2>
+    <h2>Review Requested <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="requests-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="requests-tip">Open PRs in BloomBooks and sillsdev that ask you, by name, for a review, the one that has waited longest first. A PR leaves the list when you submit a review, and comes back when its author asks again. Read every minute while this window shows.</span></span></h2>
     <ul class="lines" id="requests-list"></ul>
   </section>
 
@@ -297,7 +297,6 @@ const FOLLOW_UP = {
   new: { text: "New PR to review", title: "A PR on a card you reviewed before, with no comment from you yet" },
   forgot: { text: "Move to Has Comments?", title: "In Ready For Code Review, but the author hasn't responded since your last comment on this PR" },
   merged: { text: "Move to Ready For Testing?", title: "You merged the card's last PR and it has no open one, but the card is still in Ready For Code Review" },
-  requested: { text: "Review requested", title: "Someone asked you, by name, to review this PR" },
   grab: { text: "No reviewer yet", title: "Nobody has commented or reviewed on any of this card's PRs" },
 };
 // The follow-ups whose next step is reviewing the PR, rather than moving the card.
@@ -310,7 +309,8 @@ function lineItem(f, time, timeTitle) {
   const prState = f.prState || (f.merged ? "merged" : "");
   return el("li", f.followUp ? { class: "fu-" + f.followUp } : {},
     f.kind ? kindIcon(f.kind) : null,
-    f.followUp ? el("span", { class: "fu", title: FOLLOW_UP[f.followUp].title }, FOLLOW_UP[f.followUp].text) : null,
+    // A line under "Review Requested" carries no label: the heading already says it.
+    FOLLOW_UP[f.followUp] ? el("span", { class: "fu", title: FOLLOW_UP[f.followUp].title }, FOLLOW_UP[f.followUp].text) : null,
     el("span", { class: "title", title: f.summary }, f.summary),
     el("span", { class: "id" }, stateIcon(f.state), !f.url ? f.id : isPr ? markMerged(toned(f.url, f.id, PR_TONE[prState]), prState) : toned(f.url, f.id, CARD_TONE[f.state])),
     // A PR back with you to review carries Reviewable's rabbit too.
@@ -327,14 +327,14 @@ function renderRequests(items) {
     f.openedAt, `Opened by ${f.author}`)));
   document.getElementById("requests").hidden = !ul.childNodes.length;
 }
-// A PR that asks for the developer's review is listed only under "Waiting for your review".
+// A PR that asks for the developer's review is listed only under "Review Requested".
 function renderBack(items) {
   const ul = document.getElementById("back-list");
   ul.replaceChildren(...(items || []).filter(f => !requestedPrs.has(f.pr)).map(f => lineItem(f, f.commentedAt, "You last commented")));
   document.getElementById("back").hidden = !ul.childNodes.length;
 }
 // The cards nobody reviews yet (up-for-grabs.mjs); one that asks for the developer's review is
-// listed only under "Waiting for your review".
+// listed only under "Review Requested".
 function renderGrabs(items) {
   const ul = document.getElementById("grabs-list");
   ul.replaceChildren(...(items || []).filter(f => !requestedPrs.has(f.pr)).map(f => lineItem({ ...f, followUp: "grab" }, f.readyAt, `By ${f.author}; in Ready For Code Review since`)));
