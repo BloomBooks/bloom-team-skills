@@ -273,15 +273,15 @@ AC power, which no setting changes. The page saves each change to `greenhouse-wo
 The Greenhouse worker, an Orca bot, follows these settings through the service
 (`greenhouse-worker.mjs`):
 
-- **The gate.** Before each claim, and every 20 minutes during an item, the worker runs
-  `greenhouse.mjs gate <lender>` from the greenhouse repository, which asks
+- **The gate.** Before each claim, and every 20 minutes during a work item, the worker runs
+  `greenhouse.mjs gate <developer>` from the greenhouse repository, which asks
   `GET /greenhouse-worker/gate`. `workerGate` in `greenhouse-worker-plan.mjs` says no outside the
   worker's hours, with the worker Off, on battery, while the developer is at the machine (keyboard
   or mouse input, or a prompt, within the minutes before they count as away, unless the worker may
-  run while they use it), with nothing lendable, or with the 5-hour period at its ceiling; and
+  run while they use it), with nothing left to allocate, or with the 5-hour period at its ceiling; and
   `stopNow` at the 5-hour hard stop. `presence.ps1` reads the input and power state. When the gate
-  says yes, `greenhouse.mjs` sets the lender's offer in the Greenhouse to what they have used plus
-  what is lendable.
+  says yes, `greenhouse.mjs` sets the developer's offer in the Greenhouse to what they have used plus
+  what is allocatable.
 - **The start.** At the first check after the worker's hours begin (`hoursBegan`), and 5 seconds
   after the page last saved a change to the settings, the service asks the gate. When it says yes
   and no run that the service started is still under way, the service hands the bot named
@@ -322,7 +322,7 @@ need no wait. The plan's readings cannot be had that way. Lines older than 60 da
 the page draws:
 
 ```
-lendable = (1 - usage) - keepPerWorkday x the workdays still ahead before the week resets
+allocatable = (1 - usage) - keepPerWorkday x the workdays still ahead before the week resets
 ```
 
 The worker's hours are not work hours: the plan takes them out of each workday, so a 5-hour period
@@ -331,7 +331,7 @@ to it that lies ahead. The usage comes from
 `~/.config/claude-usage/claude-usage.mjs`, which the greenhouse repository's `set-claude-token.mjs`
 installs; one read is a one-token request to Claude. The page reads it when it opens, when its
 window shows again, and every five minutes while it shows. The button's text ("Bloom Greenhouse · 20%
-lendable") uses a read that is at most 15 minutes old. The hourly reading for the history goes on
+allocatable") uses a read that is at most 15 minutes old. The hourly reading for the history goes on
 whatever the developer chose, since the presets need it before the worker is turned on.
 
 ## Tests

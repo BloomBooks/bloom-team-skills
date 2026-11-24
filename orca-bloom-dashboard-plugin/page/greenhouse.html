@@ -39,7 +39,7 @@ h2, h3, .toolbar-name { font-family: var(--display); }
 button.refresh { color: var(--ink); background: var(--surface); border-color: var(--frame); }
 button.refresh:hover:not(:disabled) { background: var(--glass); border-color: var(--axis); }
 .info .tip { background: var(--surface); color: var(--ink); border-color: var(--frame); }
-/* The Bloom Greenhouse page. The My Greenhouse worker tab holds the developer's settings for lending
+/* The Bloom Greenhouse page. The My Greenhouse worker tab holds the developer's settings for allocating
    their Claude plan to the Greenhouse, and the plan that follows from them; the Greenhouse Status
    tab shows the Greenhouse's own app. The tool bar's layout is dashboard.css's; the colors and fonts are the Greenhouse's, above. */
 .wrap { max-width: 780px; }
@@ -88,7 +88,7 @@ body:has(#status-tab:not([hidden])) .worker-only { visibility: hidden; }
 .modes input { position: absolute; opacity: 0; pointer-events: none; }
 .modes b { font-weight: 600; }
 
-/* The week: what is used, what is kept for the developer and what is lendable, as parts of one bar. */
+/* The week: what is used, what is kept for the developer and what is allocated to the worker, as parts of one bar. */
 .headline { margin: 0; font-size: 16px; line-height: 1.4; text-wrap: pretty; }
 .headline b { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .bar { display: flex; gap: 2px; height: 14px; }
@@ -97,7 +97,7 @@ body:has(#status-tab:not([hidden])) .worker-only { visibility: hidden; }
 .bar > i:last-child { border-radius: 0 4px 4px 0; }
 .used { background: var(--grey); }
 .kept { background: var(--you); }
-.lendable { background: var(--agent); }
+.allocatable { background: var(--agent); }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
 .legend li { display: flex; align-items: baseline; gap: 6px; }
 .legend i { flex: none; width: 10px; height: 10px; border-radius: 2px; transform: translateY(1px); }
@@ -182,7 +182,7 @@ input:disabled { opacity: 0.5; }
 
       <span class="name">When the worker is done<span class="info" tabindex="0" role="button" aria-label="When the machine shuts down" aria-describedby="shutdown-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="shutdown-tip">When these hours end, or when the worker stops in them because your offer is used up or the Greenhouse has no work. Not while you have sent a prompt in the last 20 minutes. Windows warns 5 minutes ahead, and <code>shutdown /a</code> cancels it.</span></span></span>
       <div><label class="check"><input type="checkbox" name="shutDownAfterWorker"> Shut the machine down</label></div>
-    </div></div>
+    </div><div class="fields" id="presence"></div></div>
   </div>
 
   <div class="group">
@@ -297,7 +297,7 @@ function drawValues() {
   const w = state.worker, v = w.values, s = state.settings;
   const custom = w.preset === "custom";
   // While the developer types in a custom field, the fields stay as they are.
-  if (custom && ($("values").contains(document.activeElement) || $("week").contains(document.activeElement))) return;
+  if (custom && ["values", "week", "presence"].some(id => $(id).contains(document.activeElement))) return;
   const r = w.recorded;
   const learning = !custom && Object.values(w.sources).some(x => x.from === "start");
   const autoNote = s.preset === "off" ? "With the worker off, these are Auto's values." : `${PRESET_NAMES[w.preset]} works these out from your last 4 weeks on this machine.`;
@@ -318,21 +318,23 @@ function drawValues() {
   ].join("");
 
   const total = v.workdays.length * v.keepPerWorkday;
-  const keepNote = `<p class="hint">Over your ${v.workdays.length} workdays this keeps ${pct(Math.min(1, total))} of a week for you${total > 1 ? ", which is all of it: nothing is lendable until a workday passes with less used." : "."}</p>`;
-  $("values").innerHTML = [
-    valueRow("keepPerWorkday", "Kept for each workday", `<b>${pct(v.keepPerWorkday)}</b> of the week`,
-      `<div class="line">${num("keepPerWorkday", 'min="0" max="100" step="1" aria-label="Percent of the week kept for each workday"')} % of the week</div>`, keepNote),
+  const keepNote = `<p class="hint">Over your ${v.workdays.length} workdays this keeps ${pct(Math.min(1, total))} of a week for you${total > 1 ? ", which is all of it: nothing is left to allocate until a workday passes with less used." : "."}</p>`;
+  $("presence").innerHTML = [
     valueRow("whileAtComputer", "While you use this computer", v.whileAtComputer ? "The worker may run" : "The worker waits until you are away",
       `<label class="check"><input type="checkbox" name="whileAtComputer"> The worker may run</label>`),
     valueRow("awayAfterMinutes", "You count as away after", v.awayAfterMinutes == null ? "Does not apply" : `<b>${v.awayAfterMinutes}</b> minutes`,
       `<div class="line">${num("awayAfterMinutes", 'min="1" max="240" step="1" aria-label="Minutes before you count as away"')} minutes</div>`,
       `<p class="hint">Without keyboard or mouse input, and without a prompt in any other Claude session on this machine.</p>`),
+  ].join("");
+  $("values").innerHTML = [
+    valueRow("keepPerWorkday", "Kept for each workday", `<b>${pct(v.keepPerWorkday)}</b> of the week`,
+      `<div class="line">${num("keepPerWorkday", 'min="0" max="100" step="1" aria-label="Percent of the week kept for each workday"')} % of the week</div>`, keepNote),
     valueRow("fiveHourCeilingInWorkHours", "A 5-hour period that reaches into your work hours", `The worker stops at <b>${pct(v.fiveHourCeilingInWorkHours)}</b>`,
       `<div class="line">The worker stops at ${num("fiveHourCeilingInWorkHours", 'min="0" max="100" step="5" aria-label="Percent of a 5-hour period that reaches into your work hours"')} %</div>`),
     valueRow("fiveHourCeilingOtherwise", "A 5-hour period that ends before your work hours", `The worker stops at <b>${pct(v.fiveHourCeilingOtherwise)}</b>`,
       `<div class="line">The worker stops at ${num("fiveHourCeilingOtherwise", 'min="0" max="100" step="5" aria-label="Percent of a 5-hour period that ends before your work hours"')} %</div>`),
-    valueRow("fiveHourHardStop", "Stop even during an item", `When the 5-hour period reaches <b>${pct(v.fiveHourHardStop)}</b>`,
-      `<div class="line">When the 5-hour period reaches ${num("fiveHourHardStop", 'min="0" max="100" step="5" aria-label="Stop even during an item at this percent of the 5-hour period"')} %</div>`),
+    valueRow("fiveHourHardStop", "Stop even during a work item", `When the 5-hour period reaches <b>${pct(v.fiveHourHardStop)}</b>`,
+      `<div class="line">When the 5-hour period reaches ${num("fiveHourHardStop", 'min="0" max="100" step="5" aria-label="Stop even during a work item at this percent of the 5-hour period"')} %</div>`),
   ].join("");
   if (custom) {
     for (const box of form.querySelectorAll("[name=workday]")) box.checked = v.workdays.includes(Number(box.value));
@@ -353,15 +355,15 @@ function drawPlan() {
   $("read-at").textContent = state.usageAt ? "Usage read " + clock(new Date(state.usageAt)) : "";
   if (!p) { $("plan").innerHTML = `<p class="hint">${usageError ? "No plan without the usage." : "Reading the plan's usage…"}</p>`; return; }
 
-  const amount = `<b>${pct(p.lendable)}</b> of the week`;
-  const headline = p.short > 0 ? `You have ${pct(1 - p.weekUsage)} of the week left and keep ${pct(p.workdaysAhead * s.keepPerWorkday)} for the workdays ahead, so <b>nothing</b> is lendable.`
+  const amount = `<b>${pct(p.allocatable)}</b> of the week`;
+  const headline = p.short > 0 ? `You have ${pct(1 - p.weekUsage)} of the week left and keep ${pct(p.workdaysAhead * s.keepPerWorkday)} for the workdays ahead, so <b>nothing</b> is left to allocate.`
     : s.preset === "off" ? `With Auto the worker could use ${amount}.`
     : `The worker may use ${amount}${s.whileAtComputer ? "" : ", while you are away"}.`;
   const workdays = p.workdaysAhead.toFixed(1).replace(/\.0$/, "");
   const parts = [
     ["used", "Used so far", p.weekUsage, ""],
     ["kept", "Kept for you", p.kept, `${workdays} workday${workdays === "1" ? "" : "s"} ahead × ${pct(s.keepPerWorkday)}`],
-    ["lendable", "Lendable", p.lendable, ""],
+    ["allocatable", "Allocated to the worker", p.allocatable, ""],
   ];
   const today = new Date();
   const days = p.days.map(d => {

@@ -106,7 +106,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.commands.register('dashboard.show', () => show('show', 'the dashboard'))
   orca.commands.register('greenhouseWorker.show', () => show('show-greenhouse', 'Bloom Greenhouse'))
 
-  // The Bloom Greenhouse button says how much of the developer's Claude plan is lendable to the
+  // The Bloom Greenhouse button says how much of the developer's Claude plan is allocated to the
   // Greenhouse now. The service works that out; it is asked once a minute.
   let workerText = ''
   async function followGreenhouseWorker(): Promise<void> {

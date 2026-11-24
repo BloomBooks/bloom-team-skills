@@ -1,4 +1,4 @@
-// The Bloom Greenhouse window's side of the service: the developer's settings for lending their
+// The Bloom Greenhouse window's side of the service: the developer's settings for allocating their
 // Claude plan to the Greenhouse (greenhouse-worker.json in the data folder), the plan's usage as
 // this machine's claude-usage.mjs reports it, the history that the presets learn from, and the
 // plan that follows. The Greenhouse worker itself is an Orca bot. This tells it whether it may claim
@@ -336,7 +336,7 @@ export async function workerState({ read = true } = {}) {
 }
 
 /** The status bar button's text. Never waits: it shows the last read, and starts a new read in
- * the background when that one is old and the developer lends anything. */
+ * the background when that one is old and the developer allocates anything. */
 export function workerSummary() {
   const LABEL = "Bloom Greenhouse";
   const { saved, settings, worker } = current();
@@ -344,5 +344,5 @@ export function workerSummary() {
   if (settings.preset === "off") return { text: `${LABEL} · worker off` };
   if (Date.now() - Math.max(last.at, last.triedAt) > SUMMARY_MS) readUsage();
   if (!last.usage) return { text: LABEL };
-  return { text: `${LABEL} · ${Math.round(plan({ ...settings, ...worker.values }, last.usage, new Date()).lendable * 100)}% lendable` };
+  return { text: `${LABEL} · ${Math.round(plan({ ...settings, ...worker.values }, last.usage, new Date()).allocatable * 100)}% allocated` };
 }

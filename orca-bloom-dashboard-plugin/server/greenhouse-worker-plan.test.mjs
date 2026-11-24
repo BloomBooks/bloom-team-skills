@@ -16,13 +16,13 @@ test("just after the reset, nearly the whole week is kept for a developer who wo
   const p = plan(everyDay, week(0.02, at(26, 15)), at(19, 18));
   near(p.workdaysAhead, 6.7);
   near(p.kept, 6.7 * 0.14);
-  near(p.lendable, 0.98 - 6.7 * 0.14);
+  near(p.allocatable, 0.98 - 6.7 * 0.14);
 });
 
-test("the night before the reset, what the developer did not use is lendable", () => {
+test("the night before the reset, what the developer did not use is allocatable", () => {
   const p = plan(everyDay, week(0.5, at(26, 15)), at(25, 22));
   near(p.workdaysAhead, 0.7);
-  near(p.lendable, 0.5 - 0.7 * 0.14);
+  near(p.allocatable, 0.5 - 0.7 * 0.14);
 });
 
 test("a day that is partly over counts as the part of its work hours that remains", () => {
@@ -36,13 +36,13 @@ test("a weekend counts for nothing for a developer who works Monday to Friday", 
   // Friday 18:00, reset Tuesday 9:00: Monday and a tenth of Tuesday.
   const p = plan(weekdays, week(0.6, at(24, 9)), at(20, 18));
   near(p.workdaysAhead, 1.1);
-  near(p.lendable, 0.4 - 1.1 * 0.15);
+  near(p.allocatable, 0.4 - 1.1 * 0.15);
   assert.deepEqual(p.days.filter(d => !d.works).map(d => d.date), ["2026-11-21", "2026-11-22"]);
 });
 
-test("a developer with less left than they keep lends nothing, and the plan says how much is short", () => {
+test("a developer with less left than they keep allocates nothing, and the plan says how much is short", () => {
   const p = plan(everyDay, week(0.9, at(26, 15)), at(24, 8));
-  assert.equal(p.lendable, 0);
+  assert.equal(p.allocatable, 0);
   near(p.kept, 0.1);
   near(p.short, 2.7 * 0.14 - 0.1);
 });
@@ -186,10 +186,10 @@ const gated = (changes = {}) => ({ ...shutting(), ...cleanValues({ workdays: [1,
 const planAt = (now, extra = {}) => plan(gated(), week(0.3, at(26, 15), { fiveHourUsage: 0.1, fiveHourResetsAt: at(19, 22).toISOString(), ...extra }), now);
 const away = { idleMs: 60 * 60_000, onAc: true };
 
-test("in its hours, with the developer away and something to lend, the worker may work", () => {
+test("in its hours, with the developer away and something to allocate, the worker may work", () => {
   const g = workerGate(gated(), planAt(at(19, 19)), { now: at(19, 19), ...away });
   assert.equal(g.mayWork, true);
-  assert.ok(g.lendable > 0);
+  assert.ok(g.allocatable > 0);
   assert.equal(g.until, at(19, 21).toISOString());
 });
 
