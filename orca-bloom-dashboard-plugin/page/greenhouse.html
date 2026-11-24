@@ -92,6 +92,15 @@ body:has(#status-tab:not([hidden])) .worker-only { visibility: hidden; }
 .headline { margin: 0; font-size: 16px; line-height: 1.4; text-wrap: pretty; }
 .headline b { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .bar { display: flex; gap: 2px; height: 14px; }
+/* The slider lies over the bar. Its range runs from minus the week's use to what is left, so its
+   handle sits where the worker's share ends. */
+.bar-wrap { position: relative; }
+#share-slider { position: absolute; inset: -6px 0; width: 100%; height: 26px; margin: 0; background: none; -webkit-appearance: none; appearance: none; cursor: ew-resize; }
+#share-slider::-webkit-slider-runnable-track { height: 26px; background: none; }
+#share-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 26px; border-radius: 3px; background: var(--surface); border: 2px solid var(--agent); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25); }
+#share-slider:focus-visible { outline: none; }
+#share-slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 1px; }
+#share-slider:disabled { display: none; }
 .bar > i { display: block; min-width: 0; height: 100%; }
 .bar > i:first-child { border-radius: 4px 0 0 4px; }
 .bar > i:last-child { border-radius: 0 4px 4px 0; }
@@ -194,7 +203,15 @@ input:disabled { opacity: 0.5; }
 
     <section class="dims">
       <h3>This week</h3>
-      <div class="panel" id="plan"><p class="hint">Reading the plan's usage…</p></div>
+      <div class="panel" id="plan">
+        <p class="headline" id="plan-headline" hidden></p>
+        <div class="bar-wrap">
+          <div class="bar" id="plan-bar" role="img"></div>
+          <input type="range" name="weekShare" id="share-slider" step="1" hidden aria-label="The worker's share of each week, in percent">
+        </div>
+        <ul class="legend" id="plan-legend" hidden></ul>
+        <p class="hint" id="plan-hint">Reading the plan's usage…</p>
+      </div>
     </section>
 
     <section class="dims">
@@ -214,7 +231,7 @@ input:disabled { opacity: 0.5; }
 <script>
 const $ = id => document.getElementById(id);
 const form = $("form");
-const PERCENTS = ["weekShare", "fiveHourHardStop", "fiveHourCeilingInWorkHours", "fiveHourCeilingOtherwise"];
+const PERCENTS = ["fiveHourHardStop", "fiveHourCeilingInWorkHours", "fiveHourCeilingOtherwise"];
 const PRESET_NAMES = { conservative: "Auto", custom: "Custom" };
 const FROM = { history: "From your history", start: "Starting value", preset: "Set by Auto" };
 const WEEKDAYS = [[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [0, "Sun"]];
@@ -246,7 +263,7 @@ function fillForm(s) {
 
 /** The custom values as the fields show them, or null when the fields are not on the page. */
 function readCustom() {
-  if (!form.elements.weekShare) return null;
+  if (!form.elements.fiveHourHardStop) return null;
   const c = {
     workdays: [...form.querySelectorAll("[name=workday]:checked")].map(box => Number(box.value)),
     workStart: form.elements.workStart.value,
@@ -255,6 +272,8 @@ function readCustom() {
     awayAfterMinutes: form.elements.awayAfterMinutes.value,
   };
   for (const name of PERCENTS) c[name] = form.elements[name].value === "" ? "" : Number(form.elements[name].value) / 100;
+  // The slider stops at what is left of the week, so a share above that is kept from what was saved.
+  c.weekShare = draggedShare ?? state.worker.values.weekShare;
   return c;
 }
 
@@ -317,8 +336,6 @@ function drawValues() {
       `<p class="hint">Without keyboard or mouse input, and without a prompt in any other Claude session on this machine.</p>`),
   ].join("");
   $("values").innerHTML = [
-    valueRow("weekShare", "The worker's share of each week", `<b>${pct(v.weekShare)}</b>`,
-      `<div class="line">${num("weekShare", 'min="0" max="100" step="1" aria-label="Percent of each week that the worker may use"')} %</div>`),
     valueRow("fiveHourCeilingInWorkHours", "A 5-hour period that reaches into your work hours", `The worker stops at <b>${pct(v.fiveHourCeilingInWorkHours)}</b>`,
       `<div class="line">The worker stops at ${num("fiveHourCeilingInWorkHours", 'min="0" max="100" step="5" aria-label="Percent of a 5-hour period that reaches into your work hours"')} %</div>`),
     valueRow("fiveHourCeilingOtherwise", "A 5-hour period that ends before your work hours", `The worker stops at <b>${pct(v.fiveHourCeilingOtherwise)}</b>`,
@@ -343,23 +360,45 @@ function drawPlan() {
   $("error").hidden = !usageError;
   $("error").textContent = usageError ? "The plan's usage could not be read: " + usageError : "";
   $("read-at").textContent = state.usageAt ? "Usage read " + clock(new Date(state.usageAt)) : "";
-  if (!p) { $("plan").innerHTML = `<p class="hint">${usageError ? "No plan without the usage." : "Reading the plan's usage…"}</p>`; return; }
+  const slider = $("share-slider");
+  for (const el of [$("plan-headline"), $("plan-legend"), slider]) el.hidden = !p;
+  if (!p) {
+    $("plan-bar").innerHTML = "";
+    $("plan-hint").textContent = usageError ? "No plan without the usage." : "Reading the plan's usage…";
+    return;
+  }
+  // While the slider has the focus, it keeps where the developer put it.
+  const dragging = document.activeElement === slider;
+  if (!dragging) {
+    const used = Math.round(p.weekUsage * 100);
+    slider.min = String(-used);
+    slider.max = String(100 - used);
+    slider.value = String(Math.round(p.weekShare * 100));
+  }
+  slider.disabled = s.preset === "off";
+  slider.title = s.preset === "custom" ? "" : state.worker.sources.weekShare?.reason ?? "";
+  drawShare(draggedShare ?? p.weekShare);
+  $("plan-hint").textContent = `The week resets ${dayAndClock(new Date(p.weekResetsAt))}.`;
+}
 
-  const share = `<b>${pct(p.weekShare)}</b> of this week`;
-  const headline = s.preset === "off" ? `With Auto the worker could use <b>${pct(p.weekShare)}</b> of each week.`
-    : p.weekShare <= 0 ? "The worker's share of the week is <b>0%</b>."
-    : p.left < p.weekShare ? `The worker may use ${share}, but only <b>${pct(p.left)}</b> is left.`
+/** The headline, bar and legend for the plan with the worker's share at `weekShare`. */
+function drawShare(weekShare) {
+  const p = state.plan;
+  const s = { ...state.settings, ...state.worker.values };
+  const allocatable = Math.min(p.left, weekShare);
+  const share = `<b>${pct(weekShare)}</b> of this week`;
+  $("plan-headline").innerHTML = s.preset === "off" ? `With Auto the worker could use <b>${pct(weekShare)}</b> of each week.`
+    : weekShare <= 0 ? "The worker's share of the week is <b>0%</b>."
+    : p.left < weekShare ? `The worker may use ${share}, but only <b>${pct(p.left)}</b> is left.`
     : `The worker may use ${share}${s.whileAtComputer ? "" : ", while you are away"}.`;
   const parts = [
     ["used", "Used so far", p.weekUsage],
-    ["allocatable", "The worker's share", p.allocatable],
-    ["kept", "Left for you", p.left - p.allocatable],
+    ["allocatable", "The worker's share", allocatable],
+    ["kept", "Left for you", p.left - allocatable],
   ];
-  $("plan").innerHTML = `
-    <p class="headline">${headline}</p>
-    <div class="bar" role="img" aria-label="${parts.map(([, name, part]) => `${name} ${pct(part)}`).join(", ")}">${parts.filter(([, , part]) => part > 0.002).map(([cls, name, part]) => `<i class="${cls}" style="flex:${part}" title="${name}: ${pct(part)}"></i>`).join("")}</div>
-    <ul class="legend">${parts.map(([cls, name, part]) => `<li><i class="${cls}"></i>${name} <b>${pct(part)}</b></li>`).join("")}</ul>
-    <p class="hint">The week resets ${dayAndClock(new Date(p.weekResetsAt))}.</p>`;
+  $("plan-bar").setAttribute("aria-label", parts.map(([, name, part]) => `${name} ${pct(part)}`).join(", "));
+  $("plan-bar").innerHTML = parts.filter(([, , part]) => part > 0.002).map(([cls, name, part]) => `<i class="${cls}" style="flex:${part}" title="${name}: ${pct(part)}"></i>`).join("");
+  $("plan-legend").innerHTML = parts.map(([cls, name, part]) => `<li><i class="${cls}"></i>${name} <b>${pct(part)}</b></li>`).join("");
 }
 
 async function load() {
@@ -378,9 +417,12 @@ function drawAll() {
   drawPlan();
 }
 
+// The share that the slider is being dragged to, until the drag's save comes back.
+let draggedShare = null;
 async function save(settings) {
   try {
     state = await ask("/greenhouse-worker/settings", settings);
+    if (draggedShare !== null && Math.abs(state.worker.values.weekShare - draggedShare) < 1e-4) draggedShare = null;
     fillForm(state.settings);
     drawAll();
     $("saved").textContent = "Saved";
@@ -418,6 +460,19 @@ $("discard-no").addEventListener("click", () => { $("discard").hidden = true; })
 
 form.addEventListener("input", e => {
   if (e.target.name === "preset") return;
+  if (e.target.name === "weekShare") {
+    draggedShare = Number(e.target.value) / 100;
+    drawShare(draggedShare);
+    // Dragging the share on an Auto setting starts Custom from Auto's values.
+    if (state.settings.preset !== "custom") {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        const v = state.worker.values;
+        save(readForm({ preset: "custom", custom: { ...v, awayAfterMinutes: v.awayAfterMinutes ?? 20, weekShare: draggedShare } }));
+      }, 350);
+      return;
+    }
+  }
   if (e.target.name === "whileAtComputer") form.elements.awayAfterMinutes.disabled = e.target.checked;
   saveSoon();
 });
