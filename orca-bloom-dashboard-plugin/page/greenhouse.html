@@ -136,7 +136,6 @@ input[type=checkbox], input[type=radio] { accent-color: var(--accent); width: 16
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .section-head button[hidden] { display: none; }
-#values-note:empty { display: none; }
 .value { font-variant-numeric: tabular-nums; padding-top: 5px; }
 .value b { font-weight: 600; }
 /* Where a value comes from: a small label before its reason. */
@@ -202,7 +201,7 @@ input:disabled { opacity: 0.5; }
     </section>
 
     <section class="dims">
-      <h3>This week</h3>
+      <h3>This week<span id="week-info"></span></h3>
       <div class="panel" id="plan">
         <p class="headline" id="plan-headline" hidden></p>
         <div class="bar-wrap">
@@ -215,14 +214,12 @@ input:disabled { opacity: 0.5; }
     </section>
 
     <section class="dims">
-      <h3>Your work week</h3>
-      <p class="hint" id="week-note"></p>
+      <h3>Your work week<span id="work-week-info"></span></h3>
       <div class="panel"><div class="fields" id="week"></div></div>
     </section>
 
     <section class="dims">
-      <h3>How careful the worker is</h3>
-      <p class="hint" id="values-note"></p>
+      <h3>How careful the worker is<span id="values-info"></span></h3>
       <div class="panel"><div class="fields" id="values"></div></div>
     </section>
   </div>
@@ -238,6 +235,14 @@ const WEEKDAYS = [[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6
 const pct = share => Math.round(share * 100) + "%";
 const esc = text => String(text).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const clock = date => date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+// An info mark whose tooltip says `text`, in place of a sentence on the page.
+let tips = 0;
+const INFO_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
+function info(text) {
+  if (!text) return "";
+  const id = "tip-" + ++tips;
+  return `<span class="info" tabindex="0" role="button" aria-label="More" aria-describedby="${id}">${INFO_ICON}<span class="tip" role="tooltip" id="${id}">${esc(text)}</span></span>`;
+}
 const dayAndClock = date => date.toLocaleDateString([], { weekday: "long" }) + " " + clock(date);
 
 let state = null;
@@ -294,14 +299,15 @@ function readForm(changes = {}) {
 }
 
 /** One row of "Your work week" or "How careful the worker is": the value as text with where it
- * comes from, or, for Custom, the field that sets it. */
-function valueRow(name, label, text, field, extra = "") {
+ * comes from, or, for Custom, the field that sets it. `tip` and the reason for an Auto value go in
+ * a tooltip on the row's name. */
+function valueRow(name, label, text, field, tip = "") {
   const w = state.worker;
   const source = w.sources[name] || {};
   const custom = w.preset === "custom";
-  const from = !custom && FROM[source.from] ? `<span class="from ${source.from}">${FROM[source.from]}</span>` : "";
-  const reason = !custom && (from || source.reason) ? `<p class="hint">${from}${esc(source.reason || "")}</p>` : "";
-  return `<span class="name">${label}</span><div>${custom ? field : `<div class="value">${text}</div>`}${reason}${extra}</div>`;
+  const from = !custom && FROM[source.from] ? ` <span class="from ${source.from}">${FROM[source.from]}</span>` : "";
+  const why = [tip, custom ? "" : source.reason].filter(Boolean).join(" ");
+  return `<span class="name">${label}${info(why)}</span><div>${custom ? field : `<div class="value">${text}${from}</div>`}</div>`;
 }
 
 function drawValues() {
@@ -312,10 +318,9 @@ function drawValues() {
   const r = w.recorded;
   const learning = !custom && Object.values(w.sources).some(x => x.from === "start");
   const autoNote = s.preset === "off" ? "With the worker off, these are Auto's values." : `${PRESET_NAMES[w.preset]} works these out from your last 4 weeks on this machine.`;
-  $("week-note").textContent = custom ? "The worker uses less of a 5-hour period that runs into your work hours." : autoNote + " Choose Custom to change them.";
-  $("values-note").textContent = custom
-    ? "Custom values stay as you set them. Choose an Auto setting to follow your history again."
-    : autoNote + (learning && r.since ? ` Readings of your plan began ${new Date(r.since).toLocaleDateString([], { month: "short", day: "numeric" })}.` : "");
+  const since = learning && r.since ? ` Readings of your plan began ${new Date(r.since).toLocaleDateString([], { month: "short", day: "numeric" })}.` : "";
+  $("work-week-info").innerHTML = custom ? "" : info(autoNote);
+  $("values-info").innerHTML = custom ? "" : info(autoNote + since);
   const num = (name, attrs) => `<input type="number" name="${name}" ${attrs}>`;
 
   const dayNames = WEEKDAYS.filter(([n]) => v.workdays.includes(n)).map(([, name]) => name).join(", ") || "None";
@@ -325,7 +330,7 @@ function drawValues() {
       `<div class="weekdays">${WEEKDAYS.map(([n, name]) => `<label><input type="checkbox" name="workday" value="${n}"><span>${name}</span></label>`).join("")}</div>`),
     valueRow("workHours", "Work hours", `<b>${hour(v.workStart)}</b> to <b>${hour(v.workEnd)}</b>`,
       `<div class="line"><input type="time" name="workStart" aria-label="Work hours start"> to <input type="time" name="workEnd" aria-label="Work hours end"></div>`,
-      `<p class="hint">In this machine's time zone, ${esc(state.timeZone)}.</p>`),
+      `In this machine's time zone, ${state.timeZone}.`),
   ].join("");
 
   $("presence").innerHTML = [
@@ -333,7 +338,7 @@ function drawValues() {
       `<label class="check"><input type="checkbox" name="whileAtComputer"> The worker may run</label>`),
     valueRow("awayAfterMinutes", "You count as away after", v.awayAfterMinutes == null ? "Does not apply" : `<b>${v.awayAfterMinutes}</b> minutes`,
       `<div class="line">${num("awayAfterMinutes", 'min="1" max="240" step="1" aria-label="Minutes before you count as away"')} minutes</div>`,
-      `<p class="hint">Without keyboard or mouse input, and without a prompt in any other Claude session on this machine.</p>`),
+      "Without keyboard or mouse input, and without a prompt in any other Claude session on this machine."),
   ].join("");
   $("values").innerHTML = [
     valueRow("fiveHourCeilingInWorkHours", "A 5-hour period that reaches into your work hours", `The worker stops at <b>${pct(v.fiveHourCeilingInWorkHours)}</b>`,
@@ -364,6 +369,7 @@ function drawPlan() {
   for (const el of [$("plan-headline"), $("plan-legend"), slider]) el.hidden = !p;
   if (!p) {
     $("plan-bar").innerHTML = "";
+    $("plan-hint").hidden = false;
     $("plan-hint").textContent = usageError ? "No plan without the usage." : "Reading the plan's usage…";
     return;
   }
@@ -378,7 +384,8 @@ function drawPlan() {
   slider.disabled = s.preset === "off";
   slider.title = s.preset === "custom" ? "" : state.worker.sources.weekShare?.reason ?? "";
   drawShare(draggedShare ?? p.weekShare);
-  $("plan-hint").textContent = `The week resets ${dayAndClock(new Date(p.weekResetsAt))}.`;
+  $("plan-hint").hidden = true;
+  $("week-info").innerHTML = info(`The week resets ${dayAndClock(new Date(p.weekResetsAt))}.`);
 }
 
 /** The headline, bar and legend for the plan with the worker's share at `weekShare`. */
