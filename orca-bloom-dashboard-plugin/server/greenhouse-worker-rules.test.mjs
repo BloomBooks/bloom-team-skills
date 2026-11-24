@@ -69,15 +69,16 @@ function tenWorkdays(uses) {
 
 test("before enough workdays are recorded, a preset keeps its starting value and says so", () => {
   const v = workerValues(weekdays, tenWorkdays([0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]).filter(r => r.at > at(23, 0)), now);
-  assert.equal(v.values.keepPerWorkday, VALUE_DEFAULTS.keepPerWorkday);
-  assert.equal(v.sources.keepPerWorkday.from, "start");
+  assert.equal(v.values.weekShare, VALUE_DEFAULTS.weekShare);
+  assert.equal(v.sources.weekShare.from, "start");
   assert.equal(v.recorded.workdays < MIN_WORKDAYS, true);
 });
 
-test("Conservative keeps a quarter more than the heaviest recorded workday", () => {
+test("Conservative gives the worker what a week of the heaviest recorded workday, and a quarter more, leaves", () => {
+  // The heaviest workday used 8%; five such days and a quarter more are 50% of the week.
   const v = workerValues(weekdays, tenWorkdays([0.05, 0.06, 0.04, 0.08, 0.05, 0.06, 0.05, 0.07, 0.04, 0.05]), now);
-  assert.equal(v.sources.keepPerWorkday.from, "history");
-  assert.equal(v.values.keepPerWorkday, 0.1);
+  assert.equal(v.sources.weekShare.from, "history");
+  assert.equal(v.values.weekShare, 0.5);
 });
 
 test("5-hour periods in work hours give a ceiling that leaves the developer their usual peak", () => {
@@ -154,10 +155,10 @@ test("an Auto preset's values follow the work week from the prompts", () => {
 });
 
 test("Custom gives the developer's own values, and Off gives Conservative's", () => {
-  const custom = cleanSettings({ preset: "custom", custom: { keepPerWorkday: 0.2, whileAtComputer: true } });
+  const custom = cleanSettings({ preset: "custom", custom: { weekShare: 0.2, whileAtComputer: true } });
   const v = workerValues(custom, [], now);
-  assert.equal(v.values.keepPerWorkday, 0.2);
-  assert.equal(v.sources.keepPerWorkday.from, "custom");
+  assert.equal(v.values.weekShare, 0.2);
+  assert.equal(v.sources.weekShare.from, "custom");
   const off = workerValues(cleanSettings({ preset: "off" }), [], now);
   assert.equal(off.preset, "conservative");
   assert.equal(off.values.fiveHourCeilingInWorkHours, PRESET_RULES.conservative.inWorkHoursCap);

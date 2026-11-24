@@ -6,7 +6,7 @@
 import { workHours, VALUE_DEFAULTS, cleanValues } from "./greenhouse-worker-plan.mjs";
 
 export const WINDOW_DAYS = 28;
-export const MIN_WORKDAYS = 8;      // recorded workdays before the share kept comes from history
+export const MIN_WORKDAYS = 8;      // recorded workdays before the worker's share of the week comes from history
 export const MIN_PERIODS = 8;       // recorded 5-hour periods in work hours before their ceiling does
 export const MIN_PAUSES = 50;       // pauses between prompts before the time to count as away does
 export const MIN_PROMPT_DAYS = 21;  // how far back the prompts must reach before the work week comes from them
@@ -191,11 +191,14 @@ export function workerValues(settings, history, now = new Date()) {
   };
 
   if (days.length < MIN_WORKDAYS) {
-    sources.keepPerWorkday = { from: "start", reason: `A starting value until ${MIN_WORKDAYS} of your workdays are recorded (${days.length} so far).` };
+    sources.weekShare = { from: "start", reason: `A starting value until ${MIN_WORKDAYS} of your workdays are recorded (${days.length} so far).` };
   } else {
+    // A week in which every workday is as heavy as the heaviest recorded one, and a quarter more,
+    // is what the developer keeps; the worker's share is the rest.
     const heaviest = days.reduce((top, d) => (d.used > top.used ? d : top));
-    values.keepPerWorkday = Math.min(1, Math.ceil(heaviest.used * MARGIN * 100) / 100);
-    sources.keepPerWorkday = { from: "history", reason: `Your heaviest workday in the last ${WINDOW_DAYS / 7} weeks used ${percent(heaviest.used)}, on ${shortDate(heaviest.date + "T12:00")}. This keeps a quarter more.` };
+    const yours = Math.min(1, week.values.workdays.length * heaviest.used * MARGIN);
+    values.weekShare = Math.max(0, Math.floor((1 - yours) * 100) / 100);
+    sources.weekShare = { from: "history", reason: `Your heaviest workday in the last ${WINDOW_DAYS / 7} weeks used ${percent(heaviest.used)}, on ${shortDate(heaviest.date + "T12:00")}. A week of ${week.values.workdays.length} such days and a quarter more is ${percent(yours)}; the worker gets the rest.` };
   }
 
   if (periods.length < MIN_PERIODS) {

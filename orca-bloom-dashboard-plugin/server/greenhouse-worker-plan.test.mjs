@@ -5,46 +5,25 @@ import { cleanSettings, cleanValues, plan, sameValues, shutDownReason, hoursBega
 // November 2026: the 19th and the 26th are Thursdays. Times are local, as the plan's are.
 const at = (day, hour, minute = 0) => new Date(2026, 10, day, hour, minute);
 // The work week and the worker's values together, as plan() takes them.
-const settings = (workdays, keepPerWorkday) => ({ ...cleanSettings(), ...cleanValues({ workdays, keepPerWorkday }) });
+const settings = (workdays, weekShare) => ({ ...cleanSettings(), ...cleanValues({ workdays, weekShare }) });
 const everyDay = settings([0, 1, 2, 3, 4, 5, 6], 0.14);
-const weekdays = settings([1, 2, 3, 4, 5], 0.15);
 const week = (usage, resetsAt, extra = {}) => ({ usage, weekResetsAt: resetsAt.toISOString(), ...extra });
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
 
-test("just after the reset, nearly the whole week is kept for a developer who works every day", () => {
-  // Thursday 18:00, reset next Thursday 15:00: six full days and 7 of Thursday's 10 work hours.
-  const p = plan(everyDay, week(0.02, at(26, 15)), at(19, 18));
-  near(p.workdaysAhead, 6.7);
-  near(p.kept, 6.7 * 0.14);
-  near(p.allocatable, 0.98 - 6.7 * 0.14);
+test("the worker gets its share of the week, whatever the developer has used", () => {
+  const p = plan(settings([1, 2, 3, 4, 5], 0.06), week(0.37, at(26, 15)), at(24, 9));
+  near(p.weekShare, 0.06);
+  near(p.allocatable, 0.06);
+  near(p.left, 0.63);
 });
 
-test("the night before the reset, what the developer did not use is allocatable", () => {
-  const p = plan(everyDay, week(0.5, at(26, 15)), at(25, 22));
-  near(p.workdaysAhead, 0.7);
-  near(p.allocatable, 0.5 - 0.7 * 0.14);
+test("when less of the week is left than the worker's share, the worker gets what is left", () => {
+  const p = plan(everyDay, week(0.95, at(26, 15)), at(25, 22));
+  near(p.allocatable, 0.05);
 });
 
-test("a day that is partly over counts as the part of its work hours that remains", () => {
-  // Monday 13:00 of an 8:00 to 18:00 day, reset Tuesday 9:00: half of Monday, a tenth of Tuesday.
-  const p = plan(weekdays, week(0.6, at(24, 9)), at(23, 13));
-  near(p.workdaysAhead, 0.6);
-  assert.deepEqual(p.days.map(d => d.date), ["2026-11-23", "2026-11-24"]);
-});
-
-test("a weekend counts for nothing for a developer who works Monday to Friday", () => {
-  // Friday 18:00, reset Tuesday 9:00: Monday and a tenth of Tuesday.
-  const p = plan(weekdays, week(0.6, at(24, 9)), at(20, 18));
-  near(p.workdaysAhead, 1.1);
-  near(p.allocatable, 0.4 - 1.1 * 0.15);
-  assert.deepEqual(p.days.filter(d => !d.works).map(d => d.date), ["2026-11-21", "2026-11-22"]);
-});
-
-test("a developer with less left than they keep allocates nothing, and the plan says how much is short", () => {
-  const p = plan(everyDay, week(0.9, at(26, 15)), at(24, 8));
-  assert.equal(p.allocatable, 0);
-  near(p.kept, 0.1);
-  near(p.short, 2.7 * 0.14 - 0.1);
+test("a fully used week leaves the worker nothing", () => {
+  assert.equal(plan(everyDay, week(1, at(26, 15)), at(25, 22)).allocatable, 0);
 });
 
 test("a 5-hour period that ends before the next work hours gets the higher ceiling", () => {
@@ -72,14 +51,7 @@ test("during work hours the 5-hour period gets the lower ceiling, and none of it
 /** Every day from 5:30 to 21:00, with the worker given `start` to `end` every day. */
 const withWorker = (start, end, values = {}) => ({
   ...cleanSettings({ workerHours: { days: [0, 1, 2, 3, 4, 5, 6], start, end } }),
-  ...cleanValues({ workdays: [0, 1, 2, 3, 4, 5, 6], workStart: "05:30", workEnd: "21:00", keepPerWorkday: 0.1, ...values }),
-});
-
-test("the worker's hours are not work hours, so a workday counts only the work hours outside them", () => {
-  // Thursday 18:00, reset next Thursday 15:00, the worker given 16:00 to 18:00 of 8:00 to 18:00:
-  // six full days, and 7 of Thursday's 8 own hours.
-  const p = plan(withWorker("16:00", "18:00", { workStart: "08:00", workEnd: "18:00" }), week(0.02, at(26, 15)), at(19, 18));
-  near(p.workdaysAhead, 6 + 7 / 8);
+  ...cleanValues({ workdays: [0, 1, 2, 3, 4, 5, 6], workStart: "05:30", workEnd: "21:00", weekShare: 0.1, ...values }),
 });
 
 test("a 5-hour period that ends inside the worker's hours does not reach into work hours", () => {
@@ -107,14 +79,14 @@ test("usage without 5-hour numbers gives a plan without them", () => {
 });
 
 test("cleanSettings keeps what is valid and puts the default in place of what is not", () => {
-  const s = cleanSettings({ preset: "sometimes", wakeForWorkerHours: "no", workerHours: { days: [6, 6, 8], start: "19:00", end: "19:00" }, custom: { workdays: [5, 1, 1, 9, "2"], workStart: "19:00", workEnd: "07:00", keepPerWorkday: 3, awayAfterMinutes: "45" } });
+  const s = cleanSettings({ preset: "sometimes", wakeForWorkerHours: "no", workerHours: { days: [6, 6, 8], start: "19:00", end: "19:00" }, custom: { workdays: [5, 1, 1, 9, "2"], workStart: "19:00", workEnd: "07:00", weekShare: 3, awayAfterMinutes: "45" } });
   assert.equal(s.preset, DEFAULTS.preset);
   assert.equal(s.wakeForWorkerHours, DEFAULTS.wakeForWorkerHours);
   assert.deepEqual(s.workerHours, { days: [6], start: DEFAULTS.workerHours.start, end: DEFAULTS.workerHours.end });
   assert.deepEqual(s.custom.workdays, [1, 2, 5]);
   assert.equal(s.custom.workStart, VALUE_DEFAULTS.workStart);
   assert.equal(s.custom.workEnd, VALUE_DEFAULTS.workEnd);
-  assert.equal(s.custom.keepPerWorkday, 1);
+  assert.equal(s.custom.weekShare, 1);
   assert.equal(s.custom.awayAfterMinutes, 45);
 });
 
@@ -123,7 +95,7 @@ test("settings saved by earlier versions of the page keep their choices", () => 
   assert.equal(cleanSettings({ mode: "always" }).preset, "conservative");
   assert.equal(cleanSettings({ preset: "anytime" }).preset, "conservative");
   assert.equal(cleanSettings({ mode: "off" }).preset, "off");
-  const earlier = cleanSettings({ preset: "custom", workdays: [1, 2, 3, 4, 5, 6], workStart: "06:00", workEnd: "18:00", custom: { keepPerWorkday: 0.1 } });
+  const earlier = cleanSettings({ preset: "custom", workdays: [1, 2, 3, 4, 5, 6], workStart: "06:00", workEnd: "18:00", custom: { weekShare: 0.1 } });
   assert.deepEqual(earlier.custom.workdays, [1, 2, 3, 4, 5, 6]);
   assert.equal(earlier.custom.workStart, "06:00");
   assert.equal(cleanSettings({ wakeAfterWork: true }).wakeForWorkerHours, true);
@@ -162,10 +134,10 @@ test("nothing shuts down when the developer chose not to, turned the worker off,
 });
 
 test("sameValues sees custom values copied from Auto as Auto's, and an edited one as different", () => {
-  const auto = { ...VALUE_DEFAULTS, keepPerWorkday: 0.07, awayAfterMinutes: null };
-  const copied = { ...auto, keepPerWorkday: 7.000000000000001 / 100, awayAfterMinutes: 20 };
+  const auto = { ...VALUE_DEFAULTS, weekShare: 0.07, awayAfterMinutes: null };
+  const copied = { ...auto, weekShare: 7.000000000000001 / 100, awayAfterMinutes: 20 };
   assert.equal(sameValues(copied, auto), true);
-  assert.equal(sameValues({ ...copied, keepPerWorkday: 0.08 }, auto), false);
+  assert.equal(sameValues({ ...copied, weekShare: 0.08 }, auto), false);
   assert.equal(sameValues({ ...copied, workdays: [1, 2, 3] }, auto), false);
 });
 

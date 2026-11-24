@@ -278,10 +278,11 @@ The Greenhouse worker, an Orca bot, follows these settings through the service
   `GET /greenhouse-worker/gate`. `workerGate` in `greenhouse-worker-plan.mjs` says no outside the
   worker's hours, with the worker Off, on battery, while the developer is at the machine (keyboard
   or mouse input, or a prompt, within the minutes before they count as away, unless the worker may
-  run while they use it), with nothing left to allocate, or with the 5-hour period at its ceiling; and
-  `stopNow` at the 5-hour hard stop. `presence.ps1` reads the input and power state. When the gate
-  says yes, `greenhouse.mjs` sets the developer's offer in the Greenhouse to what they have used plus
-  what is allocatable.
+  run while they use it), with a share of 0% or nothing of the week left, or with the 5-hour period
+  at its ceiling; and `stopNow` at the 5-hour hard stop. `presence.ps1` reads the input and power
+  state. When the gate says yes, `greenhouse.mjs` sets the developer's offer in the Greenhouse to the
+  worker's share of the week (`weekShare`), or to what the worker has used plus what is left of the
+  week when that is less.
 - **The start.** At the first check after the worker's hours begin (`hoursBegan`), and 5 seconds
   after the page last saved a change to the settings, the service asks the gate. When it says yes
   and no run that the service started is still under way, the service hands the bot named
@@ -303,7 +304,8 @@ came from, without a field to change it:
 - the workdays: each weekday with 20 or more prompts on at least 3 of its last 4 occurrences;
 - the work hours: from a time that 9 in 10 of those days began after to one that 9 in 10 ended
   before;
-- the share kept for each workday: the developer's heaviest workday;
+- the worker's share of each week: what is left of a week in which every workday is as heavy as
+  the developer's heaviest;
 - the ceiling on a 5-hour period in work hours: from their usual peak in one;
 - the minutes before they count as away: from the pauses between their prompts.
 
@@ -322,16 +324,15 @@ need no wait. The plan's readings cannot be had that way. Lines older than 60 da
 the page draws:
 
 ```
-allocatable = (1 - usage) - keepPerWorkday x the workdays still ahead before the week resets
+allocatable = the smaller of weekShare and (1 - usage)
 ```
 
-The worker's hours are not work hours: the plan takes them out of each workday, so a 5-hour period
-that ends inside them gets the higher ceiling. A workday counts as the part of the work hours left
-to it that lies ahead. The usage comes from
+The worker's hours are not work hours, so a 5-hour period that ends inside them gets the higher
+ceiling. The usage comes from
 `~/.config/claude-usage/claude-usage.mjs`, which the greenhouse repository's `set-claude-token.mjs`
 installs; one read is a one-token request to Claude. The page reads it when it opens, when its
 window shows again, and every five minutes while it shows. The button's text ("Bloom Greenhouse · 20%
-allocatable") uses a read that is at most 15 minutes old. The hourly reading for the history goes on
+allocated") uses a read that is at most 15 minutes old. The hourly reading for the history goes on
 whatever the developer chose, since the presets need it before the worker is turned on.
 
 ## Tests

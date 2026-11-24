@@ -21,7 +21,7 @@ export const VALUE_DEFAULTS = {
   workStart: "08:00",
   workEnd: "18:00",
   whileAtComputer: false,            // run while the developer is using this machine
-  keepPerWorkday: 0.14,              // the share of the week kept for each full workday still ahead
+  weekShare: 0.3,                    // the share of each week that the worker may use
   awayAfterMinutes: 20,              // without input or another Claude session, before the developer counts as away
   fiveHourCeilingInWorkHours: 0.5,   // for a 5-hour period that reaches into the developer's work hours
   fiveHourCeilingOtherwise: 0.9,
@@ -55,7 +55,7 @@ export function cleanValues(input = {}) {
     workStart: hours ? input.workStart : d.workStart,
     workEnd: hours ? input.workEnd : d.workEnd,
     whileAtComputer: bool(input.whileAtComputer, d.whileAtComputer),
-    keepPerWorkday: between(input.keepPerWorkday, 0, 1, d.keepPerWorkday),
+    weekShare: between(input.weekShare, 0, 1, d.weekShare),
     awayAfterMinutes: between(input.awayAfterMinutes, 1, 240, d.awayAfterMinutes),
     fiveHourCeilingInWorkHours: between(input.fiveHourCeilingInWorkHours, 0, 1, d.fiveHourCeilingInWorkHours),
     fiveHourCeilingOtherwise: between(input.fiveHourCeilingOtherwise, 0, 1, d.fiveHourCeilingOtherwise),
@@ -175,8 +175,11 @@ const percentOf = share => `${Math.round(share * 1000) / 10}%`;
  * `lastPromptAt` (the developer's last prompt in a Claude session that is not a bot's) and `onAc`
  * (false on battery, null when unknown).
  *
- * { mayWork, reason, allocatable, weekResetsAt, until, stopNow }. `reason` says why not. `allocatable`
- * is the share of the week that the worker may still use from now on. `until` is when the worker's
+ * { mayWork, reason, allocatable, weekShare, weekResetsAt, until, stopNow }. `reason` says why not.
+ * `weekShare` is the share of the week that the developer gives the worker, and `allocatable` that
+ * share or what is left of the week, whichever is less. The worker's own use so far is the
+ * Greenhouse's to count: greenhouse.mjs sets the offer to the smaller of `weekShare` and what the
+ * worker used plus what is left of the week. `until` is when the worker's
  * hours end. `stopNow` asks a worker in the middle of an item to hand it back, because the 5-hour
  * period has reached fiveHourHardStop. Anything else lets an item in progress finish.
  */
@@ -184,7 +187,7 @@ export function workerGate(settings, p, { now, idleMs = null, lastPromptAt = 0, 
   const span = spanAt(settings, now);
   const f = p?.fiveHour;
   const stopNow = !!f && f.usage >= settings.fiveHourHardStop;
-  const answer = { allocatable: p ? Math.max(0, p.allocatable) : 0, weekResetsAt: p?.weekResetsAt ?? null, until: span ? span.end.toISOString() : null, stopNow };
+  const answer = { allocatable: p ? Math.max(0, p.allocatable) : 0, weekShare: p?.weekShare ?? null, weekResetsAt: p?.weekResetsAt ?? null, until: span ? span.end.toISOString() : null, stopNow };
   const no = reason => ({ mayWork: false, reason, ...answer });
   if (settings.preset === "off") return no("The worker is Off on this machine.");
   if (!span) return no("It is outside the worker's hours on this machine.");
@@ -195,7 +198,8 @@ export function workerGate(settings, p, { now, idleMs = null, lastPromptAt = 0, 
     if (now.getTime() - lastPromptAt < away) return no(`The developer sent a prompt ${Math.round((now.getTime() - lastPromptAt) / 60_000)} minutes ago.`);
   }
   if (!p) return no("The plan's usage could not be read.");
-  if (p.allocatable <= 0) return no("Nothing of this week is left to allocate: the developer needs what is left.");
+  if (p.weekShare <= 0) return no("The worker's share of the week is 0%.");
+  if (p.allocatable <= 0) return no("Nothing of this week's plan is left.");
   if (f && f.usage >= f.ceiling) return no(`The 5-hour period is at ${percentOf(f.usage)}, and the worker stops at ${percentOf(f.ceiling)}.`);
   return { mayWork: true, reason: "", ...answer };
 }
@@ -217,31 +221,16 @@ function ownSpans(settings, day) {
  * and `usage` as claude-usage.mjs reports it
  * ({ usage, weekResetsAt, fiveHourUsage, fiveHourResetsAt }, shares from 0 to 1):
  *
- *   allocatable = (1 - usage) - keepPerWorkday x the workdays still ahead before the week resets
- *
- * The work hours here leave out the worker's hours, in which the developer does not work. A
- * workday counts as the part of its work hours that lies between `now` and the reset. When the
- * developer has less left than they keep, nothing is left to allocate and `short` says by how much.
+ *   allocatable = the smaller of weekShare and (1 - usage)
  *
  * `fiveHour` is null when the usage carries no 5-hour numbers. Its `ceiling` is the lower one when
  * the period ends after the developer's next work hours begin, since the worker's use would then
- * count against the developer's own. `workerHours` is the worker's span that is under way, or else
- * the next one, or null when the developer gives the worker no hours.
+ * count against the developer's own. The worker's hours are not work hours. `workerHours` is the
+ * worker's span that is under way, or else the next one, or null when the developer gives the
+ * worker no hours.
  */
 export function plan(settings, usage, now = new Date()) {
-  const reset = new Date(usage.weekResetsAt);
-  const days = workHours(settings, now, reset).map(d => {
-    const own = d.works ? ownSpans(settings, d) : [];
-    const total = own.reduce((sum, s) => sum + (s.end - s.start), 0);
-    const ahead = own.reduce((sum, s) => sum + Math.max(0, Math.min(s.end, reset) - Math.max(s.start, now)), 0);
-    const part = total ? ahead / total : 0;
-    return { date: d.date, works: d.works, part, kept: part * settings.keepPerWorkday };
-  });
-  const workdaysAhead = days.reduce((sum, d) => sum + d.part, 0);
   const left = Math.max(0, 1 - usage.usage);
-  const wanted = workdaysAhead * settings.keepPerWorkday;
-  const kept = Math.min(left, wanted);
-
   const next = workHours(settings, now, new Date(now.getTime() + 14 * 86_400_000))
     .flatMap(d => (d.works ? ownSpans(settings, d) : [])).find(s => s.end > now);
   const inWorkHours = !!next && next.start <= now;
@@ -256,11 +245,9 @@ export function plan(settings, usage, now = new Date()) {
   return {
     weekUsage: usage.usage,
     weekResetsAt: usage.weekResetsAt,
-    days,
-    workdaysAhead,
-    kept,
-    allocatable: left - kept,
-    short: Math.max(0, wanted - left),
+    left,
+    weekShare: settings.weekShare,
+    allocatable: Math.min(left, settings.weekShare),
     inWorkHours,
     nextWorkStart: nextWorkStart ? nextWorkStart.toISOString() : null,
     fiveHour,

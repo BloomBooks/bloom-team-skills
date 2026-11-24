@@ -103,13 +103,6 @@ body:has(#status-tab:not([hidden])) .worker-only { visibility: hidden; }
 .legend i { flex: none; width: 10px; height: 10px; border-radius: 2px; transform: translateY(1px); }
 .legend b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .legend span { color: var(--muted); }
-.days { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.days li { display: grid; gap: 2px; justify-items: center; padding: 8px 2px; background: var(--glass); font-size: 12px; color: var(--muted); }
-.days li:first-child { border-radius: 4px 0 0 4px; }
-.days li:last-child { border-radius: 0 4px 4px 0; }
-.days li b { font-size: 14px; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
-.days li.rest b { font-weight: 400; color: var(--muted); }
-.days li.today { box-shadow: inset 0 2px 0 var(--accent); }
 
 /* The settings: a label, its control, and a line that says what it does. */
 .fields { display: grid; grid-template-columns: 200px 1fr; gap: 14px 16px; align-items: start; }
@@ -221,7 +214,7 @@ input:disabled { opacity: 0.5; }
 <script>
 const $ = id => document.getElementById(id);
 const form = $("form");
-const PERCENTS = ["keepPerWorkday", "fiveHourHardStop", "fiveHourCeilingInWorkHours", "fiveHourCeilingOtherwise"];
+const PERCENTS = ["weekShare", "fiveHourHardStop", "fiveHourCeilingInWorkHours", "fiveHourCeilingOtherwise"];
 const PRESET_NAMES = { conservative: "Auto", custom: "Custom" };
 const FROM = { history: "From your history", start: "Starting value", preset: "Set by Auto" };
 const WEEKDAYS = [[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [0, "Sun"]];
@@ -229,7 +222,6 @@ const pct = share => Math.round(share * 100) + "%";
 const esc = text => String(text).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const clock = date => date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 const dayAndClock = date => date.toLocaleDateString([], { weekday: "long" }) + " " + clock(date);
-const localDay = iso => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d); };
 
 let state = null;
 
@@ -254,7 +246,7 @@ function fillForm(s) {
 
 /** The custom values as the fields show them, or null when the fields are not on the page. */
 function readCustom() {
-  if (!form.elements.keepPerWorkday) return null;
+  if (!form.elements.weekShare) return null;
   const c = {
     workdays: [...form.querySelectorAll("[name=workday]:checked")].map(box => Number(box.value)),
     workStart: form.elements.workStart.value,
@@ -301,7 +293,7 @@ function drawValues() {
   const r = w.recorded;
   const learning = !custom && Object.values(w.sources).some(x => x.from === "start");
   const autoNote = s.preset === "off" ? "With the worker off, these are Auto's values." : `${PRESET_NAMES[w.preset]} works these out from your last 4 weeks on this machine.`;
-  $("week-note").textContent = custom ? "The worker keeps part of the week for each of your workdays still ahead, and uses less of a 5-hour period that runs into your work hours." : autoNote + " Choose Custom to change them.";
+  $("week-note").textContent = custom ? "The worker uses less of a 5-hour period that runs into your work hours." : autoNote + " Choose Custom to change them.";
   $("values-note").textContent = custom
     ? "Custom values stay as you set them. Choose an Auto setting to follow your history again."
     : autoNote + (learning && r.since ? ` Readings of your plan began ${new Date(r.since).toLocaleDateString([], { month: "short", day: "numeric" })}.` : "");
@@ -317,8 +309,6 @@ function drawValues() {
       `<p class="hint">In this machine's time zone, ${esc(state.timeZone)}.</p>`),
   ].join("");
 
-  const total = v.workdays.length * v.keepPerWorkday;
-  const keepNote = `<p class="hint">Over your ${v.workdays.length} workdays this keeps ${pct(Math.min(1, total))} of a week for you${total > 1 ? ", which is all of it: nothing is left to allocate until a workday passes with less used." : "."}</p>`;
   $("presence").innerHTML = [
     valueRow("whileAtComputer", "While you use this computer", v.whileAtComputer ? "The worker may run" : "The worker waits until you are away",
       `<label class="check"><input type="checkbox" name="whileAtComputer"> The worker may run</label>`),
@@ -327,8 +317,8 @@ function drawValues() {
       `<p class="hint">Without keyboard or mouse input, and without a prompt in any other Claude session on this machine.</p>`),
   ].join("");
   $("values").innerHTML = [
-    valueRow("keepPerWorkday", "Kept for each workday", `<b>${pct(v.keepPerWorkday)}</b> of the week`,
-      `<div class="line">${num("keepPerWorkday", 'min="0" max="100" step="1" aria-label="Percent of the week kept for each workday"')} % of the week</div>`, keepNote),
+    valueRow("weekShare", "The worker's share of each week", `<b>${pct(v.weekShare)}</b>`,
+      `<div class="line">${num("weekShare", 'min="0" max="100" step="1" aria-label="Percent of each week that the worker may use"')} %</div>`),
     valueRow("fiveHourCeilingInWorkHours", "A 5-hour period that reaches into your work hours", `The worker stops at <b>${pct(v.fiveHourCeilingInWorkHours)}</b>`,
       `<div class="line">The worker stops at ${num("fiveHourCeilingInWorkHours", 'min="0" max="100" step="5" aria-label="Percent of a 5-hour period that reaches into your work hours"')} %</div>`),
     valueRow("fiveHourCeilingOtherwise", "A 5-hour period that ends before your work hours", `The worker stops at <b>${pct(v.fiveHourCeilingOtherwise)}</b>`,
@@ -355,29 +345,21 @@ function drawPlan() {
   $("read-at").textContent = state.usageAt ? "Usage read " + clock(new Date(state.usageAt)) : "";
   if (!p) { $("plan").innerHTML = `<p class="hint">${usageError ? "No plan without the usage." : "Reading the plan's usage…"}</p>`; return; }
 
-  const amount = `<b>${pct(p.allocatable)}</b> of the week`;
-  const headline = p.short > 0 ? `You have ${pct(1 - p.weekUsage)} of the week left and keep ${pct(p.workdaysAhead * s.keepPerWorkday)} for the workdays ahead, so <b>nothing</b> is left to allocate.`
-    : s.preset === "off" ? `With Auto the worker could use ${amount}.`
-    : `The worker may use ${amount}${s.whileAtComputer ? "" : ", while you are away"}.`;
-  const workdays = p.workdaysAhead.toFixed(1).replace(/\.0$/, "");
+  const share = `<b>${pct(p.weekShare)}</b> of this week`;
+  const headline = s.preset === "off" ? `With Auto the worker could use <b>${pct(p.weekShare)}</b> of each week.`
+    : p.weekShare <= 0 ? "The worker's share of the week is <b>0%</b>."
+    : p.left < p.weekShare ? `The worker may use ${share}, but only <b>${pct(p.left)}</b> is left.`
+    : `The worker may use ${share}${s.whileAtComputer ? "" : ", while you are away"}.`;
   const parts = [
-    ["used", "Used so far", p.weekUsage, ""],
-    ["kept", "Kept for you", p.kept, `${workdays} workday${workdays === "1" ? "" : "s"} ahead × ${pct(s.keepPerWorkday)}`],
-    ["allocatable", "Allocated to the worker", p.allocatable, ""],
+    ["used", "Used so far", p.weekUsage],
+    ["allocatable", "The worker's share", p.allocatable],
+    ["kept", "Left for you", p.left - p.allocatable],
   ];
-  const today = new Date();
-  const days = p.days.map(d => {
-    const day = localDay(d.date);
-    const value = d.works ? pct(d.kept) : "–";
-    const why = !d.works ? "Not a workday" : d.part < 1 ? `${pct(d.part)} of this day's work hours lie ahead` : "A full workday";
-    return `<li class="${d.works ? "" : "rest"}${day.toDateString() === today.toDateString() ? " today" : ""}" title="${esc(why)}"><span>${day.toLocaleDateString([], { weekday: "short" })} ${day.getDate()}</span><b>${value}</b></li>`;
-  }).join("");
-
   $("plan").innerHTML = `
     <p class="headline">${headline}</p>
-    <div class="bar" role="img" aria-label="${parts.map(([, name, share]) => `${name} ${pct(share)}`).join(", ")}">${parts.filter(([, , share]) => share > 0.002).map(([cls, name, share]) => `<i class="${cls}" style="flex:${share}" title="${name}: ${pct(share)}"></i>`).join("")}</div>
-    <ul class="legend">${parts.map(([cls, name, share, note]) => `<li><i class="${cls}"></i>${name} <b>${pct(share)}</b>${note ? `<span>${note}</span>` : ""}</li>`).join("")}</ul>
-    <div><p class="hint" style="margin-bottom:6px">Kept for each day until the week resets, ${dayAndClock(new Date(p.weekResetsAt))}:</p><ol class="days">${days}</ol></div>`;
+    <div class="bar" role="img" aria-label="${parts.map(([, name, part]) => `${name} ${pct(part)}`).join(", ")}">${parts.filter(([, , part]) => part > 0.002).map(([cls, name, part]) => `<i class="${cls}" style="flex:${part}" title="${name}: ${pct(part)}"></i>`).join("")}</div>
+    <ul class="legend">${parts.map(([cls, name, part]) => `<li><i class="${cls}"></i>${name} <b>${pct(part)}</b></li>`).join("")}</ul>
+    <p class="hint">The week resets ${dayAndClock(new Date(p.weekResetsAt))}.</p>`;
 }
 
 async function load() {
