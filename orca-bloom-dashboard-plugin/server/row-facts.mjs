@@ -20,6 +20,15 @@ export const CARD = /\bBL-\d+/i;
 export const cardOf = (branch, wtPath) =>
   ((String(branch || "").match(CARD) || String(wtPath || "").match(CARD) || [])[0] || "").toUpperCase() || null;
 
+// Every card a PR is for: the ids in its branch, or failing that in its title, each once. A PR can
+// be for several cards (the nightly-fix skill makes one PR for several nightly failures), and each
+// of them should show it. Empty for a PR that names none.
+export const cardsOf = (branch, title) => {
+  const all = new RegExp(CARD.source, "gi");
+  const found = String(branch || "").match(all) || String(title || "").match(all) || [];
+  return [...new Set(found.map(id => id.toUpperCase()))];
+};
+
 // Reads a JSON file. The session often writes files with PowerShell, which may start them with a
 // UTF-8 byte-order mark that JSON.parse rejects, so the mark is dropped first (trimStart counts it as white space).
 export const readJson = file => JSON.parse(fs.readFileSync(file, "utf8").trimStart());

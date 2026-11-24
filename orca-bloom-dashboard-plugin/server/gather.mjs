@@ -18,7 +18,7 @@ import { reviewedCards, backForReview as cardsBackForReview } from "./reviewed.m
 import { reviewRequests as requestsFor } from "./review-requests.mjs";
 import { upForGrabs as grabsOnBoard } from "./up-for-grabs.mjs";
 import { standupDays, teamRepos } from "./standup.mjs";
-import { cardOf, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
+import { cardOf, cardsOf, checksState, reportDecisions, reportOf } from "./row-facts.mjs";
 import { agentState, orca as orcaCli } from "../../orca-worktrees.mjs";
 import { removalWarnings, statusEntries } from "./stale-worktrees.mjs";
 
@@ -110,12 +110,17 @@ async function openPrs(repo, branches = []) {
     }
   }
   const prs = raw.map(({ statusCheckRollup, body, ...p }) => ({
-    ...p, repo, card: cardOf(p.headRefName, p.title),
+    ...p, repo,
     reviewRequests: p.reviewRequests.map(r => r.login), checks: checksState(statusCheckRollup),
     report: reportOf(body),
   }));
   await Promise.all(prs.filter(p => p.report).map(async p => { p.reportDecisions = await reportDecisions(p.report); }));
-  return prs;
+  // One entry for each card the PR is for, so that each of those cards' rows shows it. A PR for no
+  // card keeps one entry, with none.
+  return prs.flatMap(p => {
+    const cards = cardsOf(p.headRefName, p.title);
+    return (cards.length ? cards : [null]).map(card => ({ ...p, card }));
+  });
 }
 
 /**
@@ -273,7 +278,7 @@ export async function gather({ board: boardArg = null, core = false } = {}) {
       [repo, await ghJson(["pr", "list", "-R", repo, "--state", "open", "--limit", "500", "--json", "url,title,headRefName,isDraft,author"])])));
     const list = await Promise.all(stale.map(async w => {
       const repo = repoOf(w), card = resolved.get(w.card);
-      const prs = (open.get(repo) || []).filter(p => cardOf(p.headRefName, p.title) === w.card)
+      const prs = (open.get(repo) || []).filter(p => cardsOf(p.headRefName, p.title).includes(w.card))
         .map(p => ({ url: p.url, title: p.title, headRefName: p.headRefName, isDraft: p.isDraft, author: p.author?.login === dev.github ? "" : p.author?.login || "" }));
       // The newest merged PR from the branch, and the commits the branch has beyond it and its base.
       let branchPr = null, afterMerge = null, afterMergeCommits = [];

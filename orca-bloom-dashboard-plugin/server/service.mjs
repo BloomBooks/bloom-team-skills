@@ -299,7 +299,8 @@ function gather(full) {
       if (!next) throw new Error("gather wrote nothing");
       const now = Date.now();
       for (const c of next.cards) { const was = remote?.cards.find(x => x.id === c.id); if (was && was.state !== c.state) note(null, `${c.id}: State ${was.state} -> ${c.state}`); }
-      for (const p of next.prs) { const was = remote?.prs.find(x => x.url === p.url); if (was && (was.isDraft !== p.isDraft || was.checks !== p.checks || was.mergeable !== p.mergeable)) note(null, `${p.card || "PR " + p.number}: PR ${p.number} is ${p.isDraft ? "draft" : "ready"}, ${p.mergeable}, CI ${p.checks || "none"}`); }
+      // A PR for several cards has an entry for each (gather.mjs, openPrs); note each change once.
+      for (const p of new Map(next.prs.map(p => [p.url, p])).values()) { const was = remote?.prs.find(x => x.url === p.url); if (was && (was.isDraft !== p.isDraft || was.checks !== p.checks || was.mergeable !== p.mergeable)) note(null, `${p.card || "PR " + p.number}: PR ${p.number} is ${p.isDraft ? "draft" : "ready"}, ${p.mergeable}, CI ${p.checks || "none"}`); }
       remote = next;
       boards = next.boards || boards;
       if (full) { extras = { standup: next.standup, backForReview: next.backForReview, upForGrabs: next.upForGrabs, staleWorktrees: next.staleWorktrees, at: now }; removedWorktrees.clear(); }

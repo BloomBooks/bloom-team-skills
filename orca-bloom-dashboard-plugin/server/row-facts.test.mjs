@@ -2,7 +2,7 @@
 // Worktree panel's worker share. Run: node --test "orca-bloom-dashboard-plugin/**/*.test.mjs"
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardOf, checksState, countDecisions, norm, questionOf, REPORT_HOME as REPORT, reportDecisions, reportOf, reportReadable } from "./row-facts.mjs";
+import { cardOf, cardsOf, checksState, countDecisions, norm, questionOf, REPORT_HOME as REPORT, reportDecisions, reportOf, reportReadable } from "./row-facts.mjs";
 
 test("norm makes one key of the ways a worktree path is spelled", () => {
   assert.equal(norm("D:\\BL-1-x\\"), "d:/bl-1-x");
@@ -14,6 +14,17 @@ test("cardOf reads the card from the branch, then the path", () => {
   assert.equal(cardOf("refs/heads/JohnThomson/bl-123-fix", "D:/other"), "BL-123");
   assert.equal(cardOf("main", "D:/BL-456-thing"), "BL-456");
   assert.equal(cardOf("main", "D:/bloom"), null);
+});
+
+test("cardsOf reads every card a PR names, from the branch, then the title", () => {
+  // A PR that fixes several cards names them all in its title; each card should get the PR.
+  assert.deepEqual(
+    cardsOf("JohnThomson/overnight-failures", "Fix five nightly e2e failures (BL-17149, BL-17150, bl-17158)"),
+    ["BL-17149", "BL-17150", "BL-17158"],
+  );
+  assert.deepEqual(cardsOf("BL-1-fix", "Fix it (BL-2)"), ["BL-1"], "the branch's ids win, as in cardOf");
+  assert.deepEqual(cardsOf("main", "BL-3 and BL-3 again"), ["BL-3"], "each card once");
+  assert.deepEqual(cardsOf("main", "No card here"), []);
 });
 
 test("questionOf strips Orca's answer: prefix and ignores agents that are not waiting", () => {
