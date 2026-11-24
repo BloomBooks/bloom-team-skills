@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-11-24 — pnpm 11 says "Already up to date" after a rebase changed the lockfile, and installs nothing
+
+- **Cut:** After rebasing a BloomDesktop branch onto master, whose `pnpm-lock.yaml` moved `bloom-player` from 2.22.0-alpha.2 to alpha.3, `pnpm install` in `src/BloomBrowserUI` printed "Already up to date" in 0.3 s, even with `--frozen-lockfile --force` and with `node_modules/.pnpm/lock.yaml` deleted. alpha.2 stayed installed, and master's new `gamePlayMode.spec.ts` failed 2 tests in a way that looked like a bug in the branch. Deleting `node_modules/.pnpm-workspace-state-v1.json` made the next `pnpm install` do the real install (77 s), and the tests passed.
+- **Idea:** Add it to `windows-agent-gotchas` (or the repo's front-end AGENTS.md): after a rebase or merge, if a test from the base fails only on your branch, compare `node_modules/<pkg>/package.json` versions with the lockfile, and delete `.pnpm-workspace-state-v1.json` before reinstalling.
+- **Context:** BL-17042 (BloomDesktop PR #8516) rebase, Claude Opus 5.5 following a prompt from Andrew Polk.
+
 ## 2026-11-19 — The `yarn` on PATH ignores `packageManager` and migrates a yarn 1 project to Yarn 4
 
 - **Cut:** On Hatton's machine `yarn` resolves to the vite-plus shim (`C:\Users\hatto\.vite-plus\bin\yarn.exe`). In a package whose package.json says `"packageManager": "yarn@1.22.19"`, `yarn install` ran Yarn 4.18.1, printed "Migrated your project to the latest Yarn version", rewrote `yarn.lock` and added `.yarnrc.yml` and `.yarn/`. `corepack yarn ...` honors the field and runs yarn 1.
