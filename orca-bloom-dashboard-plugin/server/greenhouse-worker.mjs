@@ -3,7 +3,7 @@
 // this machine's claude-usage.mjs reports it, the history that the presets learn from, and the
 // plan that follows. The Greenhouse worker itself is an Orca bot. This tells it whether it may claim
 // an item (workerGate, which greenhouse.mjs's `gate` asks for), starts it through Orca when its hours
-// begin, and shuts the machine down after it when the developer chose so (shutDownReason).
+// begin and whenever it may work and is not at work, and shuts the machine down after it when the developer chose so (shutDownReason).
 //
 // The history, greenhouse-history.jsonl in the data folder, holds one JSON object per line:
 //   { kind: "plan", at, usage, weekResetsAt, fiveHourUsage, fiveHourResetsAt }  a reading of the
@@ -21,7 +21,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { dataFile, readJsonFile, writeJsonFile, log } from "./env.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { cleanSettings, plan, sameValues, shutDownReason, hoursBegan, workerGate } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, plan, sameValues, shutDownReason, hoursBegan, workerGate, mayWorkBeforeUsage, restartDue } from "./greenhouse-worker-plan.mjs";
 import { workerValues } from "./greenhouse-worker-rules.mjs";
 
 const settingsFile = () => dataFile("greenhouse-worker.json");
@@ -46,6 +46,34 @@ async function greenhouseUrl() {
     log(`greenhouse: could not ask the tool server where the Greenhouse runs: ${error.message}`);
   }
   return greenhouseAddress;
+}
+
+// The Greenhouse's last dashboard answer, its ETag and when it was read. Every read of the Greenhouse
+// counts against its database's daily limit, so a read within a minute of the last one is not made,
+// and the ETag lets an unchanged answer come back as 304.
+const board = { at: 0, etag: null, offers: [] };
+const BOARD_MS = 60_000;
+/** The share of the week that the developer's worker has used, from the developer's offer on the
+ * Greenhouse for the week that resets at `weekResetsAt`. 0 when there is no offer, null when the
+ * Greenhouse cannot be read. */
+async function workerUsed(weekResetsAt) {
+  try {
+    if (Date.now() - board.at > BOARD_MS) {
+      const url = await greenhouseUrl();
+      if (!url) return null;
+      const response = await fetch(url + "/api/dashboard", { headers: board.etag ? { "If-None-Match": board.etag } : {}, signal: AbortSignal.timeout(30_000) });
+      if (response.status === 200) Object.assign(board, { etag: response.headers.get("etag"), offers: (await response.json()).offers ?? [] });
+      else if (response.status !== 304) throw new Error(`HTTP ${response.status}`);
+      board.at = Date.now();
+    }
+    const { developer } = await import("../../developer.mjs");
+    const login = (await developer()).github?.toLowerCase();
+    const offer = board.offers.find(o => o.developer.toLowerCase() === login && Date.parse(o.week_resets_at) === Date.parse(weekResetsAt));
+    return offer?.used ?? 0;
+  } catch (error) {
+    log(`greenhouse: could not read the worker's use of the week: ${error.message}`);
+    return null;
+  }
 }
 // The greenhouse repository's set-claude-token.mjs installs this script, with the plan's token.
 const usageScript = () => path.join(os.homedir(), ".config", "claude-usage", "claude-usage.mjs");
@@ -110,7 +138,9 @@ export function recordHook(payload) {
   const bots = norm(botsDir());
   if (cwd.startsWith(bots + path.sep)) {
     const bot = cwd.slice(bots.length + 1).split(path.sep)[0];
-    if (["Stop", "SessionEnd"].includes(payload.hook_event_name) && isGreenhouseWorker(bot)) checkShutDown("workerStopped");
+    const worker = isGreenhouseWorker(bot);
+    if (worker) lastWorkerAt = Date.now();
+    if (["Stop", "SessionEnd"].includes(payload.hook_event_name) && worker) checkShutDown("workerStopped");
     if (Date.now() - (lastBotAt.get(bot) ?? 0) < 60_000) return;
     lastBotAt.set(bot, Date.now());
     append({ kind: "bot", at: Date.now(), bot });
@@ -132,15 +162,33 @@ const SHUT_DOWN_WARNING_S = 300;
 const HANDOFF_WAIT_MS = 60_000;
 let shutDownStarted = false;
 let lastCheck = Date.now();
-/** Runs once a minute: starts the worker when its hours have just begun, and shuts the machine down
- * when they have just ended. */
+// When the service last started the worker, when a session of the worker last did anything, and
+// when the service last looked at starting it again. Each is 0 until it happens in this run of the
+// service.
+let lastStartAt = 0;
+let lastWorkerAt = 0;
+let lastRestartCheckAt = 0;
+/** Runs once a minute: starts the worker when its hours have just begun or when it may work and is
+ * not at work, and shuts the machine down when its hours have just ended. */
 function everyMinute() {
   const now = new Date();
   const since = lastCheck;
   lastCheck = now.getTime();
   const settings = savedSettings();
   if (settings && hoursBegan(settings, { now, since })) startIfMayWork("its hours began");
+  else if (settings) startIfIdle(now).catch(error => log("greenhouse worker: " + error.message));
   checkShutDown("tick", since);
+}
+
+/** Starts the worker when it has not been at work for a while and the gate lets it work. The
+ * plan's usage is read only when everything else that the gate checks says yes. */
+async function startIfIdle(now) {
+  if (!restartDue({ now, lastStartAt, lastWorkerAt, lastCheckAt: lastRestartCheckAt })) return;
+  lastRestartCheckAt = now.getTime();
+  const { settings, worker } = current();
+  const machine = await presence();
+  if (!mayWorkBeforeUsage({ ...settings, ...worker.values }, { now, lastPromptAt: lastAt("prompt"), ...machine })) return;
+  await startIfMayWork("it was not at work");
 }
 
 /** Shuts the machine down when shutDownReason() gives a reason, once for the life of the service.
@@ -222,6 +270,7 @@ async function startWorker(why) {
   const prompt = "Work on the Greenhouse as your SOUL.md says: before each claim run `node greenhouse.mjs gate`, and stop when it says that you may not work.";
   const by = new Date(Date.now() + 5_000).toISOString();
   await orcaJson(["automations", "create", "--name", START_NAME, "--bot", "Greenhouse Worker", "--runs-in", "new", "--results-to", "chat", "--once", "--by", by, "--prompt", prompt]);
+  lastStartAt = Date.now();
   log(`greenhouse worker: started the worker (${why})`);
 }
 
@@ -351,6 +400,8 @@ export async function workerState({ read = true } = {}) {
     usageAt: last.at || null,
     usageError: last.error,
     plan: last.usage ? plan({ ...settings, ...worker.values }, last.usage, new Date()) : null,
+    // The part of the week's usage that the worker used, or null when it is not known.
+    workerUsed: last.usage ? await workerUsed(last.usage.weekResetsAt) : null,
   };
 }
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cleanSettings, cleanValues, plan, sameValues, shutDownReason, hoursBegan, workerGate, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, cleanValues, plan, sameValues, shutDownReason, hoursBegan, workerGate, mayWorkBeforeUsage, restartDue, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
 
 // November 2026: the 19th and the 26th are Thursdays. Times are local, as the plan's are.
 const at = (day, hour, minute = 0) => new Date(2026, 10, day, hour, minute);
@@ -188,4 +188,32 @@ test("the 5-hour ceiling stops new items, and the hard stop hands back the one i
 
 test("without the plan's usage the worker may not work", () => {
   assert.equal(workerGate(gated(), null, { now: at(19, 19), ...away }).mayWork, false);
+});
+
+test("a worker that stopped without starting its next chat is started again ten minutes after it was last active", () => {
+  const started = ms(at(19, 18));
+  const lastWorkerAt = ms(at(19, 19));
+  assert.equal(restartDue({ now: at(19, 19, 9), lastStartAt: started, lastWorkerAt }), false);
+  assert.equal(restartDue({ now: at(19, 19, 10), lastStartAt: started, lastWorkerAt }), true);
+  // The service looked two minutes ago, and looks again only after five.
+  assert.equal(restartDue({ now: at(19, 19, 12), lastStartAt: started, lastWorkerAt, lastCheckAt: ms(at(19, 19, 10)) }), false);
+  assert.equal(restartDue({ now: at(19, 19, 15), lastStartAt: started, lastWorkerAt, lastCheckAt: ms(at(19, 19, 10)) }), true);
+  // A service that has just begun knows of no start and no activity.
+  assert.equal(restartDue({ now: at(19, 19) }), true);
+});
+
+test("a worker whose last start ended within five minutes is started again only after an hour", () => {
+  const started = ms(at(19, 18));
+  const found = { lastStartAt: started, lastWorkerAt: ms(at(19, 18, 2)) };
+  assert.equal(restartDue({ now: at(19, 18, 30), ...found }), false);
+  assert.equal(restartDue({ now: at(19, 19), ...found }), true);
+  // A start after which the worker did nothing at all counts the same.
+  assert.equal(restartDue({ now: at(19, 18, 30), lastStartAt: started, lastWorkerAt: ms(at(19, 17)) }), false);
+});
+
+test("the plan's usage is read for a start only when the worker's hours, the power and the developer's absence allow one", () => {
+  assert.equal(mayWorkBeforeUsage(gated(), { now: at(19, 19), ...away }), true);
+  assert.equal(mayWorkBeforeUsage(gated(), { now: at(19, 12), ...away }), false);
+  assert.equal(mayWorkBeforeUsage(gated(), { now: at(19, 19), idleMs: 60_000, onAc: true }), false);
+  assert.equal(mayWorkBeforeUsage(gated({ preset: "off" }), { now: at(19, 19), ...away }), false);
 });

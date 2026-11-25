@@ -88,12 +88,12 @@ body:has(#status-tab:not([hidden])) .worker-only { visibility: hidden; }
 .modes input { position: absolute; opacity: 0; pointer-events: none; }
 .modes b { font-weight: 600; }
 
-/* The week: what is used, what is kept for the developer and what is allocated to the worker, as parts of one bar. */
+/* The week as one bar: what the developer used, what the worker used, what is left for the worker and what is left for the developer. */
 .headline { margin: 0; font-size: 16px; line-height: 1.4; text-wrap: pretty; }
 .headline b { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .bar { display: flex; gap: 2px; height: 14px; }
-/* The slider lies over the bar. Its range runs from minus the week's use to what is left, so its
-   handle sits where the worker's share ends. */
+/* The slider lies over the bar. Its range runs from minus the developer's own use to what the
+   developer has not used, so its handle sits where the worker's share ends. */
 .bar-wrap { position: relative; }
 #share-slider { position: absolute; inset: -6px 0; width: 100%; height: 26px; margin: 0; background: none; -webkit-appearance: none; appearance: none; cursor: ew-resize; }
 #share-slider::-webkit-slider-runnable-track { height: 26px; background: none; }
@@ -105,6 +105,8 @@ body:has(#status-tab:not([hidden])) .worker-only { visibility: hidden; }
 .bar > i:first-child { border-radius: 4px 0 0 4px; }
 .bar > i:last-child { border-radius: 0 4px 4px 0; }
 .used { background: var(--grey); }
+.used-you { background: color-mix(in srgb, var(--you) 40%, var(--grey)); }
+.used-worker { background: color-mix(in srgb, var(--agent) 40%, var(--grey)); }
 .kept { background: var(--you); }
 .allocatable { background: var(--agent); }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
@@ -376,7 +378,7 @@ function drawPlan() {
   // While the slider has the focus, it keeps where the developer put it.
   const dragging = document.activeElement === slider;
   if (!dragging) {
-    const used = Math.round(p.weekUsage * 100);
+    const used = Math.round((p.weekUsage - workerUsed()) * 100);
     slider.min = String(-used);
     slider.max = String(100 - used);
     slider.value = String(Math.round(p.weekShare * 100));
@@ -388,20 +390,32 @@ function drawPlan() {
   $("week-info").innerHTML = info(`The week resets ${dayAndClock(new Date(p.weekResetsAt))}.`);
 }
 
-/** The headline, bar and legend for the plan with the worker's share at `weekShare`. */
+/** The part of the week's usage that the worker used: what the Greenhouse charged to the
+ * developer's offer, or 0 when the Greenhouse could not be read. */
+const workerUsed = () => Math.min(state.plan.weekUsage, state.workerUsed ?? 0);
+
+/** The headline, bar and legend for the plan with the worker's share at `weekShare`. The share is
+ * of the whole week, so what the worker used already counts against it. */
 function drawShare(weekShare) {
   const p = state.plan;
   const s = { ...state.settings, ...state.worker.values };
-  const allocatable = Math.min(p.left, weekShare);
+  const byWorker = workerUsed();
+  const workerLeft = Math.max(0, Math.min(p.left, weekShare - byWorker));
   const share = `<b>${pct(weekShare)}</b> of this week`;
   $("plan-headline").innerHTML = s.preset === "off" ? `With Auto the worker could use <b>${pct(weekShare)}</b> of each week.`
     : weekShare <= 0 ? "The worker's share of the week is <b>0%</b>."
-    : p.left < weekShare ? `The worker may use ${share}, but only <b>${pct(p.left)}</b> is left.`
+    : byWorker >= weekShare ? `The worker has used its ${share}.`
+    : p.left < weekShare - byWorker ? `The worker may use ${share}, but only <b>${pct(p.left)}</b> is left.`
     : `The worker may use ${share}${s.whileAtComputer ? "" : ", while you are away"}.`;
-  const parts = [
+  const parts = state.workerUsed == null ? [
     ["used", "Used so far", p.weekUsage],
-    ["allocatable", "The worker's share", allocatable],
-    ["kept", "Left for you", p.left - allocatable],
+    ["allocatable", "Left for the worker", workerLeft],
+    ["kept", "Left for you", p.left - workerLeft],
+  ] : [
+    ["used-you", "Used by you", p.weekUsage - byWorker],
+    ["used-worker", "Used by the worker", byWorker],
+    ["allocatable", "Left for the worker", workerLeft],
+    ["kept", "Left for you", p.left - workerLeft],
   ];
   $("plan-bar").setAttribute("aria-label", parts.map(([, name, part]) => `${name} ${pct(part)}`).join(", "));
   $("plan-bar").innerHTML = parts.filter(([, , part]) => part > 0.002).map(([cls, name, part]) => `<i class="${cls}" style="flex:${part}" title="${name}: ${pct(part)}"></i>`).join("");

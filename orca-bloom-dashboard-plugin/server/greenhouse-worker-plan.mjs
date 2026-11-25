@@ -160,6 +160,35 @@ function spanAt(settings, now) {
 /** Whether one of the worker's spans began after `since` and no longer than HOURS_ENDED_GRACE_MS
  * ago, so that the service starts the worker once at the start of each span, and not when a machine
  * that slept through the start wakes much later. */
+/** Whether everything that the gate checks before the plan's usage lets the worker work: its
+ * setting, its hours, the machine's power and the developer's absence. Reading the usage is a
+ * request to Claude, so the service asks this first. */
+export const mayWorkBeforeUsage = (settings, context) => workerGate(settings, null, context).reason === NO_USAGE;
+
+// A worker that is not at work is started again this long after it was last active.
+export const RESTART_AFTER_MS = 10 * 60_000;
+// A start that the worker ended within this time found nothing that it could do: no work item
+// ready, or its owner's offer used up. The next start then waits longer, since each start is a
+// chat that costs tokens.
+export const SHORT_RUN_MS = 5 * 60_000;
+export const RESTART_AFTER_SHORT_RUN_MS = 60 * 60_000;
+// How often the service looks at whether to start the worker again.
+export const RESTART_CHECK_MS = 5 * 60_000;
+/**
+ * Whether the service should now look at starting a worker that is not at work. Each chat of the
+ * worker starts the next one, so a chat that ends without doing so (it crashed, or its owner spoke
+ * to it and it answered) would otherwise leave the worker stopped until its hours next begin.
+ * `lastStartAt` is the service's last start of the worker, `lastWorkerAt` the last time that a
+ * session of the worker did anything, and `lastCheckAt` the last time this answered yes; each is 0
+ * when unknown.
+ */
+export function restartDue({ now, lastStartAt = 0, lastWorkerAt = 0, lastCheckAt = 0 }) {
+  const t = now.getTime();
+  if (t - lastCheckAt < RESTART_CHECK_MS) return false;
+  if (lastStartAt > 0 && lastWorkerAt - lastStartAt < SHORT_RUN_MS) return t - lastStartAt >= RESTART_AFTER_SHORT_RUN_MS;
+  return t - Math.max(lastStartAt, lastWorkerAt) >= RESTART_AFTER_MS;
+}
+
 export function hoursBegan(settings, { now, since }) {
   if (settings.preset === "off") return false;
   const t = now.getTime();
@@ -183,6 +212,7 @@ const percentOf = share => `${Math.round(share * 1000) / 10}%`;
  * hours end. `stopNow` asks a worker in the middle of a work item to pause it, because the 5-hour
  * period has reached fiveHourHardStop. Anything else lets a work item in progress finish.
  */
+const NO_USAGE = "The plan's usage could not be read.";
 export function workerGate(settings, p, { now, idleMs = null, lastPromptAt = 0, onAc = null }) {
   const span = spanAt(settings, now);
   const f = p?.fiveHour;
@@ -197,7 +227,7 @@ export function workerGate(settings, p, { now, idleMs = null, lastPromptAt = 0, 
     if (idleMs != null && idleMs < away) return no(`The developer used the keyboard or mouse ${Math.round(idleMs / 60_000)} minutes ago.`);
     if (now.getTime() - lastPromptAt < away) return no(`The developer sent a prompt ${Math.round((now.getTime() - lastPromptAt) / 60_000)} minutes ago.`);
   }
-  if (!p) return no("The plan's usage could not be read.");
+  if (!p) return no(NO_USAGE);
   if (p.weekShare <= 0) return no("The worker's share of the week is 0%.");
   if (p.allocatable <= 0) return no("Nothing of this week's plan is left.");
   if (f && f.usage >= f.ceiling) return no(`The 5-hour period is at ${percentOf(f.usage)}, and the worker stops at ${percentOf(f.ceiling)}.`);
