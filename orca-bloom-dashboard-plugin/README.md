@@ -283,7 +283,17 @@ The Greenhouse worker, an Orca bot, follows these settings through the service
   state. When the gate says yes, `greenhouse.mjs` sets the developer's offer in the Greenhouse to the
   worker's share of the week (`weekShare`), or to what the worker has used plus what is left of the
   week when that is less.
-- **The start.** At the first check after the worker's hours begin (`hoursBegan`), and 5 seconds
+- **Using the rest of the week.** In "This week", the developer can let the worker use the rest of
+  the week from a time they choose (by default, the end of today's work hours). The page saves it on
+  the developer's offer in the Greenhouse (`PUT /api/offers/use-rest`, with their `gh` token), so
+  the workers on all their machines follow it. Each service reads the Greenhouse's `/api/dashboard`
+  every 15 minutes while its worker is not Off, so the setting reaches a machine within that time.
+  From that time until the week resets, the gate lets the worker work outside its hours, and lets it
+  use all of what is left of the week but `REST_KEPT` (2%); `greenhouse.mjs` then sets the offer to
+  what the worker has used plus that. Off, battery, the developer at the machine and the 5-hour
+  ceilings still stop it, and the machine is not shut down. It belongs to that week's offer, so it
+  ends when the week resets.
+- **The start.** At the first check after the worker's hours begin (`hoursBegan`) or after the time to use the rest of the week (`restBegan`), and 5 seconds
   after the page last saved a change to the settings, the service asks the gate. When it says yes
   and no run that the service started, and no chat of the worker, is still under way, the service hands the bot named
   "Greenhouse Worker" a run, through an Orca automation named "Greenhouse worker's hours" that runs

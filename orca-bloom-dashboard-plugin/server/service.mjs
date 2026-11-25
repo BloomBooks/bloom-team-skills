@@ -38,7 +38,8 @@
 //   GET  /status           what the page's service indicator shows; no key
 //   GET  /hooks            the newest hook payloads, for checking what sessions send (x-bloom-key)
 //   GET  /greenhouse       the Bloom Greenhouse page; GET /greenhouse-worker/state and
-//                          POST /greenhouse-worker/settings are its own (x-dashboard-token);
+//                          POST /greenhouse-worker/settings and POST /greenhouse-worker/use-rest
+//                          ({ from }: an ISO time, or null) are its own (x-dashboard-token);
 //                          GET /greenhouse-worker/summary is the status bar button's text (x-bloom-key)
 //                          GET /greenhouse-worker/gate: whether the Greenhouse worker may claim an
 //                          item now (x-bloom-key; greenhouse.mjs's `gate` asks it)
@@ -65,7 +66,7 @@ import { unconfirmed } from "./stale-worktrees.mjs";
 import { orca, norm, setLog, bringOrcaToFront, openWorktree, createWorktree, runSkill, sendPrompt, openInVsCode } from "../../orca-worktrees.mjs";
 import { developer } from "../../developer.mjs";
 import { openChange, openCommit } from "./open-change.mjs";
-import { workerState, workerSummary, workerGateNow, saveSettings, recordHook, startRecording } from "./greenhouse-worker.mjs";
+import { workerState, workerSummary, workerGateNow, saveSettings, setUseRest, recordHook, startRecording } from "./greenhouse-worker.mjs";
 
 const execFileP = promisify(execFile);
 const args = process.argv.slice(2);
@@ -1009,6 +1010,12 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/greenhouse-worker/settings") {
       if (!keyed && !fromPage(req)) return send(res, 403, { ok: false, error: "forbidden" });
       saveSettings(json(await readBody(req, 1e5)));
+      return send(res, 200, { ok: true, ...(await workerState({ read: false })) });
+    }
+    if (pathname === "/greenhouse-worker/use-rest") {
+      if (!keyed && !fromPage(req)) return send(res, 403, { ok: false, error: "forbidden" });
+      try { await setUseRest(json(await readBody(req, 1000)).from ?? null); }
+      catch (e) { return send(res, 200, { ok: false, error: String(e.message).split("\n")[0], ...(await workerState({ read: false })) }); }
       return send(res, 200, { ok: true, ...(await workerState({ read: false })) });
     }
     if (pathname === "/action") {

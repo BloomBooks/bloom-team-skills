@@ -121,7 +121,8 @@ body:has(#status-tab:not([hidden])) .worker-only { visibility: hidden; }
 .fields > label, .fields > .name { padding-top: 5px; font-weight: 500; }
 .fields > div { display: grid; gap: 6px; justify-items: start; }
 .line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-input[type=number], input[type=time] { font: inherit; font-variant-numeric: tabular-nums; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 8px; }
+#rest[hidden] { display: none; }
+input[type=number], input[type=time], input[type=datetime-local] { font: inherit; font-variant-numeric: tabular-nums; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 8px; }
 input[type=number] { width: 64px; }
 input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[type=checkbox], input[type=radio] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
@@ -211,6 +212,7 @@ input:disabled { opacity: 0.5; }
           <input type="range" name="weekShare" id="share-slider" step="1" hidden aria-label="The worker's share of each week, in percent">
         </div>
         <ul class="legend" id="plan-legend" hidden></ul>
+        <div class="line" id="rest" hidden></div>
         <p class="hint" id="plan-hint">Reading the plan's usage…</p>
       </div>
     </section>
@@ -386,8 +388,50 @@ function drawPlan() {
   slider.disabled = s.preset === "off";
   slider.title = s.preset === "custom" ? "" : state.worker.sources.weekShare?.reason ?? "";
   drawShare(draggedShare ?? p.weekShare);
+  drawRest();
   $("plan-hint").hidden = true;
   $("week-info").innerHTML = info(`The week resets ${dayAndClock(new Date(p.weekResetsAt))}.`);
+}
+
+// The share of the week that the worker leaves to the developer when it uses the rest of the week
+// (REST_KEPT in greenhouse-worker-plan.mjs).
+const REST_KEPT = 0.02;
+const localInput = date => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+/** The control that lets the worker use the rest of this week from a time: the time and a button, or,
+ * once it is set, the time and a button that takes it back. While the developer is choosing the time,
+ * it stays as they left it. */
+function drawRest() {
+  const p = state.plan, from = state.useRestFrom;
+  const rest = $("rest");
+  rest.hidden = state.settings.preset === "off";
+  if (rest.contains(document.activeElement)) return;
+  const resets = new Date(p.weekResetsAt);
+  const tip = `Until the week resets ${dayAndClock(resets)}, the worker may use all but ${pct(REST_KEPT)} of what is left of the week, outside its hours too. The workers on all your machines follow this.`;
+  if (from) {
+    rest.innerHTML = `<span>The worker uses the rest of this week from <b>${esc(dayAndClock(new Date(from)))}</b></span>${info(tip)} <button type="button" class="refresh" id="rest-off">Take back</button>`;
+    $("rest-off").addEventListener("click", () => setRest(null));
+    return;
+  }
+  // The default time is the end of today's work hours, or now when they have ended.
+  const [h, m] = state.worker.values.workEnd.split(":").map(Number);
+  const now = new Date(), workEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
+  const start = new Date(Math.min(Math.max(now, workEnd), resets - 60_000));
+  rest.innerHTML = `<label for="rest-from">Use the rest of this week from</label> <input type="datetime-local" id="rest-from" min="${localInput(now)}" max="${localInput(resets)}" value="${localInput(start)}">${info(tip)} <button type="button" class="refresh" id="rest-on">Use the rest</button>`;
+  $("rest-on").addEventListener("click", () => {
+    const chosen = new Date($("rest-from").value);
+    if (!Number.isNaN(chosen.getTime())) setRest(chosen.toISOString());
+  });
+}
+
+async function setRest(from) {
+  try {
+    const answer = await ask("/greenhouse-worker/use-rest", { from });
+    state = answer;
+    drawAll();
+    $("saved").textContent = answer.ok ? "Saved" : "Not saved: " + answer.error;
+  } catch (e) {
+    if (e.message !== "reloading") $("saved").textContent = "Not saved: " + e.message;
+  }
 }
 
 /** The part of the week's usage that the worker used: what the Greenhouse charged to the
@@ -402,7 +446,9 @@ function drawShare(weekShare) {
   const byWorker = workerUsed();
   const workerLeft = Math.max(0, Math.min(p.left, weekShare - byWorker));
   const share = `<b>${pct(weekShare)}</b> of this week`;
+  const usingRest = state.useRestFrom && Date.parse(state.useRestFrom) <= Date.now();
   $("plan-headline").innerHTML = s.preset === "off" ? `With Auto the worker could use <b>${pct(weekShare)}</b> of each week.`
+    : usingRest ? `The worker may use the rest of this week but <b>${pct(REST_KEPT)}</b>, until ${esc(dayAndClock(new Date(p.weekResetsAt)))}.`
     : weekShare <= 0 ? "The worker's share of the week is <b>0%</b>."
     : byWorker >= weekShare ? `The worker has used its ${share}.`
     : p.left < weekShare - byWorker ? `The worker may use ${share}, but only <b>${pct(p.left)}</b> is left.`

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cleanSettings, cleanValues, plan, sameValues, shutDownReason, hoursBegan, workerGate, mayWorkBeforeUsage, restartDue, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, cleanValues, plan, sameValues, shutDownReason, hoursBegan, restBegan, useRestUntil, workerGate, mayWorkBeforeUsage, restartDue, REST_KEPT, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
 
 // November 2026: the 19th and the 26th are Thursdays. Times are local, as the plan's are.
 const at = (day, hour, minute = 0) => new Date(2026, 10, day, hour, minute);
@@ -216,4 +216,50 @@ test("the plan's usage is read for a start only when the worker's hours, the pow
   assert.equal(mayWorkBeforeUsage(gated(), { now: at(19, 12), ...away }), false);
   assert.equal(mayWorkBeforeUsage(gated(), { now: at(19, 19), idleMs: 60_000, onAc: true }), false);
   assert.equal(mayWorkBeforeUsage(gated({ preset: "off" }), { now: at(19, 19), ...away }), false);
+});
+
+// The week in planAt() resets at(26, 15), with 70% of it left.
+const restOffer = from => ({ week_resets_at: at(26, 15).toISOString(), use_rest_from: from?.toISOString() ?? null });
+
+test("from the time that the developer chose until the week resets, the worker may use all but REST_KEPT of what is left, outside its hours", () => {
+  const offer = restOffer(at(19, 17));
+  assert.equal(useRestUntil(offer, at(19, 16)), null);
+  const until = useRestUntil(offer, at(20, 2));
+  assert.equal(until, at(26, 15).toISOString());
+  const g = workerGate(gated(), planAt(at(20, 2)), { now: at(20, 2), ...away, useRestUntil: until });
+  assert.equal(g.mayWork, true);
+  assert.equal(g.useRest, true);
+  near(g.allocatable, 0.7 - REST_KEPT);
+  assert.equal(g.until, until);
+  assert.equal(useRestUntil(offer, at(26, 15)), null);
+});
+
+test("using the rest of the week still stops for Off, battery, the developer at the machine and the 5-hour ceiling", () => {
+  const now = at(20, 2), until = at(26, 15).toISOString(), p = planAt(now);
+  assert.equal(workerGate(gated({ preset: "off" }), p, { now, ...away, useRestUntil: until }).mayWork, false);
+  assert.equal(workerGate(gated(), p, { now, idleMs: away.idleMs, onAc: false, useRestUntil: until }).mayWork, false);
+  assert.equal(workerGate(gated(), p, { now, idleMs: 60_000, onAc: true, useRestUntil: until }).mayWork, false);
+  assert.equal(workerGate(gated(), planAt(now, { fiveHourUsage: 0.95 }), { now, ...away, useRestUntil: until }).mayWork, false);
+});
+
+test("a setting to use the rest of an earlier week does not apply to the week after it", () => {
+  const now = at(20, 2);
+  assert.equal(workerGate(gated(), planAt(now), { now, ...away, useRestUntil: at(19, 15).toISOString() }).mayWork, false);
+  assert.equal(workerGate(gated(), planAt(now), { now, ...away, useRestUntil: at(27, 15).toISOString() }).useRest, false);
+});
+
+test("with less than REST_KEPT of the week left, the worker using the rest of the week stops", () => {
+  const now = at(20, 2), until = at(26, 15).toISOString();
+  const g = workerGate(gated(), plan(gated(), week(1 - REST_KEPT / 2, at(26, 15)), now), { now, ...away, useRestUntil: until });
+  assert.equal(g.mayWork, false);
+});
+
+test("the worker is started once, at the first check after the time to use the rest of the week, and the machine stays on until the week resets", () => {
+  const offer = restOffer(at(19, 23));
+  assert.equal(restBegan(gated(), offer, { now: at(19, 23, 1), since: ms(at(19, 23)) - 60_000 }), true);
+  assert.equal(restBegan(gated(), offer, { now: at(19, 23, 2), since: ms(at(19, 23, 1)) }), false);
+  assert.equal(restBegan(gated({ preset: "off" }), offer, { now: at(19, 23, 1), since: ms(at(19, 23)) - 60_000 }), false);
+  const until = useRestUntil(offer, at(20, 3));
+  assert.equal(shutDownReason(shutting(), { event: "workerStopped", now: at(20, 19), useRestUntil: useRestUntil(offer, at(20, 19)) }), null);
+  assert.equal(shutDownReason(shutting(), { event: "tick", now: at(20, 21, 1), since: ms(at(20, 20, 59)), useRestUntil: until }), null);
 });
