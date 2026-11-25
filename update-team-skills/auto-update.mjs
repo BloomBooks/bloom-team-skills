@@ -9,6 +9,11 @@
 //                                   TEAM-AGENTS.md import to ~/.claude/CLAUDE.md.
 //   node auto-update.mjs --pull     Only the pull (see pull()), even with uncommitted changes; for
 //                                   /update-team-skills. Exit code 1 when it did not happen.
+//   node auto-update.mjs --if-behind
+//                                   What --now does, but only when the clone is on main with no
+//                                   uncommitted changes and origin/main has commits that it lacks;
+//                                   otherwise nothing, and nothing is logged. The dashboard service
+//                                   runs this every 15 minutes while the Greenhouse worker is not Off.
 //
 // The pull is `git pull --ff-only` on main, or a merge of origin/main into any other branch, and
 // only when the clone has no uncommitted changes to tracked files: people edit skills in their
@@ -88,6 +93,16 @@ function pull({ allowDirty = false } = {}) {
     if (before === after) return { ok: true, msg: "already up to date" };
     const n = git("rev-list", "--count", `${before}..${after}`).out;
     return { ok: true, msg: `pulled ${n} commit(s), now ${after.slice(0, 9)}` };
+}
+
+// Whether the clone is on main with no uncommitted changes to tracked files, and origin/main has
+// commits that it lacks. A clone on another branch keeps the once-a-day merge of main, so that a
+// developer working on a skill there is not merged into every 15 minutes.
+function behindOnMain() {
+    if (git("rev-parse", "--abbrev-ref", "HEAD").out !== "main") return false;
+    if (git("status", "--porcelain", "--untracked-files=no").out) return false;
+    if (!git("fetch", "--quiet", "origin", "main").ok) return false;
+    return git("rev-list", "--count", "HEAD..origin/main").out !== "0";
 }
 
 function mergeMain(branch) {
@@ -260,6 +275,8 @@ if (arg === "--install") {
     const result = pull({ allowDirty: true });
     console.log(result.msg);
     process.exit(result.ok ? 0 : 1);
+} else if (arg === "--if-behind") {
+    if (behindOnMain()) await runNow();
 } else if (!updatedToday()) {
     spawn(process.execPath, [scriptPath, "--now"], { detached: true, stdio: "ignore", windowsHide: true }).unref();
 }

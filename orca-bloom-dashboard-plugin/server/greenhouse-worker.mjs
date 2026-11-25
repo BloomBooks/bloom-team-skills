@@ -124,6 +124,16 @@ export async function saveDeveloperSettings(changes) {
   await readBoard();
   startIfMayWork("the developer changed their settings on the Greenhouse");
 }
+/** Brings this clone of bloom-team-skills and the worker's instructions up to date, with git and
+ * node only, when the clone is on main and behind it (auto-update.mjs --if-behind). A pull that
+ * changes this service's code restarts the service, as any change to it does. */
+function updateTeamSkills() {
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "update-team-skills", "auto-update.mjs");
+  execFile(process.execPath, [script, "--if-behind"], { windowsHide: true, timeout: 5 * 60_000 }, (error, stdout) => {
+    if (error) log("greenhouse: updating bloom-team-skills failed: " + String(error.message).split("\n")[0]);
+    else if (stdout.trim()) log("greenhouse: " + stdout.trim().split("\n").at(-1));
+  });
+}
 // The greenhouse repository's set-claude-token.mjs installs this script, with the plan's token.
 const usageScript = () => path.join(os.homedir(), ".config", "claude-usage", "claude-usage.mjs");
 // Orca keeps each bot's folder here, so a session whose folder is under it is a bot's.
@@ -420,7 +430,11 @@ export function startRecording() {
   const tick = () => { if (fs.existsSync(usageScript()) && Date.now() - lastAt("plan") >= READING_EVERY_MS) readUsage(); };
   tick();
   setInterval(tick, 5 * 60_000).unref();
-  const readIfWorking = () => { if (savedSettings() && savedSettings().preset !== "off") readBoard(); };
+  const readIfWorking = () => {
+    if (!savedSettings() || savedSettings().preset === "off") return;
+    readBoard();
+    updateTeamSkills();
+  };
   readIfWorking();
   setInterval(readIfWorking, BOARD_EVERY_MS).unref();
   setInterval(prune, 86_400_000).unref();

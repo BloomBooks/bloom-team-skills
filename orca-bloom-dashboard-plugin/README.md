@@ -295,6 +295,11 @@ The Greenhouse worker, an Orca bot, follows these settings through the service
   work outside its hours and use all of what is left of the week but the share kept; `greenhouse.mjs`
   then sets the offer to what the worker has used plus that. Off, battery, the developer at the
   machine and the 5-hour ceilings still stop it, and the machine is not shut down.
+- **Keeping the worker's machine up to date.** On the same 15-minute check, the service runs
+  `update-team-skills/auto-update.mjs --if-behind`: when the clone is on main with no uncommitted
+  changes and main has new commits, it pulls, links new skills and installs the worker's
+  instructions again, with git and node and no Claude session. A pull that changes the service's
+  code restarts the service. A clone on another branch keeps the once-a-day update.
 - **The start.** At the first check after the worker's hours begin (`hoursBegan`) or after the time to use the rest of the week (`restBegan`), and 5 seconds
   after the page last saved a change to the settings, the service asks the gate. When it says yes
   and no run that the service started, and no chat of the worker, is still under way, the service hands the bot named
