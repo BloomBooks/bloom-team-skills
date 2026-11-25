@@ -121,8 +121,20 @@ body:has(#status-tab:not([hidden])) .worker-only { visibility: hidden; }
 .fields > label, .fields > .name { padding-top: 5px; font-weight: 500; }
 .fields > div { display: grid; gap: 6px; justify-items: start; }
 .line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* The checkbox on the left, and the sentence beside it, whose later lines start under its first word. */
+#rest { --control: 30px; display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: start; }
 #rest[hidden] { display: none; }
-input[type=number], input[type=time], input[type=datetime-local] { font: inherit; font-variant-numeric: tabular-nums; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 8px; }
+#rest > input[type=checkbox] { margin-top: calc((var(--control) - 16px) / 2); }
+#rest .sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 5px; min-height: var(--control); }
+#rest .sentence > span { display: inline-flex; align-items: center; white-space: nowrap; }
+#rest .sentence > span > :is(input, select):not(:first-child) { margin-left: 5px; }
+#rest .sentence > span > :is(input, select):not(:last-child) { margin-right: 2px; }
+#rest .sentence .info { margin-left: 6px; }
+#rest .sentence label { cursor: pointer; }
+#rest select, #rest input[type=time], #rest input[type=number] { box-sizing: border-box; height: var(--control); padding: 0 8px; line-height: normal; }
+#rest #rest-kept { width: 3.25em; text-align: right; appearance: textfield; -moz-appearance: textfield; }
+#rest #rest-kept::-webkit-inner-spin-button, #rest #rest-kept::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number], input[type=time], select { font: inherit; font-variant-numeric: tabular-nums; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 8px; }
 input[type=number] { width: 64px; }
 input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[type=checkbox], input[type=radio] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
@@ -212,7 +224,7 @@ input:disabled { opacity: 0.5; }
           <input type="range" name="weekShare" id="share-slider" step="1" hidden aria-label="The worker's share of each week, in percent">
         </div>
         <ul class="legend" id="plan-legend" hidden></ul>
-        <div class="line" id="rest" hidden></div>
+        <div id="rest" hidden></div>
         <p class="hint" id="plan-hint">Reading the plan's usage…</p>
       </div>
     </section>
@@ -393,40 +405,49 @@ function drawPlan() {
   $("week-info").innerHTML = info(`The week resets ${dayAndClock(new Date(p.weekResetsAt))}.`);
 }
 
-// The share of the week that the worker leaves to the developer when it uses the rest of the week
-// (REST_KEPT in greenhouse-worker-plan.mjs).
-const REST_KEPT = 0.02;
-const localInput = date => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-/** The control that lets the worker use the rest of this week from a time: the time and a button, or,
- * once it is set, the time and a button that takes it back. While the developer is choosing the time,
- * it stays as they left it. */
+/** The developer's standing settings on the Greenhouse, or the Greenhouse's defaults when they have saved none. */
+const developerSettings = () => state.developerSettings ?? { use_rest: 0, use_rest_day: null, use_rest_at: "17:00", rest_kept: 0.02 };
+/** Whether the worker is using the rest of the week now. */
+function usingRest() {
+  const d = developerSettings(), now = Date.now();
+  return !!d.use_rest && !!state.restFrom && Date.parse(state.restFrom) <= now && now < Date.parse(state.plan.weekResetsAt);
+}
+/** The row that lets the worker use the rest of every week from a weekday and time until the week
+ * resets, leaving a share of it to the developer. It stays on from week to week. It is saved on the
+ * Greenhouse, so the developer can change it from any of their machines. Without a saved weekday, the
+ * day before the reset shows. While the developer is in the row, it stays as they left it. */
 function drawRest() {
-  const p = state.plan, from = state.useRestFrom;
+  const p = state.plan, d = developerSettings();
   const rest = $("rest");
   rest.hidden = state.settings.preset === "off";
   if (rest.contains(document.activeElement)) return;
   const resets = new Date(p.weekResetsAt);
-  const tip = `Until the week resets ${dayAndClock(resets)}, the worker may use all but ${pct(REST_KEPT)} of what is left of the week, outside its hours too. The workers on all your machines follow this.`;
-  if (from) {
-    rest.innerHTML = `<span>The worker uses the rest of this week from <b>${esc(dayAndClock(new Date(from)))}</b></span>${info(tip)} <button type="button" class="refresh" id="rest-off">Take back</button>`;
-    $("rest-off").addEventListener("click", () => setRest(null));
-    return;
-  }
-  // The default time is the end of today's work hours, or now when they have ended.
-  const [h, m] = state.worker.values.workEnd.split(":").map(Number);
-  const now = new Date(), workEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
-  const start = new Date(Math.min(Math.max(now, workEnd), resets - 60_000));
-  rest.innerHTML = `<label for="rest-from">Use the rest of this week from</label> <input type="datetime-local" id="rest-from" min="${localInput(now)}" max="${localInput(resets)}" value="${localInput(start)}">${info(tip)} <button type="button" class="refresh" id="rest-on">Use the rest</button>`;
-  $("rest-on").addEventListener("click", () => {
-    const chosen = new Date($("rest-from").value);
-    if (!Number.isNaN(chosen.getTime())) setRest(chosen.toISOString());
+  const tip = `Every week, until you turn it off. This week from ${state.restFrom ? dayAndClock(new Date(state.restFrom)) : "the time you choose"}, the worker may run outside its hours. The workers on all your machines follow this.`;
+  const day = d.use_rest_day ?? (resets.getDay() + 6) % 7;
+  const days = WEEKDAYS.map(([n]) => `<option value="${n}"${n === day ? " selected" : ""}>${new Date(2026, 10, 22 + n).toLocaleDateString([], { weekday: "long" })}</option>`).join("");
+  rest.innerHTML = `<input type="checkbox" id="use-rest"${d.use_rest ? " checked" : ""} aria-label="Allocate the rest of my tokens every week">
+    <div class="sentence"><label for="use-rest">Starting</label>
+    <span><select id="use-rest-day" aria-label="The weekday from which the worker uses the rest of the week">${days}</select></span>
+    <span>at <input type="time" id="use-rest-at" value="${esc(d.use_rest_at)}" aria-label="The time of day from which the worker uses the rest of the week">,</span>
+    <span>allocate all but</span>
+    <span><input type="number" id="rest-kept" min="0" max="100" step="1" value="${Math.round(d.rest_kept * 100)}" aria-label="The percent of the week that the worker leaves to you">%</span>
+    <span>of the rest of my tokens</span>
+    <span>until my week resets ${esc(dayAndClock(resets))}.${info(tip)}</span></div>`;
+  $("use-rest").addEventListener("change", e => saveDeveloperSettings({ useRest: e.target.checked }));
+  $("use-rest-day").addEventListener("change", e => saveDeveloperSettings({ useRestDay: Number(e.target.value) }));
+  $("use-rest-at").addEventListener("change", e => { if (e.target.value) saveDeveloperSettings({ useRestAt: e.target.value }); });
+  $("rest-kept").addEventListener("change", e => {
+    const kept = Number(e.target.value) / 100;
+    if (e.target.value !== "" && kept >= 0 && kept <= 1) saveDeveloperSettings({ restKept: kept });
   });
 }
 
-async function setRest(from) {
+async function saveDeveloperSettings(changes) {
+  $("saved").textContent = "";
   try {
-    const answer = await ask("/greenhouse-worker/use-rest", { from });
+    const answer = await ask("/greenhouse-worker/developer-settings", changes);
     state = answer;
+    if (document.activeElement && $("rest").contains(document.activeElement)) document.activeElement.blur();
     drawAll();
     $("saved").textContent = answer.ok ? "Saved" : "Not saved: " + answer.error;
   } catch (e) {
@@ -446,9 +467,8 @@ function drawShare(weekShare) {
   const byWorker = workerUsed();
   const workerLeft = Math.max(0, Math.min(p.left, weekShare - byWorker));
   const share = `<b>${pct(weekShare)}</b> of this week`;
-  const usingRest = state.useRestFrom && Date.parse(state.useRestFrom) <= Date.now();
   $("plan-headline").innerHTML = s.preset === "off" ? `With Auto the worker could use <b>${pct(weekShare)}</b> of each week.`
-    : usingRest ? `The worker may use the rest of this week but <b>${pct(REST_KEPT)}</b>, until ${esc(dayAndClock(new Date(p.weekResetsAt)))}.`
+    : usingRest() ? `The worker may use the rest of this week but <b>${pct(developerSettings().rest_kept)}</b>, until ${esc(dayAndClock(new Date(p.weekResetsAt)))}.`
     : weekShare <= 0 ? "The worker's share of the week is <b>0%</b>."
     : byWorker >= weekShare ? `The worker has used its ${share}.`
     : p.left < weekShare - byWorker ? `The worker may use ${share}, but only <b>${pct(p.left)}</b> is left.`

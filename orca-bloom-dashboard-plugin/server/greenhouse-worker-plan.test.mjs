@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cleanSettings, cleanValues, plan, sameValues, shutDownReason, hoursBegan, restBegan, useRestUntil, workerGate, mayWorkBeforeUsage, restartDue, REST_KEPT, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, cleanValues, plan, sameValues, shutDownReason, hoursBegan, restBegan, restWindow, restNow, workerGate, mayWorkBeforeUsage, restartDue, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
 
 // November 2026: the 19th and the 26th are Thursdays. Times are local, as the plan's are.
 const at = (day, hour, minute = 0) => new Date(2026, 10, day, hour, minute);
@@ -218,48 +218,64 @@ test("the plan's usage is read for a start only when the worker's hours, the pow
   assert.equal(mayWorkBeforeUsage(gated({ preset: "off" }), { now: at(19, 19), ...away }), false);
 });
 
-// The week in planAt() resets at(26, 15), with 70% of it left.
-const restOffer = from => ({ week_resets_at: at(26, 15).toISOString(), use_rest_from: from?.toISOString() ?? null });
+// The week in planAt() resets at(26, 15), a Thursday, with 70% of it left.
+const RESET = at(26, 15).toISOString();
+const standing = (changes = {}) => ({ use_rest: 1, use_rest_day: null, use_rest_at: "17:00", rest_kept: 0.02, ...changes });
 
-test("from the time that the developer chose until the week resets, the worker may use all but REST_KEPT of what is left, outside its hours", () => {
-  const offer = restOffer(at(19, 17));
-  assert.equal(useRestUntil(offer, at(19, 16)), null);
-  const until = useRestUntil(offer, at(20, 2));
-  assert.equal(until, at(26, 15).toISOString());
-  const g = workerGate(gated(), planAt(at(20, 2)), { now: at(20, 2), ...away, useRestUntil: until });
+test("the worker begins to use the rest of the week at the last time that the weekday and time that the developer chose come before the week resets", () => {
+  // Friday 17:00 comes last on the Friday before; Thursday 9:00, on the morning of the reset; Thursday 17:00, a week before it.
+  assert.deepEqual(restWindow(standing({ use_rest_day: 5 }), RESET), { from: at(20, 17), until: RESET, kept: 0.02 });
+  assert.equal(restWindow(standing({ use_rest_day: 4, use_rest_at: "09:00" }), RESET).from.getTime(), at(26, 9).getTime());
+  assert.equal(restWindow(standing({ use_rest_day: 4 }), RESET).from.getTime(), at(19, 17).getTime());
+  assert.equal(restWindow(standing({ use_rest: 0 }), RESET), null);
+  assert.equal(restWindow(standing(), null), null);
+});
+
+test("without a weekday, the worker begins on the day before the week resets", () => {
+  assert.equal(restWindow(standing(), RESET).from.getTime(), at(25, 17).getTime());
+  assert.equal(restWindow(standing({ use_rest_at: "09:00" }), RESET).from.getTime(), at(25, 9).getTime());
+});
+
+test("the setting stays on, so the next week gets its own window from the same weekday and time", () => {
+  const next = restWindow(standing({ use_rest_day: 5 }), at(33, 15).toISOString());
+  assert.equal(next.from.getTime(), at(27, 17).getTime());
+});
+
+test("in that time the worker may use all of what is left of the week but the share that the developer keeps, outside its hours", () => {
+  assert.equal(restNow(standing(), RESET, at(25, 16)), null);
+  const now = at(26, 2), rest = restNow(standing({ rest_kept: 0.1 }), RESET, now);
+  const g = workerGate(gated(), planAt(now), { now, ...away, rest });
   assert.equal(g.mayWork, true);
   assert.equal(g.useRest, true);
-  near(g.allocatable, 0.7 - REST_KEPT);
-  assert.equal(g.until, until);
-  assert.equal(useRestUntil(offer, at(26, 15)), null);
+  near(g.allocatable, 0.7 - 0.1);
+  assert.equal(g.until, RESET);
+  assert.equal(restNow(standing(), RESET, at(26, 15)), null);
 });
 
 test("using the rest of the week still stops for Off, battery, the developer at the machine and the 5-hour ceiling", () => {
-  const now = at(20, 2), until = at(26, 15).toISOString(), p = planAt(now);
-  assert.equal(workerGate(gated({ preset: "off" }), p, { now, ...away, useRestUntil: until }).mayWork, false);
-  assert.equal(workerGate(gated(), p, { now, idleMs: away.idleMs, onAc: false, useRestUntil: until }).mayWork, false);
-  assert.equal(workerGate(gated(), p, { now, idleMs: 60_000, onAc: true, useRestUntil: until }).mayWork, false);
-  assert.equal(workerGate(gated(), planAt(now, { fiveHourUsage: 0.95 }), { now, ...away, useRestUntil: until }).mayWork, false);
+  const now = at(26, 2), p = planAt(now), rest = restNow(standing(), RESET, now);
+  assert.equal(workerGate(gated({ preset: "off" }), p, { now, ...away, rest }).mayWork, false);
+  assert.equal(workerGate(gated(), p, { now, idleMs: away.idleMs, onAc: false, rest }).mayWork, false);
+  assert.equal(workerGate(gated(), p, { now, idleMs: 60_000, onAc: true, rest }).mayWork, false);
+  assert.equal(workerGate(gated(), planAt(now, { fiveHourUsage: 0.95 }), { now, ...away, rest }).mayWork, false);
 });
 
-test("a setting to use the rest of an earlier week does not apply to the week after it", () => {
-  const now = at(20, 2);
-  assert.equal(workerGate(gated(), planAt(now), { now, ...away, useRestUntil: at(19, 15).toISOString() }).mayWork, false);
-  assert.equal(workerGate(gated(), planAt(now), { now, ...away, useRestUntil: at(27, 15).toISOString() }).useRest, false);
+test("a window worked out for another week does not apply to this one", () => {
+  const now = at(26, 2);
+  const other = restWindow(standing(), at(27, 15).toISOString());
+  assert.equal(workerGate(gated(), planAt(now), { now, ...away, rest: other }).useRest, false);
 });
 
-test("with less than REST_KEPT of the week left, the worker using the rest of the week stops", () => {
-  const now = at(20, 2), until = at(26, 15).toISOString();
-  const g = workerGate(gated(), plan(gated(), week(1 - REST_KEPT / 2, at(26, 15)), now), { now, ...away, useRestUntil: until });
-  assert.equal(g.mayWork, false);
+test("with less of the week left than the developer keeps, the worker using the rest of the week stops", () => {
+  const now = at(26, 2), rest = restNow(standing(), RESET, now);
+  assert.equal(workerGate(gated(), plan(gated(), week(0.99, at(26, 15)), now), { now, ...away, rest }).mayWork, false);
 });
 
-test("the worker is started once, at the first check after the time to use the rest of the week, and the machine stays on until the week resets", () => {
-  const offer = restOffer(at(19, 23));
-  assert.equal(restBegan(gated(), offer, { now: at(19, 23, 1), since: ms(at(19, 23)) - 60_000 }), true);
-  assert.equal(restBegan(gated(), offer, { now: at(19, 23, 2), since: ms(at(19, 23, 1)) }), false);
-  assert.equal(restBegan(gated({ preset: "off" }), offer, { now: at(19, 23, 1), since: ms(at(19, 23)) - 60_000 }), false);
-  const until = useRestUntil(offer, at(20, 3));
-  assert.equal(shutDownReason(shutting(), { event: "workerStopped", now: at(20, 19), useRestUntil: useRestUntil(offer, at(20, 19)) }), null);
-  assert.equal(shutDownReason(shutting(), { event: "tick", now: at(20, 21, 1), since: ms(at(20, 20, 59)), useRestUntil: until }), null);
+test("the worker is started once, at the first check after its time to use the rest of the week, and the machine stays on until the week resets", () => {
+  const w = restWindow(standing(), RESET);
+  assert.equal(restBegan(gated(), w, { now: at(25, 17, 1), since: ms(at(25, 17)) - 60_000 }), true);
+  assert.equal(restBegan(gated(), w, { now: at(25, 17, 2), since: ms(at(25, 17, 1)) }), false);
+  assert.equal(restBegan(gated({ preset: "off" }), w, { now: at(25, 17, 1), since: ms(at(25, 17)) - 60_000 }), false);
+  assert.equal(shutDownReason(shutting(), { event: "workerStopped", now: at(25, 19), rest: w }), null);
+  assert.equal(shutDownReason(shutting(), { event: "tick", now: at(25, 21, 1), since: ms(at(25, 20, 59)), rest: w }), null);
 });

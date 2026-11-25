@@ -139,11 +139,11 @@ export const PRESENT_MS = 20 * 60_000;
  *   HOURS_ENDED_GRACE_MS ago;
  * - when the worker stopped inside one of its spans, because workerGate said no (nothing left to
  *   allocate, the 5-hour ceiling) or the Greenhouse had nothing for it.
- * Never while the developer lets the worker use the rest of the week (`useRestUntil`, as for workerGate).
+ * Never while the worker may use the rest of the week (`rest`, as for workerGate).
  */
-export function shutDownReason(settings, { event, now, since = now.getTime(), lastPromptAt = 0, idleMs = null, useRestUntil = null }) {
+export function shutDownReason(settings, { event, now, since = now.getTime(), lastPromptAt = 0, idleMs = null, rest = null }) {
   if (!settings.shutDownAfterWorker || settings.preset === "off") return null;
-  if (restInEffect(useRestUntil, null, now)) return null;
+  if (restInEffect(rest, null, now)) return null;
   const t = now.getTime();
   if (t - lastPromptAt < PRESENT_MS || (idleMs != null && idleMs < PRESENT_MS)) return null;
   if (event === "workerStopped") {
@@ -197,27 +197,44 @@ export function hoursBegan(settings, { now, since }) {
   return workerSpans(settings, new Date(since), now).some(s => s.start > since && s.start <= t && t - s.start <= HOURS_ENDED_GRACE_MS);
 }
 
-/** Whether the developer's setting to let the worker use the rest of the week is in effect at `now`:
- * `useRestUntil` is set, is still ahead, and is the reset of the week that `p` (when known) is about. */
-function restInEffect(useRestUntil, p, now) {
-  if (!useRestUntil || now.getTime() >= Date.parse(useRestUntil)) return false;
-  return !p || Date.parse(p.weekResetsAt) === Date.parse(useRestUntil);
-}
-
-/** For an offer from the Greenhouse ({ week_resets_at, use_rest_from }), when the week resets if the
- * developer's setting to let the worker use the rest of it is in effect at `now`, and null otherwise. */
-export function useRestUntil(offer, now) {
-  if (!offer?.use_rest_from) return null;
+/** Whether `rest` ({ from, until, kept }, or null) lets the worker use the rest of the week at
+ * `now`: from `from` until `until`, and only for the week that `p` (when known) is about. */
+function restInEffect(rest, p, now) {
   const t = now.getTime();
-  return Date.parse(offer.use_rest_from) <= t && t < Date.parse(offer.week_resets_at) ? offer.week_resets_at : null;
+  if (!rest || t < rest.from.getTime() || t >= Date.parse(rest.until)) return false;
+  return !p || Date.parse(p.weekResetsAt) === Date.parse(rest.until);
 }
 
-/** Whether the time that the developer chose for the worker to begin using the rest of the week came
- * after `since` and no longer than HOURS_ENDED_GRACE_MS ago, so that the service starts the worker then. */
-export function restBegan(settings, offer, { now, since }) {
-  if (settings.preset === "off" || !offer?.use_rest_from) return false;
-  const from = Date.parse(offer.use_rest_from), t = now.getTime();
-  return from > since && from <= t && t - from <= HOURS_ENDED_GRACE_MS && t < Date.parse(offer.week_resets_at);
+/**
+ * For the developer's standing settings from the Greenhouse ({ use_rest, use_rest_day, use_rest_at,
+ * rest_kept }), when the worker may use the rest of the week that resets at `weekResetsAt`:
+ * { from, until, kept }. `from` is the last time that the weekday `use_rest_day` (0 for Sunday; null
+ * for the day before the reset) and `use_rest_at` (HH:MM) come before the reset, in this machine's
+ * time zone; `until` is the reset and `kept` the share of the week that the worker leaves to the
+ * developer. The setting stays on from week to week, so each week gets its own window. Null when
+ * the setting is off or the reset is not known. The greenhouse app's restLabel works it out the same way.
+ */
+export function restWindow(setting, weekResetsAt) {
+  if (!setting?.use_rest || !weekResetsAt || !HHMM.test(setting.use_rest_at ?? "")) return null;
+  const reset = new Date(weekResetsAt);
+  const day = Number.isInteger(setting.use_rest_day) ? setting.use_rest_day : (reset.getDay() + 6) % 7;
+  let from = timeOn(new Date(reset.getFullYear(), reset.getMonth(), reset.getDate() - ((reset.getDay() - day + 7) % 7)), setting.use_rest_at);
+  if (from >= reset) from = timeOn(new Date(from.getFullYear(), from.getMonth(), from.getDate() - 7), setting.use_rest_at);
+  return { from, until: reset.toISOString(), kept: between(setting.rest_kept, 0, 1, 0.02) };
+}
+
+/** restWindow() when `now` lies in it, and null otherwise. */
+export function restNow(setting, weekResetsAt, now) {
+  const w = restWindow(setting, weekResetsAt);
+  return w && restInEffect(w, null, now) ? w : null;
+}
+
+/** Whether the worker's time to use the rest of the week (`rest`, from restWindow()) began after
+ * `since` and no longer than HOURS_ENDED_GRACE_MS ago, so that the service starts the worker then. */
+export function restBegan(settings, rest, { now, since }) {
+  if (settings.preset === "off" || !rest) return false;
+  const from = rest.from.getTime(), t = now.getTime();
+  return from > since && from <= t && t - from <= HOURS_ENDED_GRACE_MS && t < Date.parse(rest.until);
 }
 
 const percentOf = share => `${Math.round(share * 1000) / 10}%`;
@@ -238,21 +255,19 @@ const percentOf = share => `${Math.round(share * 1000) / 10}%`;
  * period has reached fiveHourHardStop. Anything else lets a work item in progress finish.
  */
 const NO_USAGE = "The plan's usage could not be read.";
-// The share of the week that the worker leaves to the developer when it uses the rest of the week.
-export const REST_KEPT = 0.02;
 /**
- * `useRestUntil` is when the week resets, while the developer's setting to let the worker use the
- * rest of the week is in effect (from the time they chose until that reset), and null otherwise.
- * Until then the worker's hours do not apply, and the worker may use all of what is left of the
- * week but REST_KEPT (`useRest` true in the answer).
+ * `rest` is restNow() for the developer's standing settings: { from, until, kept } while the worker
+ * may use the rest of the week, and null otherwise. Until `until` (when the week resets) the
+ * worker's hours do not apply, and the worker may use all of what is left of the week but `kept`
+ * (`useRest` true in the answer).
  */
-export function workerGate(settings, p, { now, idleMs = null, lastPromptAt = 0, onAc = null, useRestUntil = null }) {
-  const rest = restInEffect(useRestUntil, p, now);
+export function workerGate(settings, p, { now, idleMs = null, lastPromptAt = 0, onAc = null, rest: window = null }) {
+  const rest = restInEffect(window, p, now);
   const span = spanAt(settings, now);
   const f = p?.fiveHour;
   const stopNow = !!f && f.usage >= settings.fiveHourHardStop;
-  const allocatable = !p ? 0 : rest ? Math.max(0, p.left - REST_KEPT) : Math.max(0, p.allocatable);
-  const until = rest ? useRestUntil : span ? span.end.toISOString() : null;
+  const allocatable = !p ? 0 : rest ? Math.max(0, p.left - window.kept) : Math.max(0, p.allocatable);
+  const until = rest ? window.until : span ? span.end.toISOString() : null;
   const answer = { allocatable, weekShare: p?.weekShare ?? null, weekResetsAt: p?.weekResetsAt ?? null, until, stopNow, useRest: rest };
   const no = reason => ({ mayWork: false, reason, ...answer });
   if (settings.preset === "off") return no("The worker is Off on this machine.");
@@ -265,7 +280,7 @@ export function workerGate(settings, p, { now, idleMs = null, lastPromptAt = 0, 
   }
   if (!p) return no(NO_USAGE);
   if (!rest && p.weekShare <= 0) return no("The worker's share of the week is 0%.");
-  if (allocatable <= 0) return no(rest ? `Only the ${percentOf(REST_KEPT)} of this week that the worker leaves to you is left.` : "Nothing of this week's plan is left.");
+  if (allocatable <= 0) return no(rest ? `Only the ${percentOf(window.kept)} of this week that the worker leaves to you is left.` : "Nothing of this week's plan is left.");
   if (f && f.usage >= f.ceiling) return no(`The 5-hour period is at ${percentOf(f.usage)}, and the worker stops at ${percentOf(f.ceiling)}.`);
   return { mayWork: true, reason: "", ...answer };
 }

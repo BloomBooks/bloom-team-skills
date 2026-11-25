@@ -22,7 +22,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { dataFile, readJsonFile, writeJsonFile, log } from "./env.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { cleanSettings, plan, sameValues, shutDownReason, hoursBegan, restBegan, useRestUntil, workerGate, mayWorkBeforeUsage, restartDue } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, plan, sameValues, shutDownReason, hoursBegan, restBegan, restWindow, restNow, workerGate, mayWorkBeforeUsage, restartDue } from "./greenhouse-worker-plan.mjs";
 import { workerValues } from "./greenhouse-worker-rules.mjs";
 
 const settingsFile = () => dataFile("greenhouse-worker.json");
@@ -52,10 +52,11 @@ async function greenhouseUrl() {
 // The Greenhouse's last dashboard answer, its ETag and when it was read. Every read of the Greenhouse
 // counts against its database's daily limit, so a read within a minute of the last one is not made,
 // and the ETag lets an unchanged answer come back as 304. `ok` is false while the latest read failed.
-const board = { at: 0, etag: null, offers: [], ok: false };
+const board = { at: 0, etag: null, offers: [], developerSettings: [], ok: false };
 const BOARD_MS = 60_000;
 // While the worker is not Off, the service reads the Greenhouse this often, so that what the developer
-// set from another machine (such as letting the worker use the rest of the week) reaches this one.
+// set from another machine (their standing settings, such as letting the worker use the rest of
+// each week) reaches this one.
 // An unchanged answer is a 304 that reads two rows.
 const BOARD_EVERY_MS = 15 * 60_000;
 let login = null;
@@ -70,7 +71,10 @@ async function readBoard() {
       login = (await developer()).github?.toLowerCase() ?? null;
     }
     const response = await fetch(url + "/api/dashboard", { headers: board.etag ? { "If-None-Match": board.etag } : {}, signal: AbortSignal.timeout(30_000) });
-    if (response.status === 200) Object.assign(board, { etag: response.headers.get("etag"), offers: (await response.json()).offers ?? [] });
+    if (response.status === 200) {
+      const answer = await response.json();
+      Object.assign(board, { etag: response.headers.get("etag"), offers: answer.offers ?? [], developerSettings: answer.developerSettings ?? [] });
+    }
     else if (response.status !== 304) throw new Error(`HTTP ${response.status}`);
     Object.assign(board, { at: Date.now(), ok: true });
   } catch (error) {
@@ -93,26 +97,32 @@ async function workerUsed(weekResetsAt) {
   return board.ok ? ownOffer(weekResetsAt)?.used ?? 0 : null;
 }
 
-/** Lets the worker use the rest of this week from `from` (an ISO time) until the week resets, or with
- * `from` null takes that back, on the developer's offer on the Greenhouse, so that the worker on any of
- * the developer's machines follows it. Throws with the Greenhouse's reason when it refuses. */
-export async function setUseRest(from) {
-  if (!last.usage) await readUsage();
-  if (!last.usage) throw new Error("the plan's usage could not be read, so the week is not known");
+/** The developer's standing settings on the Greenhouse, as last read, or null. */
+const ownSettings = () => board.developerSettings.find(d => d.developer.toLowerCase() === login) ?? null;
+/** When the current week resets: from the plan's usage, or else from the developer's offer. */
+const weekResetsAt = () => last.usage?.weekResetsAt ?? ownOffer()?.week_resets_at ?? null;
+/** restNow() for the developer's standing settings and the current week. */
+const restAt = now => restNow(ownSettings(), weekResetsAt(), now);
+
+/** Saves `changes` ({ useRest?, useRestAt?, restKept? }) to the developer's standing settings on the
+ * Greenhouse, so that the worker on any of the developer's machines follows them. Throws with the
+ * Greenhouse's reason when it refuses. */
+export async function saveDeveloperSettings(changes) {
   const url = await greenhouseUrl();
   if (!url) throw new Error("Bloom's tool server did not say where the Greenhouse runs");
   if (!login) await readBoard();
+  if (!login) throw new Error("this machine's GitHub login is not known");
   const token = (await execFileP("gh", ["auth", "token"], { windowsHide: true })).stdout.trim();
-  const response = await fetch(url + "/api/offers/use-rest", {
+  const response = await fetch(`${url}/api/developers/${encodeURIComponent(login)}/settings`, {
     method: "PUT",
     headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ developer: login, weekResetsAt: last.usage.weekResetsAt, from }),
+    body: JSON.stringify(changes),
     signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.error ?? `the Greenhouse answered ${response.status}`);
   board.at = 0;
   await readBoard();
-  startIfMayWork("the developer changed when it uses the rest of the week");
+  startIfMayWork("the developer changed their settings on the Greenhouse");
 }
 // The greenhouse repository's set-claude-token.mjs installs this script, with the plan's token.
 const usageScript = () => path.join(os.homedir(), ".config", "claude-usage", "claude-usage.mjs");
@@ -215,7 +225,7 @@ function everyMinute() {
   lastCheck = now.getTime();
   const settings = savedSettings();
   if (settings && hoursBegan(settings, { now, since })) startIfMayWork("its hours began");
-  else if (settings && restBegan(settings, ownOffer(), { now, since })) startIfMayWork("the time came to use the rest of the week");
+  else if (settings && restBegan(settings, restWindow(ownSettings(), weekResetsAt()), { now, since })) startIfMayWork("the time came to use the rest of the week");
   else if (settings) startIfIdle(now).catch(error => log("greenhouse worker: " + error.message));
   checkShutDown("tick", since);
 }
@@ -227,7 +237,7 @@ async function startIfIdle(now) {
   lastRestartCheckAt = now.getTime();
   const { settings, worker } = current();
   const machine = await presence();
-  if (!mayWorkBeforeUsage({ ...settings, ...worker.values }, { now, lastPromptAt: lastAt("prompt"), useRestUntil: useRestUntil(ownOffer(), now), ...machine })) return;
+  if (!mayWorkBeforeUsage({ ...settings, ...worker.values }, { now, lastPromptAt: lastAt("prompt"), rest: restAt(now), ...machine })) return;
   await startIfMayWork("it was not at work");
 }
 
@@ -239,7 +249,7 @@ async function checkShutDown(event, since) {
   if (!settings || !settings.shutDownAfterWorker) return;
   const { idleMs } = await presence();
   const now = new Date();
-  const reason = shutDownReason(settings, { event, now, since, lastPromptAt: lastAt("prompt"), idleMs, useRestUntil: useRestUntil(ownOffer(), now) });
+  const reason = shutDownReason(settings, { event, now, since, lastPromptAt: lastAt("prompt"), idleMs, rest: restAt(now) });
   if (!reason) return;
   // A chat of the worker that stops may have handed the next work item to a new chat, which is
   // starting while this one ends; the new chat's own stop comes later.
@@ -334,8 +344,7 @@ export async function workerGateNow() {
   const now = new Date();
   const machine = await presence();
   const p = last.usage ? plan(values, last.usage, now) : null;
-  const restUntil = useRestUntil(ownOffer(), now);
-  return { ...workerGate(values, p, { now, lastPromptAt: lastAt("prompt"), useRestUntil: restUntil, ...machine }), usage: last.usage, usageError: last.error || null };
+  return { ...workerGate(values, p, { now, lastPromptAt: lastAt("prompt"), rest: restAt(now), ...machine }), usage: last.usage, usageError: last.error || null };
 }
 
 // ---- the plan's usage -----------------------------------------------------------------------
@@ -446,8 +455,11 @@ export async function workerState({ read = true } = {}) {
     plan: last.usage ? plan({ ...settings, ...worker.values }, last.usage, new Date()) : null,
     // The part of the week's usage that the worker used, or null when it is not known.
     workerUsed: last.usage ? await workerUsed(last.usage.weekResetsAt) : null,
-    // When the developer lets the worker use the rest of this week from, or null.
-    useRestFrom: last.usage ? ownOffer(last.usage.weekResetsAt)?.use_rest_from ?? null : null,
+    // The developer's standing settings on the Greenhouse ({ use_rest, use_rest_at, rest_kept }), or
+    // null when they have saved none or the Greenhouse cannot be read, and when this week's use of
+    // the rest of the week begins.
+    developerSettings: ownSettings(),
+    restFrom: restWindow(ownSettings(), last.usage?.weekResetsAt)?.from.toISOString() ?? null,
   };
 }
 
