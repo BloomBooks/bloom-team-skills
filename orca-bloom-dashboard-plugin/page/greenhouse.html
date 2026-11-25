@@ -33,9 +33,7 @@
   }
 }
 body { font-size: 15px; }
-h2, h3, .toolbar-name { font-family: var(--display); }
-.toolbar { background: var(--surface); color: var(--ink); border-bottom: 1px solid var(--frame); }
-.toolbar-who, .toolbar-checked { color: var(--ink-2); }
+h2, h3 { font-family: var(--display); }
 button.refresh { color: var(--ink); background: var(--surface); border-color: var(--frame); }
 button.refresh:hover:not(:disabled) { background: var(--glass); border-color: var(--axis); }
 .info .tip { background: var(--surface); color: var(--ink); border-color: var(--frame); }
@@ -43,30 +41,31 @@ button.refresh:hover:not(:disabled) { background: var(--glass); border-color: va
    their Claude plan to the Greenhouse, and the plan that follows from them; the Greenhouse Status
    tab shows the Greenhouse's own app. The tool bar's layout is dashboard.css's; the colors and fonts are the Greenhouse's, above. */
 .wrap { max-width: 780px; }
-.toolbar-row { max-width: none; grid-template-columns: 1fr auto 1fr; }
-.toolbar-mark { border-radius: 6px; }
 
-/* The two tabs, in the middle of the tool bar. */
-.tabs { display: flex; gap: 4px; padding: 3px; background: var(--glass); border: 1px solid var(--frame); border-radius: 8px; }
-.tabs button { font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); background: none; border: 0; border-radius: 5px; padding: 5px 14px; cursor: pointer; white-space: nowrap; }
-.tabs button:hover { color: var(--fg); }
-.tabs button[aria-selected=true] { color: var(--ink); background: var(--surface); box-shadow: 0 0 0 1px var(--frame); font-weight: 600; }
-.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-@media (max-width: 720px) { .toolbar-row { grid-template-columns: 1fr; } }
 
-/* The Greenhouse Status tab fills the window below the tool bar. */
-body:has(#status-tab:not([hidden])) { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-#status-tab { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-#status-tab[hidden], #form[hidden] { display: none; }
+/* The Greenhouse's own app fills the window, with "My Greenhouse worker" first in its rail. That page
+   is this one's form, which the app asks to show beside its rail (--left) or under it (--top). Without
+   the Greenhouse's address, the form fills the window. */
+body.with-frame { height: 100vh; overflow: hidden; }
+#greenhouse-frame { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: var(--page); }
+#greenhouse-frame[hidden], #worker-page[hidden] { display: none; }
+body.with-frame #worker-page { position: fixed; top: var(--top, 0); left: var(--left, 0); right: 0; bottom: 0; overflow: auto; background: var(--page); }
+.worker-head { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+/* Beside the Greenhouse's rail, the page starts where the app's own pages do. */
+body.with-frame .wrap { margin: 0; padding: 24px 24px 56px; }
+.worker-head .read-at { font-size: 13px; color: var(--muted); }
+/* With the Greenhouse's rail down the side, the row sits at the bottom of the rail. */
+body.rail-beside .worker-head { position: fixed; left: 0; bottom: 0; width: var(--left); box-sizing: border-box; padding: 16px 14px 18px 26px; justify-content: flex-end; flex-direction: row-reverse; }
+.icon-button { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--link); background: var(--surface); border: 1px solid var(--frame); border-radius: 4px; cursor: pointer; }
+.icon-button:hover:not(:disabled) { border-color: var(--axis); }
+.icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.icon-button svg { width: 16px; height: 16px; }
 /* With the worker off, everything but the modes and the groups' headings is dimmed; it stays editable. */
 .dims { transition: opacity 150ms ease; }
 #form:has(input[name=preset][value=off]:checked) .dims { opacity: 0.35; }
-#status-tab iframe { flex: 1; width: 100%; border: 0; background: var(--page); }
-.status-source { margin: 0; padding: 4px 16px; font-size: 12px; color: var(--muted); background: var(--surface); border-top: 1px solid var(--line); }
-body:has(#status-tab:not([hidden])) .worker-only { visibility: hidden; }
 .wrap { gap: 32px; }
 /* The two groups: this machine's hours and behavior, and the plan's tokens. */
-.group { display: grid; gap: 24px; padding: 20px; background: repeating-linear-gradient(to right, transparent 0 95px, var(--lattice) 95px 96px), var(--glass); border: 1px solid var(--frame); border-radius: 8px; }
+.group { display: grid; gap: 24px; padding: 20px; background: var(--glass); border: 1px solid var(--frame); border-radius: 8px; }
 .group > header { display: grid; gap: 4px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 .group > header h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 19px; font-weight: 600; line-height: 1.3; }
 .group > header h2 svg { color: var(--accent); }
@@ -161,25 +160,15 @@ input:disabled { opacity: 0.5; }
 </style>
 </head>
 <body>
-<div class="toolbar" role="banner">
-  <div class="toolbar-row">
-    <span class="toolbar-side"><img class="toolbar-mark" src="icons/greenhouse-worker.svg" alt="">
-    <span class="toolbar-name">Bloom Greenhouse</span></span>
-    <span class="tabs" role="tablist" aria-label="Bloom Greenhouse">
-      <button type="button" role="tab" id="tab-worker" aria-controls="form" aria-selected="true">My Greenhouse worker</button>
-      <button type="button" role="tab" id="tab-status" aria-controls="status-tab" aria-selected="false">Greenhouse Status</button>
-    </span>
-    <span class="toolbar-side end worker-only"><span class="saved" id="saved" role="status"></span><span class="toolbar-checked" id="read-at"></span>
-    <button type="button" class="refresh" id="refresh" title="Read the plan's usage again now. One read is one small request to Claude."><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Refresh</button></span>
-  </div>
-</div>
+<iframe id="greenhouse-frame" title="Greenhouse" hidden></iframe>
 
-<div id="status-tab" role="tabpanel" aria-labelledby="tab-status" hidden>
-  <iframe id="status-frame" title="Greenhouse Status"></iframe>
-  <p class="status-source">From the Greenhouse at <a id="status-link" target="_blank" rel="noopener"></a></p>
-</div>
-
-<form class="wrap" id="form" role="tabpanel" aria-labelledby="tab-worker" autocomplete="off">
+<div id="worker-page">
+<form class="wrap" id="form" autocomplete="off">
+  <header class="worker-head">
+    <span class="saved" id="saved" role="status"></span>
+    <span class="read-at" id="read-at"></span>
+    <button type="button" class="icon-button" id="refresh" aria-label="Refresh" title="Read the plan's usage again now. One read is one small request to Claude."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg></button>
+  </header>
   <p class="notice" id="error" role="alert" hidden></p>
 
   <div class="group">
@@ -203,7 +192,7 @@ input:disabled { opacity: 0.5; }
 
   <div class="group">
     <header>
-      <h2><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M12 3v9l6.4 6.4"/></svg>Sharing your Claude subscription</h2>
+      <h2><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M12 3v9l6.4 6.4"/></svg>Claude allocation to worker</h2>
     </header>
 
     <section>
@@ -240,6 +229,7 @@ input:disabled { opacity: 0.5; }
     </section>
   </div>
 </form>
+</div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -571,32 +561,43 @@ form.addEventListener("change", e => {
 form.addEventListener("submit", e => e.preventDefault());
 $("refresh").addEventListener("click", load);
 
-// The tabs. The Greenhouse's app loads the first time its tab shows, and keeps its own refresh.
-// The chosen tab is remembered in this browser, where storage allows.
-function showTab(name) {
-  const status = name === "status";
-  $("tab-worker").setAttribute("aria-selected", String(!status));
-  $("tab-status").setAttribute("aria-selected", String(status));
-  $("form").hidden = status;
-  $("status-tab").hidden = !status;
-  if (status && state && !state.greenhouseUrl) {
-    $("status-link").removeAttribute("href");
-    $("status-link").textContent = "an address that Bloom's tool server did not give (service.log says why)";
-  } else if (status && state && !$("status-frame").src) {
-    $("status-frame").src = state.greenhouseUrl + "/";
-    $("status-link").href = $("status-link").textContent = state.greenhouseUrl;
-  }
-  try { localStorage.setItem("greenhouse-tab", name); } catch {}
+// The Greenhouse's own app, in a frame that fills the window. `bloom-window` in its address puts
+// "My Greenhouse worker" first in its rail and says which page to open on; the app then says, with a
+// message, when to show this page's form and where its rail ends. The page last shown is remembered
+// in this browser, where storage allows. `?app=http://localhost:5174` shows an app served on this
+// machine instead, to try a change to it.
+const frame = $("greenhouse-frame"), workerPage = $("worker-page");
+const localApp = (() => {
+  try {
+    const u = new URL(new URLSearchParams(location.search).get("app"));
+    return ["localhost", "127.0.0.1"].includes(u.hostname) ? u.origin : null;
+  } catch { return null; }
+})();
+function openGreenhouse(first) {
+  const base = localApp || state?.greenhouseUrl;
+  if (!base) return;
+  document.body.classList.add("with-frame");
+  workerPage.hidden = first !== "worker";
+  frame.src = `${base}/?bloom-window=${first}`;
+  frame.hidden = false;
 }
-$("tab-worker").addEventListener("click", () => showTab("worker"));
-$("tab-status").addEventListener("click", () => showTab("status"));
-// An address ending in #status or #worker opens that tab.
+addEventListener("message", e => {
+  if (e.source !== frame.contentWindow || e.data?.type !== "greenhouse:worker") return;
+  const { shown, left, top } = e.data;
+  workerPage.style.setProperty("--left", `${left}px`);
+  workerPage.style.setProperty("--top", `${top}px`);
+  document.body.classList.toggle("rail-beside", left > 0);
+  if (shown && workerPage.hidden) load();
+  workerPage.hidden = !shown;
+  try { localStorage.setItem("greenhouse-tab", shown ? "worker" : "status"); } catch {}
+});
+// An address ending in #status or #worker opens that page.
 let firstTab = location.hash.slice(1);
 if (!["worker", "status"].includes(firstTab)) try { firstTab = localStorage.getItem("greenhouse-tab") || "worker"; } catch { firstTab = "worker"; }
 // The usage moves while the developer works, so it is read again when they come back to the window.
 document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
-setInterval(() => { if (!document.hidden && !$("form").hidden) load(); }, 5 * 60_000);
-load().then(() => showTab(firstTab));
+setInterval(() => { if (!document.hidden && !workerPage.hidden) load(); }, 5 * 60_000);
+load().then(() => openGreenhouse(firstTab));
 </script>
 </body>
 </html>
