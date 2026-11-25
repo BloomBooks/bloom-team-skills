@@ -19,7 +19,8 @@
 // The dashboard service is then set up from the clone (orca-bloom-dashboard-plugin/install.mjs): its Claude
 // Code hooks, the service itself, and its Orca plugin, which starts the service with Orca. Orca does not run the
 // plugin until the developer approves its access, which /update-team-skills asks for.
-// Each run also makes sure ~/.claude/CLAUDE.md imports this clone's TEAM-AGENTS.md.
+// Each run also makes sure ~/.claude/CLAUDE.md imports this clone's TEAM-AGENTS.md, and, where
+// /update-team-skills set up the Greenhouse worker, pulls its instructions and installs it again.
 //
 // ~/.claude/bloom-team-skills-update.json records the last successful update day; each run's
 // result is appended to ~/.claude/bloom-team-skills-update.log.
@@ -168,6 +169,22 @@ function installDashboard() {
     return r.status === 0 || r.status === 3 ? `dashboard: ${lines.filter((l) => !l.startsWith("To approve")).join("; ")}` : `dashboard not set up: ${lines.at(-1) || "exit " + r.status}`;
 }
 
+// A Greenhouse worker does what its SOUL.md and greenhouse-api skill say, and an order may ask for
+// what only newer ones describe. So on a machine where /update-team-skills set the worker up (it
+// cloned BloomBooks/greenhouse here), this pulls that clone and installs the worker again. The
+// installer never asks anything without a terminal: exit code 3 (no bot) and 4 (not authorized) are
+// left for /update-team-skills to take up with the developer.
+function installGreenhouseWorker() {
+    const clone = path.join(claudeDir, "greenhouse-repo");
+    if (!fs.existsSync(path.join(clone, ".git"))) return "";
+    const pulled = spawnSync("git", ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential", "-C", clone, "pull", "--ff-only"], { encoding: "utf8", timeout: 120_000, windowsHide: true });
+    if (pulled.error || pulled.status !== 0) return `greenhouse worker not updated: ${(pulled.error?.message || pulled.stderr || "").trim().split(/\r?\n/).at(-1)}`;
+    const r = spawnSync(process.execPath, [path.join(clone, "bots", "install.mjs"), "greenhouse-worker"], { encoding: "utf8", timeout: 120_000, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    if (r.error) return `greenhouse worker not updated: ${r.error.message}`;
+    const last = `${r.stdout || ""}${r.stderr || ""}`.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).at(-1) ?? "";
+    return r.status === 0 ? "greenhouse worker installed" : `greenhouse worker not installed (exit ${r.status}): ${last}`;
+}
+
 // TEAM-AGENTS.md holds the rules that apply in every session, and Claude Code only loads it through
 // an @-import in the developer's global CLAUDE.md. Adds that import when no line imports a
 // TEAM-AGENTS.md yet; an existing one, wherever it points, is the developer's and is left alone.
@@ -193,7 +210,8 @@ async function runNow() {
     const unlinked = unlinkGoneSkills();
     const imported = ensureTeamAgentsImport();
     const plugins = installDashboard();
-    log(`${result.msg}${linked.length ? `; linked ${linked.join(", ")}` : ""}${unlinked.length ? `; removed the links of ${unlinked.join(", ")}` : ""}${imported ? `; ${imported}` : ""}${plugins ? `; ${plugins}` : ""}`);
+    const worker = installGreenhouseWorker();
+    log(`${result.msg}${linked.length ? `; linked ${linked.join(", ")}` : ""}${unlinked.length ? `; removed the links of ${unlinked.join(", ")}` : ""}${imported ? `; ${imported}` : ""}${plugins ? `; ${plugins}` : ""}${worker ? `; ${worker}` : ""}`);
     // A skipped or failed pull leaves the day unrecorded, so the next session tries again.
     if (result.ok) fs.writeFileSync(stampFile, JSON.stringify({ day: today() }) + "\n");
 }
