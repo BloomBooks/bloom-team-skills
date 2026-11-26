@@ -2,6 +2,12 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 
 ---
 
+## 2026-11-26 — Orca mail to a chat on a paired computer is declined with no reason
+
+- **Cut:** The Greenhouse Supervisor, an Orca bot on John's Mac mini, sent new mail to an Orca chat on Optiplex7000 with `orca orchestration send --on-client Optiplex7000 --to orca_session_id:<chat id>`. Orca accepted the send and gave it a message id. Then the message came back with only "Declined on Optiplex7000.": no reason, and no approval prompt in the chat. Orca's help says `--on-client` is for `--to bot:<id>`, not a chat session. A bot can answer mail from a chat but cannot start a conversation with one.
+- **Idea:** Report to Orca: when a session cannot be a target, refuse the send at once and say why, rather than accept it and decline it later. Until then, a bot that has to raise something without being asked should write a GitHub issue or mail a bot, not a chat.
+- **Context:** greenhouse, testing whether the Supervisor can report bugs to a dev session. Claude Opus 5.5 following a prompt from Hatton.
+
 ## 2026-11-24 — pnpm 11 says "Already up to date" after a rebase changed the lockfile, and installs nothing
 
 - **Cut:** After rebasing a BloomDesktop branch onto master, whose `pnpm-lock.yaml` moved `bloom-player` from 2.22.0-alpha.2 to alpha.3, `pnpm install` in `src/BloomBrowserUI` printed "Already up to date" in 0.3 s, even with `--frozen-lockfile --force` and with `node_modules/.pnpm/lock.yaml` deleted. alpha.2 stayed installed, and master's new `gamePlayMode.spec.ts` failed 2 tests in a way that looked like a bug in the branch. Deleting `node_modules/.pnpm-workspace-state-v1.json` made the next `pnpm install` do the real install (77 s), and the tests passed.
