@@ -7,6 +7,7 @@ Note: When resolving a git merge conflict in this file, keep both sides' entries
 - **Cut:** The Greenhouse Supervisor, an Orca bot on John's Mac mini, sent new mail to an Orca chat on Optiplex7000 with `orca orchestration send --on-client Optiplex7000 --to orca_session_id:<chat id>`. Orca accepted the send and gave it a message id. Then the message came back with only "Declined on Optiplex7000.": no reason, and no approval prompt in the chat. Orca's help says `--on-client` is for `--to bot:<id>`, not a chat session. A bot can answer mail from a chat but cannot start a conversation with one.
 - **Idea:** Report to Orca: when a session cannot be a target, refuse the send at once and say why, rather than accept it and decline it later. Until then, a bot that has to raise something without being asked should write a GitHub issue or mail a bot, not a chat.
 - **Context:** greenhouse, testing whether the Supervisor can report bugs to a dev session. Claude Opus 5.5 following a prompt from Hatton.
+- **Seen with it:** a second `orca orchestration reply` to the same message is refused ("You already answered that request, so send new mail if there's more to say"). With new mail declined, a bot has no way to correct or add to an answer it has sent.
 
 ## 2026-11-24 — pnpm 11 says "Already up to date" after a rebase changed the lockfile, and installs nothing
 
