@@ -11,28 +11,28 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=Source+Sans+3:wght@400..700&display=swap">
 <style>
-/* The Greenhouse's own theme (app/src/index.css in the greenhouse repository): pale sage glass and
-   painted-iron frames, light and dark. dashboard.css's names are pointed at its colors and fonts. */
+/* The Greenhouse's own theme (app/src/index.css in the greenhouse repository): a beehive's honey and
+   hive browns, lavender for the worker and leaf green for the developer. The window always uses the
+   dark one, below. dashboard.css's names are pointed at its colors and fonts. */
 :root {
   color-scheme: light;
-  --page: #e9efe6; --glass: #f1f6ee; --frame: #c3d1bd; --axis: #b9c6b3; --lattice: rgba(70, 104, 72, 0.09);
-  --ink: #1b2a1f; --ink-2: #4a5a4d; --link: #23663a;
-  --green: #2f7d45; --green-ink: #fff; --amber: #d2b86c; --grey: #8a948a; --warning: #d99a14;
-  --bg: var(--page); --surface: #f8faf6; --fg: var(--ink); --muted: #7a877b; --line: var(--frame);
-  --you-fill: #7e744d; --worker-fill: #4e7556;
+  --page: #f4efe2; --glass: #f9f5ea; --frame: #dccfae; --axis: #cdbd96; --lattice: rgba(140, 106, 40, 0.08);
+  --ink: #2b2618; --ink-2: #57503c; --link: #5b49a8;
+  --green: #4f7e4a; --green-ink: #fff; --amber: #d9a94e; --grey: #9a917b; --warning: #d99a14;
+  --bg: var(--page); --surface: #fffcf4; --fg: var(--ink); --muted: #6f6852; --line: var(--frame);
+  --you-fill: #4f7e4a; --worker-fill: #6553b8;
   --accent: var(--link); --you: var(--amber); --you-bg: color-mix(in srgb, var(--warning) 14%, var(--surface)); --agent: var(--green);
   --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --page: #1c1b19; --glass: #242320; --frame: #3e3b32; --axis: #4b473c; --lattice: rgba(217, 178, 106, 0.06);
-    --ink: #f2ead8; --ink-2: #cbc1a8; --link: #b8a6f0;
-    --green: #6fa36a; --green-ink: #10200f; --amber: #d9b26a; --grey: #6b665a; --warning: #e3a82a;
-    --surface: #2a2925; --muted: #9b927d;
-    --you-fill: #4f7e4a; --worker-fill: #6c5cc2;
-  }
+/* The window is always in the dark theme, whatever the system's setting. */
+:root {
+  color-scheme: dark;
+  --page: #1c1b19; --glass: #242320; --frame: #3e3b32; --axis: #4b473c; --lattice: rgba(217, 178, 106, 0.06);
+  --ink: #f2ead8; --ink-2: #cbc1a8; --link: #b8a6f0;
+  --green: #6fa36a; --green-ink: #10200f; --amber: #d9b26a; --grey: #6b665a; --warning: #e3a82a;
+  --surface: #2a2925; --muted: #9b927d;
+  --you-fill: #4f7e4a; --worker-fill: #6c5cc2;
 }
 body { font-size: 15px; }
 h2, h3 { font-family: var(--display); }
