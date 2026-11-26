@@ -63,7 +63,6 @@ flowchart TB
 | `page/row.js`, `page/dashboard.css` | drawing a row. The page and the panel both load them, and they hold no rule |
 | `worker.ts`, `panel-facts.mjs`, `panel.js` | Orca's side: the worker relays, `panel-facts.mjs` reads what only Orca knows, `panel.js` draws |
 | `server/greenhouse-worker-plan.mjs` | how much of the developer's Claude plan the Greenhouse worker may use (`plan`), and which settings are valid (`cleanSettings`) |
-| `server/greenhouse-worker-rules.mjs` | the values of the Auto preset, from this machine's history (`workerValues`) |
 
 `rows.mjs` and `runs.mjs` are plain functions of their arguments, tested in `server/*.test.mjs`.
 
@@ -261,13 +260,17 @@ one. `orca-plugins.mjs` loads the plugin, and first takes out of Orca the two pl
 ## The Bloom Greenhouse window
 
 The Bloom Greenhouse button in the status bar shows a window (`page/greenhouse.html`, served at
-`/greenhouse`) with two tabs. Greenhouse Status shows the Greenhouse's own app, from
-`GREENHOUSE_URL` or else the address that bloom-bot's tool server gives (`GET /greenhouse`), as the
-greenhouse repository's `greenhouse.mjs` does. On My Greenhouse worker the developer chooses how much of their Claude plan the
-Greenhouse worker may use: Off, Auto, or Custom. What no history can
-tell is theirs to set in every mode: the hours when the worker may have this machine (days, and a
-start and end that may run past midnight), whether to wake the machine from sleep when those hours
-begin, and whether to shut it down after the worker. The worker runs at no other time, and only on
+`/greenhouse`) filled by the Greenhouse's own app, from `GREENHOUSE_URL` or else the address that
+bloom-bot's tool server gives (`GET /greenhouse`), as the greenhouse repository's `greenhouse.mjs`
+does. "My Greenhouse worker", first in the app's rail, shows the developer's settings for the
+worker. The first bar, Allocation, is the worker's share of each week, which the developer drags; it
+starts at 0%, and with 0% the worker does not run (except to use the rest of the week, below). Under
+it, a bar shows what the developer and the worker used this week. The developer also sets the hours when the worker may have
+this machine (days, and a start and end that may run past midnight), whether to wake the machine
+from sleep when those hours begin, whether to shut it down after the worker, whether it may run
+while they use the machine and after how many minutes they count as away, and how careful it is with their 5-hour limit. Their work week (days and hours) decides which
+5-hour ceiling applies: a period that is still running when their work hours begin gets the lower
+one. The worker runs at no other time, and only on
 AC power, which no setting changes. The page saves each change to `greenhouse-worker.json` in the data folder.
 
 The Greenhouse worker, an Orca bot, follows these settings through the service
@@ -276,24 +279,24 @@ The Greenhouse worker, an Orca bot, follows these settings through the service
 - **The gate.** Before each claim, and every 20 minutes during a work item, the worker runs
   `greenhouse.mjs gate <developer>` from the greenhouse repository, which asks
   `GET /greenhouse-worker/gate`. `workerGate` in `greenhouse-worker-plan.mjs` says no outside the
-  worker's hours, with the worker Off, on battery, while the developer is at the machine (keyboard
+  worker's hours, on battery, while the developer is at the machine (keyboard
   or mouse input, or a prompt, within the minutes before they count as away, unless the worker may
   run while they use it), with a share of 0% or nothing of the week left, or with the 5-hour period
   at its ceiling; and `stopNow` at the 5-hour hard stop. `presence.ps1` reads the input and power
   state. When the gate says yes, `greenhouse.mjs` sets the developer's offer in the Greenhouse to the
   worker's share of the week (`weekShare`), or to what the worker has used plus what is left of the
   week when that is less.
-- **Using the rest of the week.** In "This week", the developer can let the worker use the rest of
-  every week from a weekday and time, keeping a share of the week for themselves (2% unless they
+- **Using the rest of the week.** Under the Allocation bar ("Also, starting …"), the developer can let the worker use the rest of
+  every week from a weekday and time, even with 0% allocated, keeping a share of the week for themselves (2% unless they
   change it). It stays on from week to week until they turn it off. The page saves both in the developer's standing settings on the Greenhouse
   (`PUT /api/developers/<login>/settings`, with their `gh` token), so they can change it from any of
   their machines and the workers on all of them follow it. Each service reads the Greenhouse's
-  `/api/dashboard` every 15 minutes while its worker is not Off, so a change reaches a machine within
+  `/api/dashboard` every 15 minutes once the developer has saved settings for its worker, so a change reaches a machine within
   that time. `restWindow` works out each week's start: the last time that weekday and time come before
   the week resets, in the worker machine's time zone (without a saved weekday, the day before the
   reset). From then until the reset, the gate lets the worker
   work outside its hours and use all of what is left of the week but the share kept; `greenhouse.mjs`
-  then sets the offer to what the worker has used plus that. Off, battery, the developer at the
+  then sets the offer to what the worker has used plus that. Battery, the developer at the
   machine and the 5-hour ceilings still stop it, and the machine is not shut down.
 - **Keeping the worker's machine up to date.** On the same 15-minute check, the service runs
   `update-team-skills/auto-update.mjs --if-behind`: when the clone is on main with no uncommitted
@@ -306,7 +309,7 @@ The Greenhouse worker, an Orca bot, follows these settings through the service
   "Greenhouse Worker" a run, through an Orca automation named "Greenhouse worker's hours" that runs
   once (`orca automations create --once`). Orca keeps it after the run, so each start removes the
   one before. The service log says each time why it did or did not start the worker.
-- **The shutdown.** With "Shut the machine down" chosen and the worker not Off, the service runs
+- **The shutdown.** With "Shut the machine down" chosen and a share of the week above 0%, the service runs
   Windows' `shutdown /s /t 300` when the worker's hours end, or when a session of the bot ends a
   turn inside those hours and, a minute later, no other chat of the worker is at work (each work
   item hands the next to a new chat), which is how the worker stops when the gate says no or the
@@ -315,28 +318,10 @@ The Greenhouse worker, an Orca bot, follows these settings through the service
 `shutDownReason` in `greenhouse-worker-plan.mjs` decides; `shutdown /a` cancels in the 5 minutes
 of warning.
 
-An Auto setting works out every other value from the last 4 weeks of this machine's history
-(`workerValues` in `server/greenhouse-worker-rules.mjs`), and the page shows each one with where it
-came from, without a field to change it:
-
-- the workdays: each weekday with 20 or more prompts on at least 3 of its last 4 occurrences;
-- the work hours: from a time that 9 in 10 of those days began after to one that 9 in 10 ended
-  before;
-- the worker's share of each week: what is left of a week in which every workday is as heavy as
-  the developer's heaviest;
-- the ceiling on a 5-hour period in work hours: from their usual peak in one;
-- the minutes before they count as away: from the pauses between their prompts.
-
-Each keeps a quarter more than the history shows, and each uses a starting value until enough is
-recorded. Choosing Custom copies the values that Auto shows into fields, which then stay as the
-developer sets them. Choosing an Auto setting again discards them, after the page asks.
-
-The history is `greenhouse-history.jsonl` in the data folder: a reading of the plan once an hour
-while the service runs, the time of each prompt from the hooks, and the times when an Orca bot's
-session (a folder under `~/.orca/bots`) was at work, so that a bot's use is not taken for the
-developer's. The first time the service runs, it adds the developer's prompts of the 28 days before
-from the Claude Code transcripts on this machine, so that the workdays, the hours and the pauses
-need no wait. The plan's readings cannot be had that way. Lines older than 60 days are dropped.
+The history is `greenhouse-history.jsonl` in the data folder: the time of each prompt from the
+hooks, for the minutes before the developer counts as away, and the times when an Orca bot's session
+(a folder under `~/.orca/bots`) was at work, for starting the worker again. Lines older than 60 days
+are dropped.
 
 `plan` in `server/greenhouse-worker-plan.mjs` turns the settings and the plan's usage into what
 the page draws:
@@ -350,8 +335,7 @@ ceiling. The usage comes from
 `~/.config/claude-usage/claude-usage.mjs`, which the greenhouse repository's `set-claude-token.mjs`
 installs; one read is a one-token request to Claude. The page reads it when it opens, when its
 window shows again, and every five minutes while it shows. The button's text ("Bloom Greenhouse · 20%
-allocated") uses a read that is at most 15 minutes old. The hourly reading for the history goes on
-whatever the developer chose, since the presets need it before the worker is turned on.
+allocated") uses a read that is at most 15 minutes old.
 
 ## Tests
 

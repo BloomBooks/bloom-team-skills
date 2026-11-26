@@ -2,33 +2,33 @@
 // Greenhouse window edits, and the plan that follows from the worker's values and the plan's usage.
 // Plain functions of their arguments. Days and work hours are in the machine's own time zone.
 
-// off: the worker uses nothing. conservative: Auto-Conservative, whose values all come from the developer's history (greenhouse-worker-rules.mjs). custom: the
-// values in `custom`, which start as the Auto values and which the developer then edits.
-export const PRESETS = ["off", "conservative", "custom"];
-// The developer's preferences, which no history can tell, and which they set in every mode.
+// The developer's preferences. The worker is off while its share of the week (`values.weekShare`)
+// is 0 and the developer's standing setting to use the rest of the week is off.
 export const DEFAULTS = {
-  preset: "off",
   // The only hours when the worker may have this machine: on these weekdays, from `start` to `end`,
   // which runs past midnight when it is earlier than `start`. The developer does not work in them.
   workerHours: { days: [0, 1, 2, 3, 4, 5, 6], start: "18:00", end: "21:00" },
   wakeForWorkerHours: false,         // wake the machine from sleep when the worker's hours begin
   shutDownAfterWorker: false,        // shut the machine down when the worker's hours end or the worker stops in them
-  custom: null,                      // the developer's own values, kept until they choose an Auto preset
 };
-// The values that an Auto preset works out and that Custom lets the developer set.
+// The values that the developer sets for how the worker uses their plan. The work week serves the
+// 5-hour ceilings only: a period that is still running when the developer's work hours begin gets
+// the lower one.
 export const VALUE_DEFAULTS = {
   workdays: [1, 2, 3, 4, 5],         // Date.getDay() numbers
   workStart: "08:00",
   workEnd: "18:00",
   whileAtComputer: false,            // run while the developer is using this machine
-  weekShare: 0.3,                    // the share of each week that the worker may use
+  weekShare: 0,                      // the share of each week that the worker may use
   awayAfterMinutes: 20,              // without input or another Claude session, before the developer counts as away
   fiveHourCeilingInWorkHours: 0.5,   // for a 5-hour period that reaches into the developer's work hours
   fiveHourCeilingOtherwise: 0.9,
   fiveHourHardStop: 0.8,             // stop even during a work item at this share of the 5-hour period
 };
 // What the first version of the page saved as `mode`.
-const OLD_MODES = { off: "off", away: "conservative", always: "conservative" };
+const OLD_MODES = { off: "off", away: "on", always: "on" };
+// The presets that earlier versions saved and that let the worker work.
+const ON_PRESETS = ["on", "custom", "conservative", "anytime"];
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 function between(value, low, high, fallback) {
@@ -63,31 +63,31 @@ export function cleanValues(input = {}) {
   };
 }
 
-/** Whether two sets of values are the same once cleaned, with shares compared to a hundredth of a
- * percent, since the page's percent fields carry them through a division by 100. */
-export function sameValues(a, b) {
-  const x = cleanValues(a), y = cleanValues(b);
-  return Object.keys(x).every(k => (typeof x[k] === "number" ? Math.abs(x[k] - y[k]) < 1e-4 : JSON.stringify(x[k]) === JSON.stringify(y[k])));
-}
-
-/** Settings that every reader can trust, as cleanValues does for values. Custom always has values.
- * Earlier versions kept the work week beside the preset, and called the wake choice
- * `wakeAfterWork`; those are carried to where they belong now. */
+/** Settings that every reader can trust, as cleanValues does for values; `values` is always there.
+ * Earlier versions saved a `preset` (or a `mode`) that turned the worker off whatever its share, kept
+ * the developer's values as `custom` and the work week beside the preset, and called the wake choice
+ * `wakeAfterWork`. A worker that such a setting turned off gets a share of 0, and each of the others
+ * is carried to where it belongs now. */
 export function cleanSettings(input = {}) {
   const d = DEFAULTS;
-  // Auto-Any time, a preset that ran while the developer used the machine, is now Auto-Conservative.
-  const preset = PRESETS.includes(input.preset) ? input.preset : input.preset === "anytime" ? "conservative" : OLD_MODES[input.mode] ?? d.preset;
-  const given = input.custom && typeof input.custom === "object" ? input.custom : null;
+  const old = input.preset !== undefined ? (ON_PRESETS.includes(input.preset) ? "on" : "off") : OLD_MODES[input.mode];
+  const given = [input.values, input.custom].find(v => v && typeof v === "object") ?? {};
   const week = { workdays: input.workdays, workStart: input.workStart, workEnd: input.workEnd };
-  const custom = given ? cleanValues({ ...week, ...given }) : preset === "custom" ? cleanValues(week) : null;
+  const values = cleanValues({ ...week, ...given });
+  if (old === "off") values.weekShare = 0;
   return {
-    preset,
     workerHours: cleanWorkerHours(input.workerHours),
     wakeForWorkerHours: bool(input.wakeForWorkerHours ?? input.wakeAfterWork, d.wakeForWorkerHours),
     shutDownAfterWorker: bool(input.shutDownAfterWorker, d.shutDownAfterWorker),
-    custom,
+    values,
   };
 }
+
+/** The worker's share of the week, from settings with or without their values beside them. */
+const shareOf = settings => settings.values?.weekShare ?? settings.weekShare;
+
+/** The settings with their values beside them, as the plan and the gate read them. */
+export const withValues = settings => ({ ...settings, ...settings.values });
 
 const two = n => String(n).padStart(2, "0");
 const dateOf = day => `${day.getFullYear()}-${two(day.getMonth() + 1)}-${two(day.getDate())}`;
@@ -133,7 +133,7 @@ export const PRESENT_MS = 20 * 60_000;
  * Why the machine should shut down now, or null. `event` is "tick" (the service's regular check,
  * whose previous run was at `since`, in milliseconds) or "workerStopped" (the Greenhouse worker's
  * session ended a turn or ended). The machine shuts down only when the developer chose that, the
- * worker is not Off, and the developer neither sent a prompt (`lastPromptAt`) nor touched the
+ * worker has a share of the week, and the developer neither sent a prompt (`lastPromptAt`) nor touched the
  * keyboard or mouse (`idleMs`, null when unknown) in the last PRESENT_MS:
  * - at a tick, when one of the worker's spans ended after `since` and no longer than
  *   HOURS_ENDED_GRACE_MS ago;
@@ -142,7 +142,7 @@ export const PRESENT_MS = 20 * 60_000;
  * Never while the worker may use the rest of the week (`rest`, as for workerGate).
  */
 export function shutDownReason(settings, { event, now, since = now.getTime(), lastPromptAt = 0, idleMs = null, rest = null }) {
-  if (!settings.shutDownAfterWorker || settings.preset === "off") return null;
+  if (!settings.shutDownAfterWorker || shareOf(settings) <= 0) return null;
   if (restInEffect(rest, null, now)) return null;
   const t = now.getTime();
   if (t - lastPromptAt < PRESENT_MS || (idleMs != null && idleMs < PRESENT_MS)) return null;
@@ -192,7 +192,7 @@ export function restartDue({ now, lastStartAt = 0, lastWorkerAt = 0, lastCheckAt
 }
 
 export function hoursBegan(settings, { now, since }) {
-  if (settings.preset === "off") return false;
+  if (shareOf(settings) <= 0) return false;
   const t = now.getTime();
   return workerSpans(settings, new Date(since), now).some(s => s.start > since && s.start <= t && t - s.start <= HOURS_ENDED_GRACE_MS);
 }
@@ -232,7 +232,7 @@ export function restNow(setting, weekResetsAt, now) {
 /** Whether the worker's time to use the rest of the week (`rest`, from restWindow()) began after
  * `since` and no longer than HOURS_ENDED_GRACE_MS ago, so that the service starts the worker then. */
 export function restBegan(settings, rest, { now, since }) {
-  if (settings.preset === "off" || !rest) return false;
+  if (!rest) return false;
   const from = rest.from.getTime(), t = now.getTime();
   return from > since && from <= t && t - from <= HOURS_ENDED_GRACE_MS && t < Date.parse(rest.until);
 }
@@ -270,7 +270,7 @@ export function workerGate(settings, p, { now, idleMs = null, lastPromptAt = 0, 
   const until = rest ? window.until : span ? span.end.toISOString() : null;
   const answer = { allocatable, weekShare: p?.weekShare ?? null, weekResetsAt: p?.weekResetsAt ?? null, until, stopNow, useRest: rest };
   const no = reason => ({ mayWork: false, reason, ...answer });
-  if (settings.preset === "off") return no("The worker is Off on this machine.");
+  if (!rest && settings.weekShare <= 0) return no("The worker's share of the week is 0%.");
   if (!span && !rest) return no("It is outside the worker's hours on this machine.");
   if (onAc === false) return no("The machine is on battery.");
   if (!settings.whileAtComputer) {
@@ -279,7 +279,6 @@ export function workerGate(settings, p, { now, idleMs = null, lastPromptAt = 0, 
     if (now.getTime() - lastPromptAt < away) return no(`The developer sent a prompt ${Math.round((now.getTime() - lastPromptAt) / 60_000)} minutes ago.`);
   }
   if (!p) return no(NO_USAGE);
-  if (!rest && p.weekShare <= 0) return no("The worker's share of the week is 0%.");
   if (allocatable <= 0) return no(rest ? `Only the ${percentOf(window.kept)} of this week that the worker leaves to you is left.` : "Nothing of this week's plan is left.");
   if (f && f.usage >= f.ceiling) return no(`The 5-hour period is at ${percentOf(f.usage)}, and the worker stops at ${percentOf(f.ceiling)}.`);
   return { mayWork: true, reason: "", ...answer };

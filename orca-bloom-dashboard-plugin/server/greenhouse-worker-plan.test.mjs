@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cleanSettings, cleanValues, plan, sameValues, shutDownReason, hoursBegan, restBegan, restWindow, restNow, workerGate, mayWorkBeforeUsage, restartDue, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, cleanValues, plan, shutDownReason, hoursBegan, restBegan, restWindow, restNow, workerGate, mayWorkBeforeUsage, restartDue, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
 
 // November 2026: the 19th and the 26th are Thursdays. Times are local, as the plan's are.
 const at = (day, hour, minute = 0) => new Date(2026, 10, day, hour, minute);
@@ -79,35 +79,36 @@ test("usage without 5-hour numbers gives a plan without them", () => {
 });
 
 test("cleanSettings keeps what is valid and puts the default in place of what is not", () => {
-  const s = cleanSettings({ preset: "sometimes", wakeForWorkerHours: "no", workerHours: { days: [6, 6, 8], start: "19:00", end: "19:00" }, custom: { workdays: [5, 1, 1, 9, "2"], workStart: "19:00", workEnd: "07:00", weekShare: 3, awayAfterMinutes: "45" } });
-  assert.equal(s.preset, DEFAULTS.preset);
+  const s = cleanSettings({ wakeForWorkerHours: "no", workerHours: { days: [6, 6, 8], start: "19:00", end: "19:00" }, values: { workdays: [5, 1, 1, 9, "2"], workStart: "19:00", workEnd: "07:00", weekShare: 3, awayAfterMinutes: "45" } });
   assert.equal(s.wakeForWorkerHours, DEFAULTS.wakeForWorkerHours);
   assert.deepEqual(s.workerHours, { days: [6], start: DEFAULTS.workerHours.start, end: DEFAULTS.workerHours.end });
-  assert.deepEqual(s.custom.workdays, [1, 2, 5]);
-  assert.equal(s.custom.workStart, VALUE_DEFAULTS.workStart);
-  assert.equal(s.custom.workEnd, VALUE_DEFAULTS.workEnd);
-  assert.equal(s.custom.weekShare, 1);
-  assert.equal(s.custom.awayAfterMinutes, 45);
+  assert.deepEqual(s.values.workdays, [1, 2, 5]);
+  assert.equal(s.values.workStart, VALUE_DEFAULTS.workStart);
+  assert.equal(s.values.workEnd, VALUE_DEFAULTS.workEnd);
+  assert.equal(s.values.weekShare, 1);
+  assert.equal(s.values.awayAfterMinutes, 45);
 });
 
-test("settings saved by earlier versions of the page keep their choices", () => {
-  assert.equal(cleanSettings({ mode: "away" }).preset, "conservative");
-  assert.equal(cleanSettings({ mode: "always" }).preset, "conservative");
-  assert.equal(cleanSettings({ preset: "anytime" }).preset, "conservative");
-  assert.equal(cleanSettings({ mode: "off" }).preset, "off");
+test("settings saved by earlier versions of the page keep their choices, and a worker that they turned off gets a share of 0", () => {
+  for (const preset of ["on", "custom", "conservative", "anytime"]) near(cleanSettings({ preset, values: { weekShare: 0.2 } }).values.weekShare, 0.2);
+  near(cleanSettings({ mode: "away", values: { weekShare: 0.2 } }).values.weekShare, 0.2);
+  assert.equal(cleanSettings({ preset: "off", values: { weekShare: 0.2 } }).values.weekShare, 0);
+  assert.equal(cleanSettings({ mode: "off", values: { weekShare: 0.2 } }).values.weekShare, 0);
+  assert.equal("preset" in cleanSettings({ preset: "on" }), false);
   const earlier = cleanSettings({ preset: "custom", workdays: [1, 2, 3, 4, 5, 6], workStart: "06:00", workEnd: "18:00", custom: { weekShare: 0.1 } });
-  assert.deepEqual(earlier.custom.workdays, [1, 2, 3, 4, 5, 6]);
-  assert.equal(earlier.custom.workStart, "06:00");
+  assert.deepEqual(earlier.values.workdays, [1, 2, 3, 4, 5, 6]);
+  assert.equal(earlier.values.workStart, "06:00");
+  near(earlier.values.weekShare, 0.1);
   assert.equal(cleanSettings({ wakeAfterWork: true }).wakeForWorkerHours, true);
 });
 
-test("Custom without values gets the default values", () => {
-  assert.deepEqual(cleanSettings({ preset: "custom" }).custom, VALUE_DEFAULTS);
-  assert.equal(cleanSettings({ preset: "conservative" }).custom, null);
+test("settings without values get the default values, in which the worker's share is 0", () => {
+  assert.deepEqual(cleanSettings({}).values, VALUE_DEFAULTS);
+  assert.equal(VALUE_DEFAULTS.weekShare, 0);
 });
 
-// The worker given 18:00 to 21:00 every day, with the machine to be shut down after it.
-const shutting = (changes = {}) => ({ ...cleanSettings({ preset: "conservative", shutDownAfterWorker: true, workerHours: { days: [0, 1, 2, 3, 4, 5, 6], start: "18:00", end: "21:00" }, ...changes }) });
+// The worker given 30% of the week and 18:00 to 21:00 every day, with the machine to be shut down after it.
+const shutting = (changes = {}) => ({ ...cleanSettings({ values: { weekShare: 0.3 }, shutDownAfterWorker: true, workerHours: { days: [0, 1, 2, 3, 4, 5, 6], start: "18:00", end: "21:00" }, ...changes }) });
 const ms = date => date.getTime();
 
 test("the machine shuts down at the first check after the worker's hours end", () => {
@@ -125,20 +126,12 @@ test("the machine shuts down when the worker stops inside its hours, and not out
   assert.equal(shutDownReason(shutting(), { event: "workerStopped", now: at(19, 17) }), null);
 });
 
-test("nothing shuts down when the developer chose not to, turned the worker off, or is at the machine", () => {
+test("nothing shuts down when the developer chose not to, gave the worker 0% of the week, or is at the machine", () => {
   const stopped = { event: "workerStopped", now: at(19, 19) };
   assert.equal(shutDownReason(shutting({ shutDownAfterWorker: false }), stopped), null);
-  assert.equal(shutDownReason(shutting({ preset: "off" }), stopped), null);
+  assert.equal(shutDownReason(shutting({ values: { weekShare: 0 } }), stopped), null);
   assert.equal(shutDownReason(shutting(), { ...stopped, lastPromptAt: ms(at(19, 18, 45)) }), null);
   assert.equal(shutDownReason(shutting(), { ...stopped, lastPromptAt: ms(at(19, 18, 30)) }), "the Greenhouse worker stopped");
-});
-
-test("sameValues sees custom values copied from Auto as Auto's, and an edited one as different", () => {
-  const auto = { ...VALUE_DEFAULTS, weekShare: 0.07, awayAfterMinutes: null };
-  const copied = { ...auto, weekShare: 7.000000000000001 / 100, awayAfterMinutes: 20 };
-  assert.equal(sameValues(copied, auto), true);
-  assert.equal(sameValues({ ...copied, weekShare: 0.08 }, auto), false);
-  assert.equal(sameValues({ ...copied, workdays: [1, 2, 3] }, auto), false);
 });
 
 test("a developer at the keyboard keeps the machine on after the worker stops", () => {
@@ -150,11 +143,11 @@ test("the worker is started once, at the first check after its hours begin", () 
   assert.equal(hoursBegan(shutting(), { now: at(19, 18, 1), since: ms(at(19, 17, 59)) }), true);
   assert.equal(hoursBegan(shutting(), { now: at(19, 18, 2), since: ms(at(19, 18, 1)) }), false);
   assert.equal(hoursBegan(shutting(), { now: at(19, 20), since: ms(at(19, 17)) }), false);
-  assert.equal(hoursBegan(shutting({ preset: "off" }), { now: at(19, 18, 1), since: ms(at(19, 17, 59)) }), false);
+  assert.equal(hoursBegan(shutting({ values: { weekShare: 0 } }), { now: at(19, 18, 1), since: ms(at(19, 17, 59)) }), false);
 });
 
-/** The gate's settings: the worker's hours 18:00 to 21:00, Auto's starting values. */
-const gated = (changes = {}) => ({ ...shutting(), ...cleanValues({ workdays: [1, 2, 3, 4, 5], ...changes }), ...("preset" in changes ? { preset: changes.preset } : {}) });
+/** The gate's settings: the worker's hours 18:00 to 21:00, 30% of the week, the default values for the rest. */
+const gated = (changes = {}) => ({ ...shutting(), ...cleanValues({ workdays: [1, 2, 3, 4, 5], weekShare: 0.3, ...changes }) });
 const planAt = (now, extra = {}) => plan(gated(), week(0.3, at(26, 15), { fiveHourUsage: 0.1, fiveHourResetsAt: at(19, 22).toISOString(), ...extra }), now);
 const away = { idleMs: 60 * 60_000, onAc: true };
 
@@ -165,9 +158,9 @@ test("in its hours, with the developer away and something to allocate, the worke
   assert.equal(g.until, at(19, 21).toISOString());
 });
 
-test("the worker may not work outside its hours, when Off, or on battery", () => {
+test("the worker may not work outside its hours, with 0% of the week, or on battery", () => {
   assert.equal(workerGate(gated(), planAt(at(19, 17)), { now: at(19, 17), ...away }).mayWork, false);
-  assert.equal(workerGate(gated({ preset: "off" }), planAt(at(19, 19)), { now: at(19, 19), ...away }).mayWork, false);
+  assert.equal(workerGate(gated({ weekShare: 0 }), planAt(at(19, 19)), { now: at(19, 19), ...away }).mayWork, false);
   assert.equal(workerGate(gated(), planAt(at(19, 19)), { now: at(19, 19), idleMs: away.idleMs, onAc: false }).mayWork, false);
 });
 
@@ -215,7 +208,7 @@ test("the plan's usage is read for a start only when the worker's hours, the pow
   assert.equal(mayWorkBeforeUsage(gated(), { now: at(19, 19), ...away }), true);
   assert.equal(mayWorkBeforeUsage(gated(), { now: at(19, 12), ...away }), false);
   assert.equal(mayWorkBeforeUsage(gated(), { now: at(19, 19), idleMs: 60_000, onAc: true }), false);
-  assert.equal(mayWorkBeforeUsage(gated({ preset: "off" }), { now: at(19, 19), ...away }), false);
+  assert.equal(mayWorkBeforeUsage(gated({ weekShare: 0 }), { now: at(19, 19), ...away }), false);
 });
 
 // The week in planAt() resets at(26, 15), a Thursday, with 70% of it left.
@@ -252,9 +245,9 @@ test("in that time the worker may use all of what is left of the week but the sh
   assert.equal(restNow(standing(), RESET, at(26, 15)), null);
 });
 
-test("using the rest of the week still stops for Off, battery, the developer at the machine and the 5-hour ceiling", () => {
+test("the worker uses the rest of the week with 0% of each week, and still stops for battery, the developer at the machine and the 5-hour ceiling", () => {
   const now = at(26, 2), p = planAt(now), rest = restNow(standing(), RESET, now);
-  assert.equal(workerGate(gated({ preset: "off" }), p, { now, ...away, rest }).mayWork, false);
+  assert.equal(workerGate(gated({ weekShare: 0 }), p, { now, ...away, rest }).mayWork, true);
   assert.equal(workerGate(gated(), p, { now, idleMs: away.idleMs, onAc: false, rest }).mayWork, false);
   assert.equal(workerGate(gated(), p, { now, idleMs: 60_000, onAc: true, rest }).mayWork, false);
   assert.equal(workerGate(gated(), planAt(now, { fiveHourUsage: 0.95 }), { now, ...away, rest }).mayWork, false);
@@ -275,7 +268,7 @@ test("the worker is started once, at the first check after its time to use the r
   const w = restWindow(standing(), RESET);
   assert.equal(restBegan(gated(), w, { now: at(25, 17, 1), since: ms(at(25, 17)) - 60_000 }), true);
   assert.equal(restBegan(gated(), w, { now: at(25, 17, 2), since: ms(at(25, 17, 1)) }), false);
-  assert.equal(restBegan(gated({ preset: "off" }), w, { now: at(25, 17, 1), since: ms(at(25, 17)) - 60_000 }), false);
+  assert.equal(restBegan(gated({ weekShare: 0 }), w, { now: at(25, 17, 1), since: ms(at(25, 17)) - 60_000 }), true);
   assert.equal(shutDownReason(shutting(), { event: "workerStopped", now: at(25, 19), rest: w }), null);
   assert.equal(shutDownReason(shutting(), { event: "tick", now: at(25, 21, 1), since: ms(at(25, 20, 59)), rest: w }), null);
 });

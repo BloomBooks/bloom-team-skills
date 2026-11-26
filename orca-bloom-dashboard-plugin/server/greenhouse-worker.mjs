@@ -1,29 +1,24 @@
 // The Bloom Greenhouse window's side of the service: the developer's settings for allocating their
 // Claude plan to the Greenhouse (greenhouse-worker.json in the data folder), the plan's usage as
-// this machine's claude-usage.mjs reports it, the history that the presets learn from, and the
+// this machine's claude-usage.mjs reports it, the history of prompts and bot activity, and the
 // plan that follows. The Greenhouse worker itself is an Orca bot. This tells it whether it may claim
 // an item (workerGate, which greenhouse.mjs's `gate` asks for), starts it through Orca when its hours
 // begin, when the time comes that the developer chose for it to use the rest of the week, and whenever
 // it may work and is not at work, and shuts the machine down after it when the developer chose so (shutDownReason).
 //
 // The history, greenhouse-history.jsonl in the data folder, holds one JSON object per line:
-//   { kind: "plan", at, usage, weekResetsAt, fiveHourUsage, fiveHourResetsAt }  a reading of the
-//       plan, at most one an hour, whenever the service runs
 //   { kind: "prompt", at }   the developer sent a prompt, in any Claude session on this machine
 //   { kind: "bot", at, bot } an Orca bot's session did something, at most once a minute per bot
-//   { kind: "seeded", at }   the prompts of the weeks before recording began were taken from the
-//       Claude Code transcripts on this machine, once
+// Lines of kinds that earlier versions wrote are ignored.
 // `at` is in milliseconds. Lines older than KEEP_DAYS are dropped once a day.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import readline from "node:readline";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { dataFile, readJsonFile, writeJsonFile, log } from "./env.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { cleanSettings, plan, sameValues, shutDownReason, hoursBegan, restBegan, restWindow, restNow, workerGate, mayWorkBeforeUsage, restartDue } from "./greenhouse-worker-plan.mjs";
-import { workerValues } from "./greenhouse-worker-rules.mjs";
+import { cleanSettings, withValues, plan, shutDownReason, hoursBegan, restBegan, restWindow, restNow, workerGate, mayWorkBeforeUsage, restartDue } from "./greenhouse-worker-plan.mjs";
 
 const settingsFile = () => dataFile("greenhouse-worker.json");
 const historyFile = () => dataFile("greenhouse-history.jsonl");
@@ -140,7 +135,6 @@ const usageScript = () => path.join(os.homedir(), ".config", "claude-usage", "cl
 const botsDir = () => path.join(os.homedir(), ".orca", "bots");
 // How old the usage behind the status bar button's number may get. A read is one request to Claude.
 const SUMMARY_MS = 15 * 60_000;
-const READING_EVERY_MS = 60 * 60_000;
 const KEEP_DAYS = 60;
 
 /** The saved settings, or null when the developer has saved none. */
@@ -245,9 +239,9 @@ function everyMinute() {
 async function startIfIdle(now) {
   if (!restartDue({ now, lastStartAt, lastWorkerAt, lastCheckAt: lastRestartCheckAt })) return;
   lastRestartCheckAt = now.getTime();
-  const { settings, worker } = current();
+  const { settings } = current();
   const machine = await presence();
-  if (!mayWorkBeforeUsage({ ...settings, ...worker.values }, { now, lastPromptAt: lastAt("prompt"), rest: restAt(now), ...machine })) return;
+  if (!mayWorkBeforeUsage(withValues(settings), { now, lastPromptAt: lastAt("prompt"), rest: restAt(now), ...machine })) return;
   await startIfMayWork("it was not at work");
 }
 
@@ -349,8 +343,8 @@ async function presence() {
 /** The answer to the worker's `gate`: workerGate() for this moment, with the usage read now. */
 export async function workerGateNow() {
   await readUsage();
-  const { settings, worker } = current();
-  const values = { ...settings, ...worker.values };
+  const { settings } = current();
+  const values = withValues(settings);
   const now = new Date();
   const machine = await presence();
   const p = last.usage ? plan(values, last.usage, now) : null;
@@ -369,7 +363,6 @@ function readUsage() {
       last.usage = await readWeeklyUsage();
       last.at = Date.now();
       last.error = "";
-      if (Date.now() - lastAt("plan") >= READING_EVERY_MS - 5 * 60_000) append({ kind: "plan", at: Date.now(), ...last.usage });
     } catch (e) {
       last.error = String(e.message || e).split("\n")[0];
     } finally {
@@ -380,58 +373,14 @@ function readUsage() {
   return reading;
 }
 
-/**
- * Adds to the history the time of each prompt that the developer typed in the last 28 days, from
- * the Claude Code transcripts on this machine, up to the first prompt that the hooks recorded. A
- * typed prompt is a user line with text that is not a tool's result, a command's output or an
- * interruption. The Orca bots' folders and the service's own prose sessions are skipped. Runs once.
- */
-async function seedFromTranscripts() {
-  if (readHistory().some(e => e.kind === "seeded")) return;
-  const root = path.join(os.homedir(), ".claude", "projects");
-  const since = Date.now() - 28 * 86_400_000;
-  const until = readHistory().filter(e => e.kind === "prompt").reduce((min, e) => Math.min(min, e.at), Date.now());
-  const found = [];
-  try {
-    for (const dir of fs.readdirSync(root)) {
-      if (/orca-bots|bloom-dashboard-llm/i.test(dir)) continue;
-      const folder = path.join(root, dir);
-      if (!fs.statSync(folder).isDirectory()) continue;
-      for (const name of fs.readdirSync(folder)) {
-        const file = path.join(folder, name);
-        if (!name.endsWith(".jsonl") || fs.statSync(file).mtimeMs < since) continue;
-        for await (const line of readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity })) {
-          if (!line.includes('"type":"user"') || line.includes('"tool_result"') || line.includes('"isMeta":true') || line.includes('"isSidechain":true')) continue;
-          let e;
-          try { e = JSON.parse(line); } catch { continue; }
-          const c = e.message?.content;
-          const text = typeof c === "string" ? c : Array.isArray(c) ? c.filter(x => x.type === "text").map(x => x.text).join("") : "";
-          const at = Date.parse(e.timestamp);
-          if (e.type === "user" && text && !text.startsWith("<") && !text.startsWith("[Request interrupted") && at >= since && at < until) found.push(at);
-        }
-      }
-    }
-  } catch (e) {
-    log("greenhouse history: reading the transcripts failed: " + e.message);
-    return;
-  }
-  const entries = found.sort((a, b) => a - b).map(at => ({ kind: "prompt", at }));
-  entries.push({ kind: "seeded", at: Date.now() });
-  readHistory().push(...entries);
-  try { fs.appendFileSync(historyFile(), entries.map(e => JSON.stringify(e)).join("\n") + "\n"); } catch (e) { log("greenhouse history: " + e.message); }
-  log(`greenhouse history: took ${found.length} prompts from the transcripts`);
-}
-
-/** Reads the plan once an hour while the service runs, and drops old history once a day. Does
- * nothing on a machine where the plan cannot be read. */
+/** Drops old history once a day, reads the Greenhouse on a machine where the developer saved
+ * settings for the worker, and checks once a minute whether to start the worker or shut the machine
+ * down. The read goes on while the worker's share is 0, since the developer may turn on the use of
+ * the rest of the week from another machine. */
 export function startRecording() {
   prune();
-  seedFromTranscripts();
-  const tick = () => { if (fs.existsSync(usageScript()) && Date.now() - lastAt("plan") >= READING_EVERY_MS) readUsage(); };
-  tick();
-  setInterval(tick, 5 * 60_000).unref();
   const readIfWorking = () => {
-    if (!savedSettings() || savedSettings().preset === "off") return;
+    if (!savedSettings()) return;
     readBoard();
     updateTeamSkills();
   };
@@ -444,29 +393,23 @@ export function startRecording() {
 // ---- what the page and the button show ------------------------------------------------------
 function current() {
   const saved = savedSettings();
-  const settings = saved ?? cleanSettings();
-  const worker = workerValues(settings, readHistory(), new Date());
-  return { saved, settings, worker };
+  return { saved, settings: saved ?? cleanSettings() };
 }
 
 /** What the page draws. With `read`, the plan's usage is read first (claude-usage.mjs keeps its
  * answer for a minute); without, the last read is used when there is one. */
 export async function workerState({ read = true } = {}) {
   if (read || !last.usage) await readUsage();
-  const { saved, settings, worker } = current();
-  const auto = settings.preset === "custom" ? workerValues({ ...settings, preset: "conservative" }, readHistory(), new Date()).values : worker.values;
+  const { saved, settings } = current();
   return {
     settings,
     saved: !!saved,
-    worker,
-    // Whether choosing Auto would lose nothing of the custom values.
-    customIsAuto: !!settings.custom && sameValues(settings.custom, auto),
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     greenhouseUrl: await greenhouseUrl(),
     usage: last.usage,
     usageAt: last.at || null,
     usageError: last.error,
-    plan: last.usage ? plan({ ...settings, ...worker.values }, last.usage, new Date()) : null,
+    plan: last.usage ? plan(withValues(settings), last.usage, new Date()) : null,
     // The part of the week's usage that the worker used, or null when it is not known.
     workerUsed: last.usage ? await workerUsed(last.usage.weekResetsAt) : null,
     // The developer's standing settings on the Greenhouse ({ use_rest, use_rest_at, rest_kept }), or
@@ -481,10 +424,10 @@ export async function workerState({ read = true } = {}) {
  * the background when that one is old and the developer allocates anything. */
 export function workerSummary() {
   const LABEL = "Bloom Greenhouse";
-  const { saved, settings, worker } = current();
+  const { saved, settings } = current();
   if (!saved) return { text: LABEL };
-  if (settings.preset === "off") return { text: `${LABEL} · worker off` };
+  if (settings.values.weekShare <= 0 && !ownSettings()?.use_rest) return { text: `${LABEL} · worker off` };
   if (Date.now() - Math.max(last.at, last.triedAt) > SUMMARY_MS) readUsage();
   if (!last.usage) return { text: LABEL };
-  return { text: `${LABEL} · ${Math.round(plan({ ...settings, ...worker.values }, last.usage, new Date()).allocatable * 100)}% allocated` };
+  return { text: `${LABEL} · ${Math.round(plan(withValues(settings), last.usage, new Date()).allocatable * 100)}% allocated` };
 }

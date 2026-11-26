@@ -19,6 +19,7 @@
   --ink: #1b2a1f; --ink-2: #4a5a4d; --link: #23663a;
   --green: #2f7d45; --green-ink: #fff; --amber: #d2b86c; --grey: #8a948a; --warning: #d99a14;
   --bg: var(--page); --surface: #f8faf6; --fg: var(--ink); --muted: #7a877b; --line: var(--frame);
+  --you-fill: #7e744d; --worker-fill: #4e7556;
   --accent: var(--link); --you: var(--amber); --you-bg: color-mix(in srgb, var(--warning) 14%, var(--surface)); --agent: var(--green);
   --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
@@ -26,10 +27,11 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --page: #111813; --glass: #1c271f; --frame: #2e3d31; --axis: #37473a; --lattice: rgba(170, 214, 160, 0.06);
-    --ink: #e4ece1; --ink-2: #b5c3b3; --link: #8fcf86;
-    --green: #68b562; --green-ink: #10200f; --amber: #b8a56e; --grey: #5f6b5e; --warning: #e3a82a;
-    --surface: #18211b; --muted: #84927f;
+    --page: #1c1b19; --glass: #242320; --frame: #3e3b32; --axis: #4b473c; --lattice: rgba(217, 178, 106, 0.06);
+    --ink: #f2ead8; --ink-2: #cbc1a8; --link: #b8a6f0;
+    --green: #6fa36a; --green-ink: #10200f; --amber: #d9b26a; --grey: #6b665a; --warning: #e3a82a;
+    --surface: #2a2925; --muted: #9b927d;
+    --you-fill: #4f7e4a; --worker-fill: #6c5cc2;
   }
 }
 body { font-size: 15px; }
@@ -60,9 +62,6 @@ body.rail-beside .worker-head { position: fixed; left: 0; bottom: 0; width: var(
 .icon-button:hover:not(:disabled) { border-color: var(--axis); }
 .icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .icon-button svg { width: 16px; height: 16px; }
-/* With the worker off, everything but the modes and the groups' headings is dimmed; it stays editable. */
-.dims { transition: opacity 150ms ease; }
-#form:has(input[name=preset][value=off]:checked) .dims { opacity: 0.35; }
 .wrap { gap: 32px; }
 /* The two groups: this machine's hours and behavior, and the plan's tokens. */
 .group { display: grid; gap: 24px; padding: 20px; background: var(--glass); border: 1px solid var(--frame); border-radius: 8px; }
@@ -70,6 +69,18 @@ body.rail-beside .worker-head { position: fixed; left: 0; bottom: 0; width: var(
 .group > header h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 19px; font-weight: 600; line-height: 1.3; }
 .group > header h2 svg { color: var(--accent); }
 .group > header p { margin: 0; font-size: 13px; color: var(--muted); }
+/* The machine's settings, which few developers need, stay folded until opened. */
+#machine > summary { display: grid; gap: 4px; list-style: none; cursor: pointer; border-radius: 4px; }
+#machine > summary::-webkit-details-marker { display: none; }
+#machine > summary h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 19px; font-weight: 600; line-height: 1.3; }
+#machine > summary h2 svg { color: var(--accent); }
+#machine > summary .chevron { margin-left: auto; color: var(--muted); transition: transform 150ms ease; }
+#machine[open] > summary .chevron { transform: rotate(90deg); }
+#machine > summary p { margin: 0; padding-left: 30px; font-size: 13px; color: var(--muted); }
+#machine[open] > summary { padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+#machine > summary:hover .chevron { color: var(--ink); }
+#machine > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+@media (prefers-reduced-motion: reduce) { #machine > summary .chevron { transition: none; } }
 .group section { display: grid; gap: 12px; }
 .group section > h3 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 16px; }
@@ -78,41 +89,28 @@ body.rail-beside .worker-head { position: fixed; left: 0; bottom: 0; width: var(
 .hint { margin: 0; font-size: 13px; color: var(--muted); }
 .saved { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-/* The three modes: one may be chosen. */
-.modes { display: flex; flex-wrap: wrap; gap: 8px; }
-.modes label { display: inline-flex; align-items: center; gap: 2px; padding: 8px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; }
-.modes label:hover { border-color: var(--axis); }
-.modes label:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
-.modes label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-.modes input { position: absolute; opacity: 0; pointer-events: none; }
-.modes b { font-weight: 600; }
-
-/* The week as one bar: what the developer used, what the worker used, what is left for the worker and what is left for the developer. */
-.headline { margin: 0; font-size: 16px; line-height: 1.4; text-wrap: pretty; }
-.headline b { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.bar { display: flex; gap: 2px; height: 14px; }
-/* The slider lies over the bar. Its range runs from minus the developer's own use to what the
-   developer has not used, so its handle sits where the worker's share ends. */
-.bar-wrap { position: relative; }
-#share-slider { position: absolute; inset: -6px 0; width: 100%; height: 26px; margin: 0; background: none; -webkit-appearance: none; appearance: none; cursor: ew-resize; }
-#share-slider::-webkit-slider-runnable-track { height: 26px; background: none; }
-#share-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 26px; border-radius: 3px; background: var(--surface); border: 2px solid var(--agent); box-shadow: 0 1px 2px rgb(0 0 0 / 0.25); }
+/* The allocation, what was used this week and last: each part of a bar exactly as wide as its share,
+   parted by a 2px line of the surface. The developer reads from the left end, the worker from the right. */
+.plan-rows { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: center; }
+.plan-rows > .row-name { font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.plan-rows > .usage-start, .plan-rows > .usage-start + .meter { margin-top: 10px; }
+.plan-rows > [hidden] { display: none; }
+.meter { position: relative; display: flex; height: 22px; border-radius: 4px; }
+.meter > i { flex: none; box-sizing: border-box; display: block; height: 100%; overflow: hidden; white-space: nowrap; font-size: 12px; font-style: normal; font-weight: 600; line-height: 22px; font-variant-numeric: tabular-nums; color: #fff; }
+.meter > i + i { border-left: 2px solid var(--surface); }
+.meter > i:first-child { border-radius: 4px 0 0 4px; }
+.meter > i:last-child { border-radius: 0 4px 4px 0; }
+.meter > i:only-child { border-radius: 4px; }
+.meter > i b { display: inline-block; margin: 0 8px; font-weight: inherit; }
+.meter .you { background: var(--you-fill); }
+.meter .worker { background: var(--worker-fill); text-align: right; }
+.meter .unused { background: color-mix(in srgb, var(--grey) 14%, var(--surface)); color: var(--ink-2); text-align: center; }
+/* The slider lies over the allocation and runs right to left, so its value is the worker's share. */
+#share-slider { position: absolute; inset: -6px 0; width: 100%; height: 34px; margin: 0; direction: rtl; background: none; -webkit-appearance: none; appearance: none; cursor: ew-resize; }
+#share-slider::-webkit-slider-runnable-track { height: 34px; background: none; }
+#share-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 34px; border-radius: 3px; background: var(--worker-fill); border: 2px solid var(--surface); box-shadow: 0 1px 3px rgb(0 0 0 / 0.35); }
 #share-slider:focus-visible { outline: none; }
 #share-slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 1px; }
-#share-slider:disabled { display: none; }
-.bar > i { display: block; min-width: 0; height: 100%; }
-.bar > i:first-child { border-radius: 4px 0 0 4px; }
-.bar > i:last-child { border-radius: 0 4px 4px 0; }
-.used { background: var(--grey); }
-.used-you { background: color-mix(in srgb, var(--you) 40%, var(--grey)); }
-.used-worker { background: color-mix(in srgb, var(--agent) 40%, var(--grey)); }
-.kept { background: var(--you); }
-.allocatable { background: var(--agent); }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
-.legend li { display: flex; align-items: baseline; gap: 6px; }
-.legend i { flex: none; width: 10px; height: 10px; border-radius: 2px; transform: translateY(1px); }
-.legend b { font-weight: 600; font-variant-numeric: tabular-nums; }
-.legend span { color: var(--muted); }
 
 /* The settings: a label, its control, and a line that says what it does. */
 .fields { display: grid; grid-template-columns: 200px 1fr; gap: 14px 16px; align-items: start; }
@@ -124,14 +122,17 @@ body.rail-beside .worker-head { position: fixed; left: 0; bottom: 0; width: var(
 #rest { --control: 30px; display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: start; }
 #rest[hidden] { display: none; }
 #rest > input[type=checkbox] { margin-top: calc((var(--control) - 16px) / 2); }
-#rest .sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 5px; min-height: var(--control); }
-#rest .sentence > span { display: inline-flex; align-items: center; white-space: nowrap; }
-#rest .sentence > span > :is(input, select):not(:first-child) { margin-left: 5px; }
-#rest .sentence > span > :is(input, select):not(:last-child) { margin-right: 2px; }
+/* Two sentences in ordinary text, each starting on its own line, wrapping between words; a control
+   stays with the words that it belongs to. */
+#rest .sentence { display: grid; gap: 0; }
+#rest .sentence p { margin: 0; line-height: var(--control); text-wrap: pretty; }
+#rest .sentence :is(input, select) { vertical-align: middle; margin: 0 2px; }
+#rest .sentence .keep { white-space: nowrap; }
 #rest .sentence .info { margin-left: 6px; }
 #rest .sentence label { cursor: pointer; }
+#rest:has(#use-rest:not(:checked)) .sentence { opacity: 0.5; }
 #rest select, #rest input[type=time], #rest input[type=number] { box-sizing: border-box; height: var(--control); padding: 0 8px; line-height: normal; }
-#rest #rest-kept { width: 3.25em; text-align: right; appearance: textfield; -moz-appearance: textfield; }
+#rest #rest-kept { width: calc(2ch + 16px); padding: 0 6px; text-align: right; appearance: textfield; -moz-appearance: textfield; }
 #rest #rest-kept::-webkit-inner-spin-button, #rest #rest-kept::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type=number], input[type=time], select { font: inherit; font-variant-numeric: tabular-nums; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 8px; }
 input[type=number] { width: 64px; }
@@ -144,7 +145,6 @@ input[type=checkbox], input[type=radio] { accent-color: var(--accent); width: 16
 .weekdays span { display: block; min-width: 44px; padding: 5px 0; text-align: center; font-size: 13px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .weekdays input:checked + span { color: var(--green-ink); background: var(--green); border-color: transparent; }
 .weekdays input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
-.modes label[hidden] { display: none; }
 .confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .confirm[hidden] { display: none; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -152,10 +152,6 @@ input[type=checkbox], input[type=radio] { accent-color: var(--accent); width: 16
 .section-head button[hidden] { display: none; }
 .value { font-variant-numeric: tabular-nums; padding-top: 5px; }
 .value b { font-weight: 600; }
-/* Where a value comes from: a small label before its reason. */
-.from { display: inline-block; margin-right: 6px; padding: 0 6px; font-size: 11.5px; font-weight: 500; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-.from.history { color: var(--agent); border-color: color-mix(in srgb, var(--agent) 40%, transparent); }
-.from.start { color: var(--you); border-color: color-mix(in srgb, var(--you) 40%, transparent); }
 input:disabled { opacity: 0.5; }
 </style>
 </head>
@@ -173,9 +169,32 @@ input:disabled { opacity: 0.5; }
 
   <div class="group">
     <header>
-      <h2><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>When to let the worker use this machine</h2>
+      <h2><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M12 3v9l6.4 6.4"/></svg>Claude allocation to worker</h2>
     </header>
-    <div class="panel dims"><div class="fields">
+
+    <section>
+      <div class="panel" id="plan">
+        <div class="plan-rows">
+          <span class="row-name">Allocation</span>
+          <div class="meter" id="share-bar">
+            <input type="range" name="weekShare" id="share-slider" min="0" max="100" step="1" aria-label="The worker's share of each week, in percent">
+          </div>
+          <span></span><div id="rest" hidden></div>
+          <span class="row-name usage-start" id="week-name" hidden>This week so far</span>
+          <div class="meter" id="week-bar" role="img" hidden></div>
+        </div>
+        <p class="hint" id="plan-hint">Reading the plan's usage…</p>
+      </div>
+    </section>
+
+  </div>
+
+  <details class="group" id="machine">
+    <summary>
+      <h2><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>When to let the worker use this machine<svg class="chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></h2>
+      <p id="machine-summary"></p>
+    </summary>
+    <div class="panel"><div class="fields">
       <span class="name">Days the worker may run</span>
       <div><div class="weekdays" id="worker-days"></div></div>
 
@@ -188,46 +207,12 @@ input:disabled { opacity: 0.5; }
       <span class="name">When the worker is done<span class="info" tabindex="0" role="button" aria-label="When the machine shuts down" aria-describedby="shutdown-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="shutdown-tip">When these hours end, or when the worker stops in them because your offer is used up or the Greenhouse has no work. Not while you have sent a prompt in the last 20 minutes. Windows warns 5 minutes ahead, and <code>shutdown /a</code> cancels it.</span></span></span>
       <div><label class="check"><input type="checkbox" name="shutDownAfterWorker"> Shut the machine down</label></div>
     </div><div class="fields" id="presence"></div></div>
-  </div>
-
-  <div class="group">
-    <header>
-      <h2><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M12 3v9l6.4 6.4"/></svg>Claude allocation to worker</h2>
-    </header>
 
     <section>
-      <div class="modes" role="radiogroup" aria-label="How the worker may use your Claude plan">
-        <label><input type="radio" name="preset" value="off"><b>Off</b></label>
-        <label><input type="radio" name="preset" value="conservative"><b>Auto</b><span class="info" tabindex="0" role="button" aria-label="About Auto" aria-describedby="auto-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="auto-tip">Careful of your 5-hour limit, careful with your weekly quota, and careful not to run while you're using this computer.</span></span></label>
-        <label><input type="radio" name="preset" value="custom"><b>Custom</b></label>
-      </div>
-      <div class="notice confirm" id="discard" hidden><span id="discard-text"></span> <button type="button" class="refresh" id="discard-yes">Discard them</button> <button type="button" class="refresh" id="discard-no">Keep Custom</button></div>
-    </section>
-
-    <section class="dims">
-      <h3>This week<span id="week-info"></span></h3>
-      <div class="panel" id="plan">
-        <p class="headline" id="plan-headline" hidden></p>
-        <div class="bar-wrap">
-          <div class="bar" id="plan-bar" role="img"></div>
-          <input type="range" name="weekShare" id="share-slider" step="1" hidden aria-label="The worker's share of each week, in percent">
-        </div>
-        <ul class="legend" id="plan-legend" hidden></ul>
-        <div id="rest" hidden></div>
-        <p class="hint" id="plan-hint">Reading the plan's usage…</p>
-      </div>
-    </section>
-
-    <section class="dims">
-      <h3>Your work week<span id="work-week-info"></span></h3>
-      <div class="panel"><div class="fields" id="week"></div></div>
-    </section>
-
-    <section class="dims">
-      <h3>How careful the worker is<span id="values-info"></span></h3>
+      <h3>How careful the worker is</h3>
       <div class="panel"><div class="fields" id="values"></div></div>
     </section>
-  </div>
+  </details>
 </form>
 </div>
 
@@ -235,8 +220,6 @@ input:disabled { opacity: 0.5; }
 const $ = id => document.getElementById(id);
 const form = $("form");
 const PERCENTS = ["fiveHourHardStop", "fiveHourCeilingInWorkHours", "fiveHourCeilingOtherwise"];
-const PRESET_NAMES = { conservative: "Auto", custom: "Custom" };
-const FROM = { history: "From your history", start: "Starting value", preset: "Set by Auto" };
 const WEEKDAYS = [[1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [0, "Sun"]];
 const pct = share => Math.round(share * 100) + "%";
 const esc = text => String(text).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -264,16 +247,25 @@ async function ask(path, body) {
 $("worker-days").innerHTML = WEEKDAYS.map(([n, name]) => `<label><input type="checkbox" name="workerDay" value="${n}"><span>${name}</span></label>`).join("");
 
 function fillForm(s) {
-  form.elements.preset.value = s.preset;
   for (const box of form.querySelectorAll("[name=workerDay]")) box.checked = s.workerHours.days.includes(Number(box.value));
   form.elements.workerStart.value = s.workerHours.start;
   form.elements.workerEnd.value = s.workerHours.end;
   form.elements.wakeForWorkerHours.checked = s.wakeForWorkerHours;
   form.elements.shutDownAfterWorker.checked = s.shutDownAfterWorker;
+  $("machine-summary").textContent = machineSummary(s);
 }
 
-/** The custom values as the fields show them, or null when the fields are not on the page. */
-function readCustom() {
+/** The worker's hours in a few words, for the folded section: "Every day, 6:00 PM to 9:00 PM". */
+function machineSummary(s) {
+  const h = s.workerHours;
+  const time = hhmm => clock(new Date(2026, 0, 1, ...hhmm.split(":").map(Number)));
+  const days = h.days.length === 7 ? "Every day" : h.days.length === 0 ? "No days"
+    : WEEKDAYS.filter(([n]) => h.days.includes(n)).map(([, name]) => name).join(", ");
+  return `${days}, ${time(h.start)} to ${time(h.end)}`;
+}
+
+/** The worker's values as the fields show them, or null before the fields are on the page. */
+function readValues() {
   if (!form.elements.fiveHourHardStop) return null;
   const c = {
     workdays: [...form.querySelectorAll("[name=workday]:checked")].map(box => Number(box.value)),
@@ -283,15 +275,13 @@ function readCustom() {
     awayAfterMinutes: form.elements.awayAfterMinutes.value,
   };
   for (const name of PERCENTS) c[name] = form.elements[name].value === "" ? "" : Number(form.elements[name].value) / 100;
-  // The slider stops at what is left of the week, so a share above that is kept from what was saved.
-  c.weekShare = draggedShare ?? state.worker.values.weekShare;
+  c.weekShare = draggedShare ?? state.settings.values.weekShare;
   return c;
 }
 
 function readForm(changes = {}) {
   const s = state.settings;
   return {
-    preset: s.preset,
     workerHours: {
       days: [...form.querySelectorAll("[name=workerDay]:checked")].map(box => Number(box.value)),
       start: form.elements.workerStart.value,
@@ -299,109 +289,63 @@ function readForm(changes = {}) {
     },
     wakeForWorkerHours: form.elements.wakeForWorkerHours.checked,
     shutDownAfterWorker: form.elements.shutDownAfterWorker.checked,
-    custom: s.preset === "custom" ? readCustom() ?? s.custom : s.custom,
+    values: readValues() ?? s.values,
     ...changes,
   };
 }
 
-/** One row of "Your work week" or "How careful the worker is": the value as text with where it
- * comes from, or, for Custom, the field that sets it. `tip` and the reason for an Auto value go in
- * a tooltip on the row's name. */
-function valueRow(name, label, text, field, tip = "") {
-  const w = state.worker;
-  const source = w.sources[name] || {};
-  const custom = w.preset === "custom";
-  const from = !custom && FROM[source.from] ? ` <span class="from ${source.from}">${FROM[source.from]}</span>` : "";
-  const why = [tip, custom ? "" : source.reason].filter(Boolean).join(" ");
-  return `<span class="name">${label}${info(why)}</span><div>${custom ? field : `<div class="value">${text}${from}</div>`}</div>`;
-}
+/** One row of the worker's values: its name, with `tip` in a tooltip, and the field that sets it. */
+const valueRow = (label, field, tip = "") => `<span class="name">${label}${info(tip)}</span><div>${field}</div>`;
 
 function drawValues() {
-  const w = state.worker, v = w.values, s = state.settings;
-  const custom = w.preset === "custom";
-  // While the developer types in a custom field, the fields stay as they are.
-  if (custom && ["values", "week", "presence"].some(id => $(id).contains(document.activeElement))) return;
-  const r = w.recorded;
-  const learning = !custom && Object.values(w.sources).some(x => x.from === "start");
-  const autoNote = s.preset === "off" ? "With the worker off, these are Auto's values." : `${PRESET_NAMES[w.preset]} works these out from your last 4 weeks on this machine.`;
-  const since = learning && r.since ? ` Readings of your plan began ${new Date(r.since).toLocaleDateString([], { month: "short", day: "numeric" })}.` : "";
-  $("work-week-info").innerHTML = custom ? "" : info(autoNote);
-  $("values-info").innerHTML = custom ? "" : info(autoNote + since);
+  const v = state.settings.values;
+  // While the developer types in a field, the fields stay as they are.
+  if (["values", "presence"].some(id => $(id).contains(document.activeElement))) return;
   const num = (name, attrs) => `<input type="number" name="${name}" ${attrs}>`;
-
-  const dayNames = WEEKDAYS.filter(([n]) => v.workdays.includes(n)).map(([, name]) => name).join(", ") || "None";
-  const hour = hhmm => { const [h, m] = hhmm.split(":").map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
-  $("week").innerHTML = [
-    valueRow("workdays", "Days you work", `<b>${dayNames}</b>`,
-      `<div class="weekdays">${WEEKDAYS.map(([n, name]) => `<label><input type="checkbox" name="workday" value="${n}"><span>${name}</span></label>`).join("")}</div>`),
-    valueRow("workHours", "Work hours", `<b>${hour(v.workStart)}</b> to <b>${hour(v.workEnd)}</b>`,
-      `<div class="line"><input type="time" name="workStart" aria-label="Work hours start"> to <input type="time" name="workEnd" aria-label="Work hours end"></div>`,
-      `In this machine's time zone, ${state.timeZone}.`),
-  ].join("");
-
   $("presence").innerHTML = [
-    valueRow("whileAtComputer", "While you use this computer", v.whileAtComputer ? "The worker may run" : "The worker waits until you are away",
-      `<label class="check"><input type="checkbox" name="whileAtComputer"> The worker may run</label>`),
-    valueRow("awayAfterMinutes", "You count as away after", v.awayAfterMinutes == null ? "Does not apply" : `<b>${v.awayAfterMinutes}</b> minutes`,
-      `<div class="line">${num("awayAfterMinutes", 'min="1" max="240" step="1" aria-label="Minutes before you count as away"')} minutes</div>`,
+    valueRow("While you use this computer", `<label class="check"><input type="checkbox" name="whileAtComputer"> The worker may run</label>`),
+    valueRow("You count as away after", `<div class="line">${num("awayAfterMinutes", 'min="1" max="240" step="1" aria-label="Minutes before you count as away"')} minutes</div>`,
       "Without keyboard or mouse input, and without a prompt in any other Claude session on this machine."),
   ].join("");
+  // The work week decides which 5-hour ceiling applies, so it comes just before them.
   $("values").innerHTML = [
-    valueRow("fiveHourCeilingInWorkHours", "A 5-hour period that reaches into your work hours", `The worker stops at <b>${pct(v.fiveHourCeilingInWorkHours)}</b>`,
-      `<div class="line">The worker stops at ${num("fiveHourCeilingInWorkHours", 'min="0" max="100" step="5" aria-label="Percent of a 5-hour period that reaches into your work hours"')} %</div>`),
-    valueRow("fiveHourCeilingOtherwise", "A 5-hour period that ends before your work hours", `The worker stops at <b>${pct(v.fiveHourCeilingOtherwise)}</b>`,
-      `<div class="line">The worker stops at ${num("fiveHourCeilingOtherwise", 'min="0" max="100" step="5" aria-label="Percent of a 5-hour period that ends before your work hours"')} %</div>`),
-    valueRow("fiveHourHardStop", "Stop even during a work item", `When the 5-hour period reaches <b>${pct(v.fiveHourHardStop)}</b>`,
-      `<div class="line">When the 5-hour period reaches ${num("fiveHourHardStop", 'min="0" max="100" step="5" aria-label="Stop even during a work item at this percent of the 5-hour period"')} %</div>`),
+    valueRow("Days you work", `<div class="weekdays">${WEEKDAYS.map(([n, name]) => `<label><input type="checkbox" name="workday" value="${n}"><span>${name}</span></label>`).join("")}</div>`),
+    valueRow("Work hours", `<div class="line"><input type="time" name="workStart" aria-label="Work hours start"> to <input type="time" name="workEnd" aria-label="Work hours end"></div>`,
+      `A 5-hour period that is still running when your work hours begin counts as reaching into them. In this machine's time zone, ${state.timeZone}.`),
+    valueRow("A 5-hour period that reaches into your work hours", `<div class="line">The worker stops at ${num("fiveHourCeilingInWorkHours", 'min="0" max="100" step="5" aria-label="Percent of a 5-hour period that reaches into your work hours"')} %</div>`),
+    valueRow("A 5-hour period that ends before your work hours", `<div class="line">The worker stops at ${num("fiveHourCeilingOtherwise", 'min="0" max="100" step="5" aria-label="Percent of a 5-hour period that ends before your work hours"')} %</div>`),
+    valueRow("Stop even during a work item", `<div class="line">When the 5-hour period reaches ${num("fiveHourHardStop", 'min="0" max="100" step="5" aria-label="Stop even during a work item at this percent of the 5-hour period"')} %</div>`),
   ].join("");
-  if (custom) {
-    for (const box of form.querySelectorAll("[name=workday]")) box.checked = v.workdays.includes(Number(box.value));
-    form.elements.workStart.value = v.workStart;
-    form.elements.workEnd.value = v.workEnd;
-    form.elements.whileAtComputer.checked = v.whileAtComputer;
-    form.elements.awayAfterMinutes.value = v.awayAfterMinutes;
-    form.elements.awayAfterMinutes.disabled = v.whileAtComputer;
-    for (const name of PERCENTS) form.elements[name].value = Math.round(v[name] * 100);
-  }
+  for (const box of form.querySelectorAll("[name=workday]")) box.checked = v.workdays.includes(Number(box.value));
+  form.elements.workStart.value = v.workStart;
+  form.elements.workEnd.value = v.workEnd;
+  form.elements.whileAtComputer.checked = v.whileAtComputer;
+  form.elements.awayAfterMinutes.value = v.awayAfterMinutes;
+  form.elements.awayAfterMinutes.disabled = v.whileAtComputer;
+  for (const name of PERCENTS) form.elements[name].value = Math.round(v[name] * 100);
 }
 
 function drawPlan() {
   const { plan: p, usageError } = state;
-  const s = { ...state.settings, ...state.worker.values };
   $("error").hidden = !usageError;
   $("error").textContent = usageError ? "The plan's usage could not be read: " + usageError : "";
   $("read-at").textContent = state.usageAt ? "Usage read " + clock(new Date(state.usageAt)) : "";
+  // While the slider has the focus, it keeps where the developer put it.
   const slider = $("share-slider");
-  for (const el of [$("plan-headline"), $("plan-legend"), slider]) el.hidden = !p;
+  if (document.activeElement !== slider) slider.value = String(Math.round(state.settings.values.weekShare * 100));
+  drawShare(draggedShare ?? state.settings.values.weekShare);
+  for (const id of ["rest", "week-name", "week-bar"]) $(id).hidden = !p;
+  $("plan-hint").hidden = !!p;
   if (!p) {
-    $("plan-bar").innerHTML = "";
-    $("plan-hint").hidden = false;
-    $("plan-hint").textContent = usageError ? "No plan without the usage." : "Reading the plan's usage…";
+    $("plan-hint").textContent = usageError ? "This week's usage could not be read." : "Reading the plan's usage…";
     return;
   }
-  // While the slider has the focus, it keeps where the developer put it.
-  const dragging = document.activeElement === slider;
-  if (!dragging) {
-    const used = Math.round((p.weekUsage - workerUsed()) * 100);
-    slider.min = String(-used);
-    slider.max = String(100 - used);
-    slider.value = String(Math.round(p.weekShare * 100));
-  }
-  slider.disabled = s.preset === "off";
-  slider.title = s.preset === "custom" ? "" : state.worker.sources.weekShare?.reason ?? "";
-  drawShare(draggedShare ?? p.weekShare);
+  drawWeek();
   drawRest();
-  $("plan-hint").hidden = true;
-  $("week-info").innerHTML = info(`The week resets ${dayAndClock(new Date(p.weekResetsAt))}.`);
 }
 
 /** The developer's standing settings on the Greenhouse, or the Greenhouse's defaults when they have saved none. */
 const developerSettings = () => state.developerSettings ?? { use_rest: 0, use_rest_day: null, use_rest_at: "17:00", rest_kept: 0.02 };
-/** Whether the worker is using the rest of the week now. */
-function usingRest() {
-  const d = developerSettings(), now = Date.now();
-  return !!d.use_rest && !!state.restFrom && Date.parse(state.restFrom) <= now && now < Date.parse(state.plan.weekResetsAt);
-}
 /** The row that lets the worker use the rest of every week from a weekday and time until the week
  * resets, leaving a share of it to the developer. It stays on from week to week. It is saved on the
  * Greenhouse, so the developer can change it from any of their machines. Without a saved weekday, the
@@ -409,20 +353,16 @@ function usingRest() {
 function drawRest() {
   const p = state.plan, d = developerSettings();
   const rest = $("rest");
-  rest.hidden = state.settings.preset === "off";
   if (rest.contains(document.activeElement)) return;
   const resets = new Date(p.weekResetsAt);
   const tip = `Every week, until you turn it off. This week from ${state.restFrom ? dayAndClock(new Date(state.restFrom)) : "the time you choose"}, the worker may run outside its hours. The workers on all your machines follow this.`;
   const day = d.use_rest_day ?? (resets.getDay() + 6) % 7;
   const days = WEEKDAYS.map(([n]) => `<option value="${n}"${n === day ? " selected" : ""}>${new Date(2026, 10, 22 + n).toLocaleDateString([], { weekday: "long" })}</option>`).join("");
   rest.innerHTML = `<input type="checkbox" id="use-rest"${d.use_rest ? " checked" : ""} aria-label="Allocate the rest of my tokens every week">
-    <div class="sentence"><label for="use-rest">Starting</label>
-    <span><select id="use-rest-day" aria-label="The weekday from which the worker uses the rest of the week">${days}</select></span>
-    <span>at <input type="time" id="use-rest-at" value="${esc(d.use_rest_at)}" aria-label="The time of day from which the worker uses the rest of the week">,</span>
-    <span>allocate all but</span>
-    <span><input type="number" id="rest-kept" min="0" max="100" step="1" value="${Math.round(d.rest_kept * 100)}" aria-label="The percent of the week that the worker leaves to you">%</span>
-    <span>of the rest of my tokens</span>
-    <span>until my week resets ${esc(dayAndClock(resets))}.${info(tip)}</span></div>`;
+    <div class="sentence">
+      <p><label for="use-rest">Also, starting</label> <select id="use-rest-day" aria-label="The weekday from which the worker uses the rest of the week">${days}</select> <span class="keep">at <input type="time" id="use-rest-at" value="${esc(d.use_rest_at)}" aria-label="The time of day from which the worker uses the rest of the week"></span> use up the rest of my weekly tokens.</p>
+      <p>Stop before my week resets <span class="keep">${esc(dayAndClock(resets))}</span> or there is only <span class="keep"><input type="number" id="rest-kept" min="0" max="100" step="1" value="${Math.round(d.rest_kept * 100)}" aria-label="The percent of the week that the worker leaves to you">% left,</span> whichever comes <span class="keep">first.${info(tip)}</span></p>
+    </div>`;
   $("use-rest").addEventListener("change", e => saveDeveloperSettings({ useRest: e.target.checked }));
   $("use-rest-day").addEventListener("change", e => saveDeveloperSettings({ useRestDay: Number(e.target.value) }));
   $("use-rest-at").addEventListener("change", e => { if (e.target.value) saveDeveloperSettings({ useRestAt: e.target.value }); });
@@ -449,40 +389,41 @@ async function saveDeveloperSettings(changes) {
  * developer's offer, or 0 when the Greenhouse could not be read. */
 const workerUsed = () => Math.min(state.plan.weekUsage, state.workerUsed ?? 0);
 
-/** The headline, bar and legend for the plan with the worker's share at `weekShare`. The share is
- * of the whole week, so what the worker used already counts against it. */
+/** The parts of a bar, left to right, as [class, share, name, label], the parts of no width left out. */
+const meterParts = parts => parts.filter(([, part]) => part > 0.0005)
+  .map(([cls, part, name, label]) => `<i class="${cls}" style="width:${part * 100}%" title="${name}: ${pct(part)}"><b>${label}</b></i>`).join("");
+
+/** The allocation with the worker's share at `weekShare`: the developer's part on the left, the
+ * worker's on the right. A narrow part shows its percent without its name. */
 function drawShare(weekShare) {
-  const p = state.plan;
-  const s = { ...state.settings, ...state.worker.values };
-  const byWorker = workerUsed();
-  const workerLeft = Math.max(0, Math.min(p.left, weekShare - byWorker));
-  const share = `<b>${pct(weekShare)}</b> of this week`;
-  $("plan-headline").innerHTML = s.preset === "off" ? `With Auto the worker could use <b>${pct(weekShare)}</b> of each week.`
-    : usingRest() ? `The worker may use the rest of this week but <b>${pct(developerSettings().rest_kept)}</b>, until ${esc(dayAndClock(new Date(p.weekResetsAt)))}.`
-    : weekShare <= 0 ? "The worker's share of the week is <b>0%</b>."
-    : byWorker >= weekShare ? `The worker has used its ${share}.`
-    : p.left < weekShare - byWorker ? `The worker may use ${share}, but only <b>${pct(p.left)}</b> is left.`
-    : `The worker may use ${share}${s.whileAtComputer ? "" : ", while you are away"}.`;
-  const parts = state.workerUsed == null ? [
-    ["used", "Used so far", p.weekUsage],
-    ["allocatable", "Left for the worker", workerLeft],
-    ["kept", "Left for you", p.left - workerLeft],
-  ] : [
-    ["used-you", "Used by you", p.weekUsage - byWorker],
-    ["used-worker", "Used by the worker", byWorker],
-    ["allocatable", "Left for the worker", workerLeft],
-    ["kept", "Left for you", p.left - workerLeft],
+  const bar = $("share-bar"), slider = $("share-slider");
+  const label = (name, part) => (part < 0.12 ? pct(part) : `${name} ${pct(part)}`);
+  for (const part of [...bar.querySelectorAll("i")]) part.remove();
+  slider.insertAdjacentHTML("beforebegin", meterParts([
+    ["you", 1 - weekShare, "Your share", label("You", 1 - weekShare)],
+    ["worker", weekShare, "The worker's share", label("Worker", weekShare)],
+  ]));
+}
+
+/** What was used this week: by the developer from the left, by the worker from the right, and what
+ * is not used yet between them. Without the Greenhouse's count of the worker's use, all of the use
+ * is the developer's. */
+function drawWeek() {
+  const p = state.plan, byWorker = workerUsed();
+  const parts = [
+    ["you", p.weekUsage - byWorker, "Used by you"],
+    ["unused", p.left, "Not used yet"],
+    ["worker", byWorker, "Used by the worker"],
   ];
-  $("plan-bar").setAttribute("aria-label", parts.map(([, name, part]) => `${name} ${pct(part)}`).join(", "));
-  $("plan-bar").innerHTML = parts.filter(([, , part]) => part > 0.002).map(([cls, name, part]) => `<i class="${cls}" style="flex:${part}" title="${name}: ${pct(part)}"></i>`).join("");
-  $("plan-legend").innerHTML = parts.map(([cls, name, part]) => `<li><i class="${cls}"></i>${name} <b>${pct(part)}</b></li>`).join("");
+  $("week-bar").setAttribute("aria-label", parts.map(([, part, name]) => `${name} ${pct(part)}`).join(", "));
+  $("week-bar").innerHTML = meterParts(parts.map(([cls, part, name]) => [cls, part, name, pct(part)]));
 }
 
 async function load() {
   $("refresh").disabled = true;
   try {
     state = await ask("/greenhouse-worker/state");
-    if (!form.contains(document.activeElement) || document.activeElement.type === "radio") fillForm(state.settings);
+    if (!form.contains(document.activeElement)) fillForm(state.settings);
     drawAll();
   } catch (e) {
     if (e.message !== "reloading") { $("error").hidden = false; $("error").textContent = "This page could not reach the dashboard service: " + e.message; }
@@ -499,7 +440,7 @@ let draggedShare = null;
 async function save(settings) {
   try {
     state = await ask("/greenhouse-worker/settings", settings);
-    if (draggedShare !== null && Math.abs(state.worker.values.weekShare - draggedShare) < 1e-4) draggedShare = null;
+    if (draggedShare !== null && Math.abs(state.settings.values.weekShare - draggedShare) < 1e-4) draggedShare = null;
     fillForm(state.settings);
     drawAll();
     $("saved").textContent = "Saved";
@@ -514,52 +455,23 @@ function saveSoon() {
   saveTimer = setTimeout(() => save(readForm()), 350);
 }
 
-// Choosing a mode. Custom starts from the values that Auto shows now. Leaving Custom for an Auto
-// setting discards the custom values, so the page asks first, unless they are Auto's own; Off keeps them.
-let wanted = null;
-function choosePreset(preset) {
-  $("discard").hidden = true;
-  if (preset === "custom" && !state.settings.custom) {
-    const v = state.worker.values;
-    return save(readForm({ preset, custom: { ...v, awayAfterMinutes: v.awayAfterMinutes ?? 20 } }));
-  }
-  if (state.settings.custom && preset === "conservative" && !state.customIsAuto) {
-    wanted = preset;
-    form.elements.preset.value = state.settings.preset;
-    $("discard-text").textContent = `Choosing ${PRESET_NAMES[preset]} discards your custom values.`;
-    $("discard").hidden = false;
-    return;
-  }
-  save(readForm(preset === "conservative" ? { preset, custom: null } : { preset }));
-}
-$("discard-yes").addEventListener("click", () => { $("discard").hidden = true; save(readForm({ preset: wanted, custom: null })); });
-$("discard-no").addEventListener("click", () => { $("discard").hidden = true; });
-
 form.addEventListener("input", e => {
-  if (e.target.name === "preset") return;
   if (e.target.name === "weekShare") {
     draggedShare = Number(e.target.value) / 100;
     drawShare(draggedShare);
-    // Dragging the share on an Auto setting starts Custom from Auto's values.
-    if (state.settings.preset !== "custom") {
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(() => {
-        const v = state.worker.values;
-        save(readForm({ preset: "custom", custom: { ...v, awayAfterMinutes: v.awayAfterMinutes ?? 20, weekShare: draggedShare } }));
-      }, 350);
-      return;
-    }
   }
   if (e.target.name === "whileAtComputer") form.elements.awayAfterMinutes.disabled = e.target.checked;
   saveSoon();
 });
 form.addEventListener("change", e => {
-  if (e.target.name === "preset") return choosePreset(e.target.value);
   // A field left with a value the service did not accept shows what was saved in its place.
   setTimeout(() => { if (state && !form.contains(document.activeElement)) { fillForm(state.settings); drawValues(); } }, 600);
 });
 form.addEventListener("submit", e => e.preventDefault());
 $("refresh").addEventListener("click", load);
+// Whether the machine's settings are open is remembered in this browser, where storage allows.
+try { $("machine").open = localStorage.getItem("machine-open") === "1"; } catch {}
+$("machine").addEventListener("toggle", () => { try { localStorage.setItem("machine-open", $("machine").open ? "1" : "0"); } catch {} });
 
 // The Greenhouse's own app, in a frame that fills the window. `bloom-window` in its address puts
 // "My Greenhouse worker" first in its rail and says which page to open on; the app then says, with a
