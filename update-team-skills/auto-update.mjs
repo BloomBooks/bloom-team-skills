@@ -196,8 +196,11 @@ function installGreenhouseWorker() {
     if (pulled.error || pulled.status !== 0) return `greenhouse worker not updated: ${(pulled.error?.message || pulled.stderr || "").trim().split(/\r?\n/).at(-1)}`;
     const r = spawnSync(process.execPath, [path.join(clone, "bots", "install.mjs"), "greenhouse-worker"], { encoding: "utf8", timeout: 120_000, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     if (r.error) return `greenhouse worker not updated: ${r.error.message}`;
-    const last = `${r.stdout || ""}${r.stderr || ""}`.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).at(-1) ?? "";
-    return r.status === 0 ? "greenhouse worker installed" : `greenhouse worker not installed (exit ${r.status}): ${last}`;
+    const lines = `${r.stdout || ""}${r.stderr || ""}`.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    // The installer says which lines of the worker's memory it took out, or could not take out.
+    const memory = lines.filter((l) => /^(Took|Could not take) this line out of the worker's memory/.test(l));
+    if (r.status !== 0) return `greenhouse worker not installed (exit ${r.status}): ${lines.at(-1) ?? ""}`;
+    return ["greenhouse worker installed", ...memory].join("; ");
 }
 
 // TEAM-AGENTS.md holds the rules that apply in every session, and Claude Code only loads it through
