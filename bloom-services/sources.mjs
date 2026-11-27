@@ -12,6 +12,10 @@
 // status pages, Contentful's read-only APIs) are called directly.
 //
 //   youtrack [GET|POST|DELETE] <api path> [@<file>]     YouTrack's REST API as the Bot account
+//   youtrack-worker [GET|POST|DELETE] <api path> [@<file>]
+//                                                        the same as the Greenhouse Worker account
+//                                                        (the Greenhouse's workers only), or as the
+//                                                        Bot while the tool server lacks its token
 //   attachment <issue id> <name> [<path>]                saves the attachment to ./.card/<name>, or to
 //                                                        <path> inside the working directory, such
 //                                                        as a file a test in a checkout reads
@@ -259,7 +263,7 @@ const UPLOAD_TYPES = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "imag
     ".zip": "application/zip", ".json": "application/json", ".html": "text/html" };
 
 // The commands that take an "@<file>" request body, always as their last argument.
-const TAKES_BODY = ["youtrack", "notion", "sentry-write", "slack-post"];
+const TAKES_BODY = ["youtrack", "youtrack-worker", "notion", "sentry-write", "slack-post"];
 
 /** Splits a command's arguments from its "@<file>" body, which it reads; returns [args, body]. */
 export function splitBody(command, args) {
@@ -435,15 +439,27 @@ async function statusSummary(url) {
     return response.json();
 }
 
+/** Calls YouTrack's REST API through `service`, which names the account it goes in as. */
+async function youtrackAs(service, args, body) {
+    const [method, p] = /^(GET|POST|DELETE)$/.test(args[0]) ? args : ["GET", ...args];
+    if (body !== undefined) JSON.parse(body);
+    let response;
+    try {
+        response = await callService(service, apiPath(p), { method, body });
+    } catch (error) {
+        // Until the tool server holds the Greenhouse Worker's token, its writes go in as the Bot.
+        // The tool server refuses before it reaches YouTrack, so nothing is written twice.
+        if (service !== "youtrack-worker" || !/no service youtrack-worker|YOUTRACK_GREENHOUSE_WORKER is not among/.test(error.message)) throw error;
+        response = await callService("youtrack", apiPath(p), { method, body });
+    }
+    // A DELETE answers with no body.
+    const text = await response.text();
+    return text ? JSON.stringify(JSON.parse(text), null, 1) : `${method} ${p}: HTTP ${response.status}`;
+}
+
 export const sourceCommands = {
-    async youtrack(args, body) {
-        const [method, p] = /^(GET|POST|DELETE)$/.test(args[0]) ? args : ["GET", ...args];
-        if (body !== undefined) JSON.parse(body);
-        const response = await callService("youtrack", apiPath(p), { method, body });
-        // A DELETE answers with no body.
-        const text = await response.text();
-        return text ? JSON.stringify(JSON.parse(text), null, 1) : `${method} ${p}: HTTP ${response.status}`;
-    },
+    youtrack: (args, body) => youtrackAs("youtrack", args, body),
+    "youtrack-worker": (args, body) => youtrackAs("youtrack-worker", args, body),
     async attachment(args) {
         const [issueId, name, destination] = args;
         const list = await serviceJson("youtrack", `/issues/${encodeURIComponent(issueId)}/attachments?fields=name,url,size&$top=200`);

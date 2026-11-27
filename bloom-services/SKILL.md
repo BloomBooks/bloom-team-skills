@@ -46,7 +46,10 @@ you ask for, so the rules below are yours to keep.
   and IP addresses, feedback, replays, attachments). For those, use your own Sentry login.
 - **YouTrack writes** go through here, as the shared Bot account: `youtrack POST <api path>
   @<file>`. Start every comment and card description with the attribution line (TEAM-AGENTS.md),
-  which is the only thing on YouTrack that says who asked for it.
+  which is the only thing on YouTrack that says who asked for it. `youtrack-worker` takes the same
+  arguments and writes as the Greenhouse Worker account, or as the Bot while the tool server lacks
+  that account's token; only a Greenhouse worker uses it, for what it writes on a card that it is
+  fixing.
 - **Notion writes** are made as yourself, through Notion's own MCP server: [notion.md](notion.md).
 - **Changing Azure, Supabase or Sentry** (settings, functions, resources, resolving Sentry issues)
   is done with your own account in that service: [own-logins.md](own-logins.md).
