@@ -8,16 +8,40 @@
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { cardOf, orgsQuery } from "./row-facts.mjs";
+import { graphqlBatches } from "./reviewed.mjs";
 
 /**
  * Asks GitHub for the open PRs in the team's organizations that request a review from
- * `githubLogin`, and returns requestLines of them. Throws when gh cannot search.
+ * `githubLogin`, and returns requestLines of them, each with the lines its PR adds and removes
+ * (additions and deletions, null when GitHub did not give them) and whether the developer added
+ * the request themselves (claimed). Throws when gh cannot search.
  */
 export function reviewRequests(githubLogin) {
   const q = `is:pr is:open ${orgsQuery} user-review-requested:${githubLogin}`;
   const out = execFileSync("gh", ["api", "-X", "GET", "search/issues", "-f", "q=" + q, "-f", "per_page=100"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 16 << 20, windowsHide: true });
-  return requestLines(JSON.parse(out).items);
+  const lines = requestLines(JSON.parse(out).items);
+  // GitHub's search gives neither the line counts nor who asked, so they come from GraphQL.
+  const more = graphqlBatches(lines.map((l, k) => {
+    const [, owner, repo, number] = l.pr.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/) || [];
+    return `p${k}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(repo)}) { pullRequest(number: ${number}) { additions deletions
+      timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 50) { nodes { ... on ReviewRequestedEvent { actor { login } requestedReviewer { ... on User { login } } } } } } }`;
+  }));
+  return lines.map((l, k) => {
+    const pr = more[`p${k}`]?.pullRequest;
+    return { ...l, additions: pr?.additions ?? null, deletions: pr?.deletions ?? null, claimed: selfRequested(pr?.timelineItems?.nodes || [], githubLogin) };
+  });
+}
+
+/**
+ * Whether the latest request for a review from `login` was made by `login` themselves, from a
+ * PR's ReviewRequestedEvents ([{ actor: { login }, requestedReviewer: { login } }], oldest first).
+ */
+export function selfRequested(events, login) {
+  const me = login.toLowerCase();
+  const lc = u => (u?.login || "").toLowerCase();
+  const last = events.filter(e => lc(e.requestedReviewer) === me).at(-1);
+  return !!last && lc(last.actor) === me;
 }
 
 /**

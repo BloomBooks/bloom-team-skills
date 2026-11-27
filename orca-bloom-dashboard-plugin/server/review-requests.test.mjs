@@ -1,6 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { requestLines } from "./review-requests.mjs";
+import { requestLines, selfRequested } from "./review-requests.mjs";
+
+const asked = (actor, reviewer) => ({ actor: { login: actor }, requestedReviewer: { login: reviewer } });
+
+test("selfRequested is true only when the latest request for the developer was their own", () => {
+  assert.equal(selfRequested([asked("Hatton", "hatton")], "hatton"), true);
+  assert.equal(selfRequested([asked("JohnThomson", "hatton")], "hatton"), false);
+  // The author asked again after the developer claimed it: the request is now the author's.
+  assert.equal(selfRequested([asked("hatton", "hatton"), asked("JohnThomson", "hatton")], "hatton"), false);
+  // A request for someone else, or a team, says nothing about the developer's.
+  assert.equal(selfRequested([asked("hatton", "hatton"), asked("JohnThomson", "andrew-polk"), { actor: { login: "x" }, requestedReviewer: {} }], "hatton"), true);
+  assert.equal(selfRequested([], "hatton"), false);
+});
 
 const item = (repo, number, title, created_at, more = {}) => ({
   repository_url: "https://api.github.com/repos/" + repo, number, title, created_at,

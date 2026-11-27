@@ -335,6 +335,7 @@ export function computeRow(input, now = Date.now()) {
     card: card.id, cardUrl: card.url, title: card.summary || "", ytState: card.state, approvedPlan: !!card.approvedPlan,
     pr: pr?.url ?? null, prState: pr ? (pr.isDraft ? "draft" : "open") : null,
     prBase: pr?.baseRefName ?? null, prMergeable: pr?.mergeable ?? null,
+    prAdditions: pr?.additions ?? null, prDeletions: pr?.deletions ?? null,
     worktree: worktree?.path ?? null, branch: worktree?.branch ?? null,
     group: groupOf(input, now), state, reasons, offered, steps, badge, busy,
     actions: { open: button("open"), create: button("create"), vscode: button("vscode") },

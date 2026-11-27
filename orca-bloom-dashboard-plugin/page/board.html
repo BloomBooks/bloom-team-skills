@@ -44,12 +44,12 @@
   <div id="groups"></div>
 
   <section class="group" id="requests" hidden>
-    <h2>Review Requested <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="requests-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="requests-tip">Open PRs in BloomBooks and sillsdev that ask you, by name, for a review, the one that has waited longest first. A PR leaves the list when you submit a review, and comes back when its author asks again. Read every minute while this window shows.</span></span></h2>
+    <h2>Review Requested <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="requests-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="requests-tip">Open PRs in BloomBooks and sillsdev that ask you, by name, for a review, the one that has waited longest first. A PR leaves the list when you submit a review, and comes back when its author asks again. "Claimed" marks a request that you added yourself; Unclaim takes it back. Read every minute while this window shows.</span></span></h2>
     <ul class="lines" id="requests-list"></ul>
   </section>
 
   <section class="group" id="grabs" hidden>
-    <h2>Review up for grabs <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="grabs-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="grabs-tip">Cards in Ready For Code Review on this board that nobody reviews yet, the one that has waited longest first: no one but the card's assignees, bots and agents has commented or reviewed on any of its PRs. The first comment or review makes that person the card's reviewer, and the card moves to their "Back with you for review". A PR that asks someone else, by name, for a review is theirs. Read every 15 minutes while this window shows.</span></span></h2>
+    <h2>Review up for grabs <span class="info" tabindex="0" role="button" aria-label="About this list" aria-describedby="grabs-tip"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="tip" role="tooltip" id="grabs-tip">Cards in Ready For Code Review on this board that nobody reviews yet, the one that has waited longest first: no one but the card's assignees, bots and agents has commented or reviewed on any of its PRs. The first comment or review makes that person the card's reviewer, and the card moves to their "Back with you for review". A PR that asks someone else, by name, for a review is theirs. Claim adds you as the PR's reviewer on GitHub, so the PR moves to your "Review Requested" and leaves everyone else's list at their next read. Read every 15 minutes while this window shows.</span></span></h2>
     <ul class="lines" id="grabs-list"></ul>
   </section>
 
@@ -298,24 +298,42 @@ const FOLLOW_UP = {
   forgot: { text: "Move to Has Comments?", title: "In Ready For Code Review, but the author hasn't responded since your last comment on this PR" },
   merged: { text: "Move to Ready For Testing?", title: "You merged the card's last PR and it has no open one, but the card is still in Ready For Code Review" },
   grab: { text: "No reviewer yet", title: "Nobody has commented or reviewed on any of this card's PRs" },
+  claimed: { text: "Claimed", title: "You added yourself as a reviewer of this PR on GitHub" },
 };
 // The follow-ups whose next step is reviewing the PR, rather than moving the card.
-const REVIEW_NEXT = new Set(["responded", "new", "requested", "grab"]);
+const REVIEW_NEXT = new Set(["responded", "new", "requested", "grab", "claimed"]);
+// Claim or Unclaim, at the end of a line under "Review up for grabs" or "Review Requested":
+// GitHub's request for the developer's own review of the PR, added or taken back.
+function claimButton(pr, claim) {
+  const [title, text] = claim
+    ? ["Add yourself as a reviewer of this PR on GitHub, so it leaves everyone else's Review up for grabs", "Claim"]
+    : ["Take back the review request you added for yourself on GitHub, so the PR is up for grabs again", "Unclaim"];
+  return action("orca claim", title, text, () => act({ action: claim ? "claim" : "unclaim", pr }, `Couldn't ${text.toLowerCase()} the review`), "claim:" + pr);
+}
+// The GitHub avatar of the person who opened a PR (a GitHub login), with their login as its tip.
+function authorAvatar(login) {
+  return el("img", { class: "avatar", src: `https://github.com/${encodeURIComponent(login)}.png?size=40`, alt: "", title: "PR by " + login, width: "20", height: "20" });
+}
 // One line of a list: the card's title and State, its id (a PR that names no card links the PR
-// itself, a repo's line its commits), its PR at the far right, and, when given, a time.
-function lineItem(f, time, timeTitle) {
+// itself, a repo's line its commits), its PR at the far right, and, when given, a time. A line
+// with an author shows that person's avatar just before the PR, and a line with line counts shows
+// them after it. `end`, when given, goes last.
+function lineItem(f, time, timeTitle, end = null) {
   const isPr = f.pr && f.pr === f.url;
   // History's lines say prState; reviewed.mjs's lines for "Back with you for review" say merged.
   const prState = f.prState || (f.merged ? "merged" : "");
   return el("li", f.followUp ? { class: "fu-" + f.followUp } : {},
     f.kind ? kindIcon(f.kind) : null,
-    // A line under "Review Requested" carries no label: the heading already says it.
+    // A line under "Review Requested" carries no label, the heading already says it, unless the
+    // developer asked for the review themselves.
     FOLLOW_UP[f.followUp] ? el("span", { class: "fu", title: FOLLOW_UP[f.followUp].title }, FOLLOW_UP[f.followUp].text) : null,
     el("span", { class: "title", title: f.summary }, f.summary),
     el("span", { class: "id" }, stateIcon(f.state), !f.url ? f.id : isPr ? markMerged(toned(f.url, f.id, PR_TONE[prState]), prState) : toned(f.url, f.id, CARD_TONE[f.state])),
     // A PR back with you to review carries Reviewable's rabbit too.
-    f.pr && !isPr ? el("span", { class: "id" }, REVIEW_NEXT.has(f.followUp) ? prLinks(f.pr, PR_TONE[prState]) : markMerged(toned(f.pr, "PR " + f.pr.split("/").pop(), PR_TONE[prState]), prState)) : null,
-    time ? el("span", { class: "when", title: timeTitle + " " + new Date(time).toLocaleString() }, localTime(time)) : null);
+    f.pr && !isPr ? el("span", { class: "id pr-by" }, f.author ? authorAvatar(f.author) : null, REVIEW_NEXT.has(f.followUp) ? prLinks(f.pr, PR_TONE[prState]) : markMerged(toned(f.pr, "PR " + f.pr.split("/").pop(), PR_TONE[prState]), prState)) : null,
+    prSize({ prAdditions: f.additions, prDeletions: f.deletions }),
+    time ? el("span", { class: "when", title: timeTitle + " " + new Date(time).toLocaleString() }, localTime(time)) : null,
+    end);
 }
 // The PRs that ask for the developer's review (review-requests.mjs). A PR that names no card shows
 // its repo and number as plain text, so that its PR link carries Reviewable's rabbit like the rest.
@@ -323,8 +341,8 @@ let requestedPrs = new Set();
 function renderRequests(items) {
   requestedPrs = new Set((items || []).map(f => f.pr));
   const ul = document.getElementById("requests-list");
-  ul.replaceChildren(...(items || []).map(f => lineItem({ ...f, url: f.url === f.pr ? null : f.url, followUp: "requested", summary: f.summary + (f.draft ? " (draft)" : "") },
-    f.openedAt, `Opened by ${f.author}`)));
+  ul.replaceChildren(...(items || []).map(f => lineItem({ ...f, url: f.url === f.pr ? null : f.url, followUp: f.claimed ? "claimed" : "requested", summary: f.summary + (f.draft ? " (draft)" : "") },
+    f.openedAt, `Opened by ${f.author}`, f.claimed ? claimButton(f.pr, false) : null)));
   document.getElementById("requests").hidden = !ul.childNodes.length;
 }
 // A PR that asks for the developer's review is listed only under "Review Requested".
@@ -337,7 +355,7 @@ function renderBack(items) {
 // listed only under "Review Requested".
 function renderGrabs(items) {
   const ul = document.getElementById("grabs-list");
-  ul.replaceChildren(...(items || []).filter(f => !requestedPrs.has(f.pr)).map(f => lineItem({ ...f, followUp: "grab" }, f.readyAt, `By ${f.author}; in Ready For Code Review since`)));
+  ul.replaceChildren(...(items || []).filter(f => !requestedPrs.has(f.pr)).map(f => lineItem({ ...f, followUp: "grab" }, f.readyAt, `By ${f.author}; in Ready For Code Review since`, claimButton(f.pr, true))));
   document.getElementById("grabs").hidden = !ul.childNodes.length;
 }
 // A History day's heading: "Today", the weekday within the last week ("Friday"), or the weekday

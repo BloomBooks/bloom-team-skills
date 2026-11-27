@@ -756,6 +756,7 @@ async function act(b) {
   if (action === "remove-worktree") return removeStaleWorktree(b);
   if (action === "open-change") return { message: await openChange(staleAt(b.path).path, b.file) };
   if (action === "open-commit") return { message: await openCommit(staleAt(b.path).path, b.commit) };
+  if (action === "claim" || action === "unclaim") return claimReview(action, String(b.pr || ""));
   if (action === "set-board") { writeJsonFile(dataFile("board.json"), { board: String(b.board || "") }); remote = null; gather(true); return {}; }
   // Everything else acts on a card's worktree, by the rule that set the button's enabled state,
   // run again on what Orca says now.
@@ -806,6 +807,23 @@ async function act(b) {
   readPsSoon();
   recompute();
   return { message };
+}
+// Claim: asks GitHub for the developer's own review of a PR that "Review up for grabs" lists, so
+// that it leaves everyone else's list and joins the developer's "Review Requested". Unclaim takes
+// back a request that the developer made themselves. Either way, the core gather that follows
+// reads the review requests again.
+async function claimReview(action, pr) {
+  const claim = action === "claim";
+  const listed = claim ? extras.upForGrabs?.some(g => g.pr === pr) : remote?.reviewRequests?.some(r => r.pr === pr && r.claimed);
+  if (!listed) throw new Error(`the dashboard does not list ${pr} ${claim ? "under Review up for grabs" : "as a review you claimed"}; press Refresh`);
+  if (!dev.github) throw new Error("the developer's GitHub login is not known yet");
+  try { await execFileP("gh", ["pr", "edit", pr, claim ? "--add-reviewer" : "--remove-reviewer", dev.github], { windowsHide: true, timeout: 60_000 }); }
+  catch (e) { throw new Error("GitHub did not take it: " + String(e.stderr || e.message).trim().split("\n")[0]); }
+  note(null, `${claim ? "claimed" : "unclaimed"} the review of ${pr}`);
+  // A gather already running began before GitHub changed, so another one follows it.
+  if (gathering) await gathering;
+  await gather(false);
+  return { message: claim ? "Claimed" : "Unclaimed" };
 }
 // The worktree of a resolved card that the page lists at `p`, or an error.
 function staleAt(p) {

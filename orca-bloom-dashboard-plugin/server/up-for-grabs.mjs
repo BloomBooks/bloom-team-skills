@@ -27,8 +27,8 @@ export function grabbable(prs, assignees, me, known) {
 /**
  * yt(path, params) calls the YouTrack REST API; board is a Kanban Board value ("Bloom 6.6"), or
  * null for every board; githubLogin and youtrackLogin are the developer's. Returns
- * [{ id, url, summary, state, pr, author, readyAt }], one line per PR, the card that has waited
- * longest in Ready For Code Review first.
+ * [{ id, url, summary, state, pr, author, additions, deletions, readyAt }], one line per PR, the
+ * card that has waited longest in Ready For Code Review first.
  */
 export async function upForGrabs(yt, board, githubLogin, youtrackLogin) {
   const me = githubLogin.toLowerCase();
@@ -42,7 +42,7 @@ export async function upForGrabs(yt, board, githubLogin, youtrackLogin) {
     const f = facts.get(id);
     if (!f) throw new Error(`could not read ${id} from YouTrack`);
     for (const p of grabbable(byCard.get(id), f.assignees, me, known)) {
-      out.push({ id, url: "https://issues.bloomlibrary.org/youtrack/issue/" + id, summary: f.summary, state: f.state, pr: p.url, author: p.author, readyAt: f.readyAt || p.openedAt });
+      out.push({ id, url: "https://issues.bloomlibrary.org/youtrack/issue/" + id, summary: f.summary, state: f.state, pr: p.url, author: p.author, additions: p.additions, deletions: p.deletions, readyAt: f.readyAt || p.openedAt });
     }
   }
   return out.sort((a, b) => a.readyAt.localeCompare(b.readyAt));

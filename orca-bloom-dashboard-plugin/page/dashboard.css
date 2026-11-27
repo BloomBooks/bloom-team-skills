@@ -6,6 +6,7 @@
   --bg: #0d1015; --surface: #141920; --fg: #e6eaf0; --muted: #8b95a5; --line: #232a35;
   --accent: #5eb1ff; --you: #ffb454; --you-bg: #3a2a12; --agent: #7fd1ae; --agent-bg: #13302a;
   --idle: #8b95a5; --idle-bg: #1c222b; --done: #c792ea;
+  --added: #3fb950; --removed: #f85149;
   /* Fonts that come with Windows, so the page downloads none. */
   --font-body: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
@@ -28,13 +29,16 @@ body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--fo
 .toolbar-name { font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .toolbar-who { text-align: center; font-family: var(--font-body); font-size: 14px; font-weight: 400; color: #E6EAF0; font-variant-numeric: tabular-nums; }
 .wrap { max-width: 1040px; margin: 0 auto; padding-block: 24px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
+/* The page's one column is never wider than the window: a list line's long title, whose text
+   does not wrap, would otherwise widen it and the page would scroll sideways. */
+.wrap { grid-template-columns: minmax(0, 1fr); }
 header h1 { margin: 0; font-size: 22px; font-weight: 600; text-wrap: balance; }
 header p { margin: 4px 0 0; color: var(--muted); }
 #note { color: var(--you); }
 header:has(#note[hidden]) { display: none; }
 /* Each group's heading sits close to its own table and well clear of the table above. */
 #groups { display: grid; gap: 40px; }
-section.group { display: grid; gap: 12px; }
+section.group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 section.group[hidden] { display: none; }
 section.group > h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.3; }/* An information icon after a heading; its text shows on hover or keyboard focus. */
 .info { position: relative; display: inline-flex; vertical-align: -2px; margin-left: 4px; color: var(--muted); cursor: help; border-radius: 50%; }
@@ -119,6 +123,9 @@ tr.stack-last > td.card::before { bottom: auto; height: 18px; }
 tr.stacked:not(.stack-last) > td { border-bottom-style: dotted; }
 .pr-line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .stack-at { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.pr-size { font-family: var(--font-mono); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pr-size .added { color: var(--added); }
+.pr-size .removed { color: var(--removed); }
 @media (prefers-reduced-motion: reduce) { ol.steps li.running > svg { animation: none; } }
 ol.steps button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
 ol.steps button:disabled:hover { text-decoration: none; filter: none; }
@@ -214,6 +221,10 @@ ul.lines button.orca-icon { position: static; flex: none; width: 34px; height: 2
 ul.lines button.orca-icon svg { width: 24px; height: 14px; }
 ul.lines .when { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
 ul.lines .yt { flex: none; }
+ul.lines button.claim { flex: none; font-size: 12px; }
+ul.lines li.fu-claimed .fu { color: var(--accent); }
+ul.lines .pr-by { display: inline-flex; align-items: center; gap: 5px; }
+ul.lines .avatar { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--line); }
 /* Card and PR link colours, everywhere on the page: green is work for the developer to do, blue
    is ready for review, purple is presumed done; a card or PR in any other state is plain. */
 a.st-plain { color: var(--fg); }

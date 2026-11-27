@@ -380,14 +380,25 @@ function baseLine(d) {
   icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
   return el("span", { class: "base-line", title: `This PR merges into ${d.prBase}` }, "→ " + d.prBase + " ", icon);
 }
-// A row's PR with Reviewable's rabbit, and "2 of 3 in stack" when the PR is one of a stack of PRs
-// for the card, counted from the PR on the base branch. The board's rows pass showStackAt false,
-// because they number the PR on the line that joins the stack's rows.
+// "+120 −8": the lines that the PR adds and removes, as GitHub counts them. Null when GitHub has
+// not given the counts.
+function prSize(d) {
+  if (d.prAdditions == null || d.prDeletions == null) return null;
+  const tip = `This PR adds ${d.prAdditions} lines and removes ${d.prDeletions}`;
+  return el("span", { class: "pr-size", title: tip, "aria-label": tip },
+    el("span", { class: "added" }, "+" + d.prAdditions.toLocaleString()), " ",
+    el("span", { class: "removed" }, "−" + d.prDeletions.toLocaleString()));
+}
+// A row's PR with Reviewable's rabbit, the lines it adds and removes, and "2 of 3 in stack" when
+// the PR is one of a stack of PRs for the card, counted from the PR on the base branch. The
+// board's rows pass showStackAt false, because they number the PR on the line that joins the
+// stack's rows.
 function prLine(d, showStackAt = true) {
   const links = prLinks(d.pr, PR_TONE[d.prState]);
-  if (!d.stack || !showStackAt) return links;
-  const where = el("span", { class: "stack-at", title: `PR ${d.stack.at} of the ${d.stack.of} PRs in this stack, each one built on the one before` }, `${d.stack.at} of ${d.stack.of} in stack`);
-  return el("span", { class: "pr-line" }, links, where);
+  const size = prSize(d);
+  const where = d.stack && showStackAt ? el("span", { class: "stack-at", title: `PR ${d.stack.at} of the ${d.stack.of} PRs in this stack, each one built on the one before` }, `${d.stack.at} of ${d.stack.of} in stack`) : null;
+  if (!size && !where) return links;
+  return el("span", { class: "pr-line" }, links, size, where);
 }
 // How long an agent has worked, as "for 12 min"; the rows redraw only when the state changes, so
 // the running steps' times are updated here.

@@ -50,7 +50,7 @@ function gh(args) {
 // The GraphQL fields of a PR that prFacts reads. __typename tells a bot (Devin, Greptile, Copilot)
 // from a person; a person's name lets them be matched to a YouTrack user (isAssignee).
 const WHO = "author { login __typename ... on User { name } }";
-const PR_FIELDS = `url number title headRefName isDraft merged closed mergedAt createdAt mergedBy { login } author { login }
+const PR_FIELDS = `url number title headRefName isDraft merged closed mergedAt createdAt additions deletions mergedBy { login } author { login }
   repository { name }
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
   comments(last: 100) { nodes { ${WHO} createdAt body } }
@@ -62,7 +62,8 @@ const PR_FIELDS = `url number title headRefName isDraft merged closed mergedAt c
  * login me (lower case): the cards it names, its state, who merged it, the people who commented
  * or reviewed (people: { login: { name, at } }, the times oldest first; the PR's author, bots and
  * an agent's posts left out), the developer's own times among them (mine), the time of the
- * author's latest comment, review or commit (authorAt), and the logins asked to review it.
+ * author's latest comment, review or commit (authorAt), the logins asked to review it, and the
+ * lines it adds and removes (null when GitHub did not give them).
  */
 export function prFacts(pr, me) {
   const author = login(pr.author);
@@ -88,6 +89,7 @@ export function prFacts(pr, me) {
     mergedAt: pr.mergedAt || "", mergedBy: login(pr.mergedBy), openedAt: pr.createdAt || "",
     requested: (pr.reviewRequests?.nodes || []).map(n => login(n.requestedReviewer)).filter(Boolean),
     people, mine: people[me]?.at || [], authorAt: theirs.at(-1) || "",
+    additions: pr.additions ?? null, deletions: pr.deletions ?? null,
   };
 }
 
@@ -145,7 +147,7 @@ export function cardPrs(ids, me) {
 
 // Runs GraphQL queries that are each "alias: field { ... }", 25 to a request, and returns
 // { alias: result }.
-function graphqlBatches(parts) {
+export function graphqlBatches(parts) {
   const data = {};
   for (let k = 0; k < parts.length; k += 25) Object.assign(data, gh(["api", "graphql", "-f", "query={" + parts.slice(k, k + 25).join("\n") + "}"]).data || {});
   return data;
@@ -205,8 +207,10 @@ export async function reviewedCards(yt, githubLogin, youtrackLogin) {
  * The "Back with you for review" list, from reviewedCards' lines: for each reviewed card in Ready
  * For Code Review, every PR whose title or branch names the card is fetched from GitHub, and
  * cardFollowUps says what, if anything, the card needs from the developer. Returns
- * [{ id, url, summary, state, pr, merged, commentedAt, followUp }], the ones needing the developer
- * most first; commentedAt is the developer's latest comment on any of the card's PRs.
+ * [{ id, url, summary, state, pr, author, additions, deletions, merged, commentedAt, followUp }],
+ * the ones needing the developer most first; author is the PR's GitHub login, additions and
+ * deletions the lines it adds and removes, and commentedAt is the developer's latest comment on
+ * any of the card's PRs.
  */
 export function backForReview(reviewed, githubLogin) {
   const me = githubLogin.toLowerCase();
@@ -231,7 +235,7 @@ export function backForReview(reviewed, githubLogin) {
     const prs = found.filter(p => p.cards.includes(id));
     const commentedAt = prs.flatMap(p => p.mine).sort().at(-1) || card.commentedAt;
     for (const f of cardFollowUps(prs, me)) {
-      out.push({ id, url: card.url, summary: card.summary, state: card.state, pr: f.pr.url, merged: f.pr.merged, commentedAt, followUp: f.followUp });
+      out.push({ id, url: card.url, summary: card.summary, state: card.state, pr: f.pr.url, author: f.pr.author, additions: f.pr.additions, deletions: f.pr.deletions, merged: f.pr.merged, commentedAt, followUp: f.followUp });
     }
   });
   const rank = { responded: 0, new: 1, forgot: 2, merged: 2 };
