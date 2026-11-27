@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cleanSettings, cleanValues, plan, shutDownReason, hoursBegan, restBegan, restWindow, restNow, workerGate, mayWorkBeforeUsage, restartDue, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, cleanValues, plan, shutDownReason, hoursBegan, restBegan, restWindow, restNow, workerGate, mayWorkBeforeUsage, workToTake, startDecision, startsInFlight, slept, DEFAULTS, VALUE_DEFAULTS } from "./greenhouse-worker-plan.mjs";
 
 // November 2026: the 19th and the 26th are Thursdays. Times are local, as the plan's are.
 const at = (day, hour, minute = 0) => new Date(2026, 10, day, hour, minute);
@@ -183,25 +183,107 @@ test("without the plan's usage the worker may not work", () => {
   assert.equal(workerGate(gated(), null, { now: at(19, 19), ...away }).mayWork, false);
 });
 
-test("a worker that stopped without starting its next chat is started again ten minutes after it was last active", () => {
-  const started = ms(at(19, 18));
-  const lastWorkerAt = ms(at(19, 19));
-  assert.equal(restartDue({ now: at(19, 19, 9), lastStartAt: started, lastWorkerAt }), false);
-  assert.equal(restartDue({ now: at(19, 19, 10), lastStartAt: started, lastWorkerAt }), true);
-  // The service looked two minutes ago, and looks again only after five.
-  assert.equal(restartDue({ now: at(19, 19, 12), lastStartAt: started, lastWorkerAt, lastCheckAt: ms(at(19, 19, 10)) }), false);
-  assert.equal(restartDue({ now: at(19, 19, 15), lastStartAt: started, lastWorkerAt, lastCheckAt: ms(at(19, 19, 10)) }), true);
-  // A service that has just begun knows of no start and no activity.
-  assert.equal(restartDue({ now: at(19, 19) }), true);
+// What the Greenhouse's dashboard last said: two ready work items in open order 1, one in paused
+// order 2, and work items held by this developer: 20 paused on this machine, 21 on this machine by a
+// session at work, 22 quiet for two hours on this machine, 23 reported on a minute ago (just
+// finished, as far as this answer knows), 24 on another machine.
+const board = (changes = {}) => ({
+  at: ms(at(19, 19)),
+  orders: [{ id: 1, status: "open" }, { id: 2, status: "paused" }],
+  queue: [{ id: 10, order_id: 1 }, { id: 11, order_id: 1 }, { id: 12, order_id: 2 }],
+  active: [
+    { id: 20, claimed_by: "Hatton", machine: "desk", reported_at: at(19, 18).toISOString(), paused_at: at(19, 18).toISOString() },
+    { id: 21, claimed_by: "hatton", machine: "desk", reported_at: at(19, 10).toISOString(), paused_at: null },
+    { id: 22, claimed_by: "hatton", machine: "desk", reported_at: at(19, 17).toISOString(), paused_at: null },
+    { id: 23, claimed_by: "hatton", machine: "desk", reported_at: at(19, 19, 59).toISOString(), paused_at: null },
+    { id: 24, claimed_by: "hatton", machine: "laptop", reported_at: at(19, 10).toISOString(), paused_at: at(19, 10).toISOString() },
+  ],
+  ...changes,
+});
+const take = (changes = {}) => workToTake({ board: board(), login: "hatton", machine: "desk", heldAtWork: [21], now: at(19, 20), ...changes });
+
+test("a new session can take the ready work items of open orders, and what this machine holds that is paused or quiet and no session is at", () => {
+  // 10 and 11, then 20 (paused) and 22 (quiet for two hours).
+  assert.equal(take(), 4);
+  assert.equal(take({ pendingStarts: 3 }), 1);
+  assert.equal(take({ pendingStarts: 9 }), 0);
 });
 
-test("a worker whose last start ended within five minutes is started again only after an hour", () => {
-  const started = ms(at(19, 18));
-  const found = { lastStartAt: started, lastWorkerAt: ms(at(19, 18, 2)) };
-  assert.equal(restartDue({ now: at(19, 18, 30), ...found }), false);
-  assert.equal(restartDue({ now: at(19, 19), ...found }), true);
-  // A start after which the worker did nothing at all counts the same.
-  assert.equal(restartDue({ now: at(19, 18, 30), lastStartAt: started, lastWorkerAt: ms(at(19, 17)) }), false);
+test("after a claim found nothing, only a work item that was not ready before counts, for an hour", () => {
+  const miss = { at: ms(at(19, 19, 30)), queueIds: [10, 11] };
+  // The dashboard was read before the claim found nothing, so it says nothing that the claim did not.
+  assert.equal(take({ miss }), 0);
+  const later = board({ at: ms(at(19, 19, 45)) });
+  assert.equal(take({ miss, board: later }), 0);
+  assert.equal(take({ miss, board: board({ at: ms(at(19, 19, 45)), queue: [{ id: 10, order_id: 1 }, { id: 13, order_id: 1 }] }) }), 1);
+  assert.equal(take({ miss, board: later, now: at(19, 20, 31) }), 4);
+});
+
+test("a start counts as a session on its way until a claim answers it, and for a dashboard read before that claim", () => {
+  const start1 = ms(at(19, 19, 52)), start2 = ms(at(19, 19, 56));
+  // Neither has claimed; the dashboard was read between them.
+  assert.deepEqual(startsInFlight({ starts: [start1, start2], claims: [], now: at(19, 20), boardAt: ms(at(19, 19, 53)) }), { unclaimed: 2, pending: 2 });
+  // The first claimed after the dashboard was read: the answer still lists its work item as ready.
+  assert.deepEqual(startsInFlight({ starts: [start1, start2], claims: [ms(at(19, 19, 55))], now: at(19, 20), boardAt: ms(at(19, 19, 53)) }), { unclaimed: 1, pending: 1 });
+  // Both claimed before the dashboard was read.
+  assert.deepEqual(startsInFlight({ starts: [start1, start2], claims: [ms(at(19, 19, 53)), ms(at(19, 19, 57))], now: at(19, 20), boardAt: ms(at(19, 19, 58)) }), { unclaimed: 0, pending: 0 });
+  // A start that nothing answered in ten minutes is no longer on its way.
+  assert.deepEqual(startsInFlight({ starts: [ms(at(19, 9))], claims: [], now: at(19, 20), boardAt: ms(at(19, 8)) }), { unclaimed: 0, pending: 1 });
+});
+
+const decide = (changes = {}) => startDecision({
+  now: at(19, 20), boardOk: true, parallelSessions: 2, newEnough: true, atWork: 0, work: 2, offerUsedUp: false, ...changes,
+});
+
+test("the service starts sessions up to the number allowed, and one at a time unless the worker counts its tokens by session", () => {
+  assert.equal(decide().start, true);
+  assert.equal(decide({ atWork: 1 }).start, true);
+  assert.equal(decide({ atWork: 2 }).start, false);
+  assert.equal(decide({ atWork: 1, newEnough: false }).start, false);
+  assert.equal(decide({ boardOk: false }).start, false);
+});
+
+test("a worker that starts its own next session is started only after ten quiet minutes", () => {
+  assert.equal(decide({ newEnough: false, lastWorkerAt: ms(at(19, 19, 55)) }).start, false);
+  assert.equal(decide({ newEnough: false, lastWorkerAt: ms(at(19, 19, 49)) }).start, true);
+  assert.equal(decide({ lastWorkerAt: ms(at(19, 19, 59)) }).start, true);
+});
+
+test("the worker is done only when no session is at work and there is nothing to take or the offer is used up", () => {
+  assert.deepEqual(decide({ work: 0 }), { start: false, reason: "the Greenhouse has nothing for this machine", done: true });
+  assert.equal(decide({ offerUsedUp: true }).done, true);
+  assert.equal(decide({ atWork: 1, work: 0 }).done, false);
+  assert.equal(decide({ atWork: 1, offerUsedUp: true }).done, false);
+  assert.equal(decide({ atWork: 2, work: 0 }).done, false);
+});
+
+test("the service waits two minutes between starts, and after a wake with sessions at work, and after the gate said no", () => {
+  assert.equal(decide({ lastStartAt: ms(at(19, 19, 59)), lastClaimAt: ms(at(19, 20)) }).start, false);
+  assert.equal(decide({ lastStartAt: ms(at(19, 19, 57)), lastClaimAt: ms(at(19, 19, 58)) }).start, true);
+  assert.equal(decide({ wokeAt: ms(at(19, 19, 40)) }).start, false);
+  assert.equal(decide({ wokeAt: ms(at(19, 19, 30)) }).start, true);
+  assert.equal(decide({ lastGateNoAt: ms(at(19, 19, 57)) }).start, false);
+  assert.equal(slept(at(19, 20), ms(at(19, 19, 54))), true);
+  assert.equal(slept(at(19, 20), ms(at(19, 19, 59))), false);
+});
+
+test("after a start that led to no claim and no miss, the service waits an hour", () => {
+  const started = ms(at(19, 19, 30));
+  assert.equal(decide({ lastStartAt: started, lastClaimAt: ms(at(19, 18)) }).start, false);
+  assert.equal(decide({ lastStartAt: started, lastClaimAt: ms(at(19, 18)), now: at(19, 20, 31) }).start, true);
+  // A miss explains it, and workToTake has the rule for that.
+  assert.equal(decide({ lastStartAt: started, lastClaimAt: ms(at(19, 18)), lastMissAt: ms(at(19, 19, 35)) }).start, true);
+  // The session that it started is still at work.
+  assert.equal(decide({ lastStartAt: started, lastClaimAt: ms(at(19, 18)), atWork: 1 }).start, true);
+});
+
+test("the number of sessions at once is a whole number from 1 to 4, 2 unless set", () => {
+  assert.equal(cleanValues({}).parallelSessions, 2);
+  assert.equal(cleanValues({ parallelSessions: 0 }).parallelSessions, 1);
+  assert.equal(cleanValues({ parallelSessions: 7 }).parallelSessions, 4);
+  assert.equal(cleanValues({ parallelSessions: 2.6 }).parallelSessions, 3);
+  assert.equal(cleanValues({ parallelSessions: "3" }).parallelSessions, 3);
+  assert.equal(cleanValues({ parallelSessions: "many" }).parallelSessions, 2);
 });
 
 test("the plan's usage is read for a start only when the worker's hours, the power and the developer's absence allow one", () => {

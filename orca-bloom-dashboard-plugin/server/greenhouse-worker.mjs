@@ -2,9 +2,9 @@
 // Claude plan to the Greenhouse (greenhouse-worker.json in the data folder), the plan's usage as
 // this machine's claude-usage.mjs reports it, the history of prompts and bot activity, and the
 // plan that follows. The Greenhouse worker itself is an Orca bot. This tells it whether it may claim
-// an item (workerGate, which greenhouse.mjs's `gate` asks for), starts it through Orca when its hours
-// begin, when the time comes that the developer chose for it to use the rest of the week, and whenever
-// it may work and is not at work, and shuts the machine down after it when the developer chose so (shutDownReason).
+// an item (workerGate, which greenhouse.mjs's `gate` asks for), starts its sessions through Orca, one
+// work item to a session and up to as many at once as the developer allows (startDecision), and
+// shuts the machine down after it when the developer chose so (shutDownReason).
 //
 // The history, greenhouse-history.jsonl in the data folder, holds one JSON object per line:
 //   { kind: "prompt", at }   the developer sent a prompt, in any Claude session on this machine
@@ -18,7 +18,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { dataFile, readJsonFile, writeJsonFile, log } from "./env.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { cleanSettings, withValues, plan, shutDownReason, hoursBegan, restBegan, restWindow, restNow, workerGate, mayWorkBeforeUsage, restartDue } from "./greenhouse-worker-plan.mjs";
+import { cleanSettings, withValues, plan, shutDownReason, hoursBegan, restBegan, restWindow, restNow, workerGate, mayWorkBeforeUsage, workToTake, startDecision, startsInFlight, slept } from "./greenhouse-worker-plan.mjs";
 
 const settingsFile = () => dataFile("greenhouse-worker.json");
 const historyFile = () => dataFile("greenhouse-history.jsonl");
@@ -47,7 +47,8 @@ async function greenhouseUrl() {
 // The Greenhouse's last dashboard answer, its ETag and when it was read. Every read of the Greenhouse
 // counts against its database's daily limit, so a read within a minute of the last one is not made,
 // and the ETag lets an unchanged answer come back as 304. `ok` is false while the latest read failed.
-const board = { at: 0, etag: null, offers: [], developerSettings: [], ok: false };
+// `queue`, `orders` and `active` say what a new session of the worker could take.
+const board = { at: 0, etag: null, offers: [], developerSettings: [], queue: [], orders: [], active: [], ok: false };
 const BOARD_MS = 60_000;
 // While the worker is not Off, the service reads the Greenhouse this often, so that what the developer
 // set from another machine (their standing settings, such as letting the worker use the rest of
@@ -68,7 +69,12 @@ async function readBoard() {
     const response = await fetch(url + "/api/dashboard", { headers: board.etag ? { "If-None-Match": board.etag } : {}, signal: AbortSignal.timeout(30_000) });
     if (response.status === 200) {
       const answer = await response.json();
-      Object.assign(board, { etag: response.headers.get("etag"), offers: answer.offers ?? [], developerSettings: answer.developerSettings ?? [] });
+      Object.assign(board, {
+        etag: response.headers.get("etag"), offers: answer.offers ?? [], developerSettings: answer.developerSettings ?? [],
+        queue: (answer.queue ?? []).map(w => ({ id: w.id, order_id: w.order_id })),
+        orders: (answer.orders ?? []).map(o => ({ id: o.id, status: o.status })),
+        active: (answer.active ?? []).map(w => ({ id: w.id, claimed_by: w.claimed_by, machine: w.machine, reported_at: w.reported_at, paused_at: w.paused_at })),
+      });
     }
     else if (response.status !== 304) throw new Error(`HTTP ${response.status}`);
     Object.assign(board, { at: Date.now(), ok: true });
@@ -191,9 +197,11 @@ export function recordHook(payload) {
   const bots = norm(botsDir());
   if (cwd.startsWith(bots + path.sep)) {
     const bot = cwd.slice(bots.length + 1).split(path.sep)[0];
-    const worker = isGreenhouseWorker(bot);
-    if (worker) lastWorkerAt = Date.now();
-    if (["Stop", "SessionEnd"].includes(payload.hook_event_name) && worker) checkShutDown("workerStopped");
+    if (isGreenhouseWorker(bot)) {
+      lastWorkerAt = Date.now();
+      // The tick looks at whether the worker is done, once Orca shows the session that stopped as done.
+      if (["Stop", "SessionEnd"].includes(payload.hook_event_name)) workerStoppedAt = Date.now();
+    }
     if (Date.now() - (lastBotAt.get(bot) ?? 0) < 60_000) return;
     lastBotAt.set(bot, Date.now());
     append({ kind: "bot", at: Date.now(), bot });
@@ -211,38 +219,35 @@ function isGreenhouseWorker(folder) {
 }
 
 const SHUT_DOWN_WARNING_S = 300;
-// How long a stop of the worker waits for a chat that it handed work to before it counts as the end.
-const HANDOFF_WAIT_MS = 60_000;
 let shutDownStarted = false;
 let lastCheck = Date.now();
-// When the service last started the worker, when a session of the worker last did anything, and
-// when the service last looked at starting it again. Each is 0 until it happens in this run of the
-// service.
-let lastStartAt = 0;
+// When a session of the worker last did anything, and when one last stopped and the service has not
+// yet settled whether the worker is done. Each is 0 until it happens in this run of the service.
 let lastWorkerAt = 0;
-let lastRestartCheckAt = 0;
-/** Runs once a minute: starts the worker when its hours have just begun or when it may work and is
- * not at work, and shuts the machine down when its hours have just ended. */
-function everyMinute() {
-  const now = new Date();
-  const since = lastCheck;
-  lastCheck = now.getTime();
-  const settings = savedSettings();
-  if (settings && hoursBegan(settings, { now, since })) startIfMayWork("its hours began");
-  else if (settings && restBegan(settings, restWindow(ownSettings(), weekResetsAt()), { now, since })) startIfMayWork("the time came to use the rest of the week");
-  else if (settings) startIfIdle(now).catch(error => log("greenhouse worker: " + error.message));
-  checkShutDown("tick", since);
-}
-
-/** Starts the worker when it has not been at work for a while and the gate lets it work. The
- * plan's usage is read only when everything else that the gate checks says yes. */
-async function startIfIdle(now) {
-  if (!restartDue({ now, lastStartAt, lastWorkerAt, lastCheckAt: lastRestartCheckAt })) return;
-  lastRestartCheckAt = now.getTime();
-  const { settings } = current();
-  const machine = await presence();
-  if (!mayWorkBeforeUsage(withValues(settings), { now, lastPromptAt: lastAt("prompt"), rest: restAt(now), ...machine })) return;
-  await startIfMayWork("it was not at work");
+let workerStoppedAt = 0;
+let ticking = false;
+/** Runs once a minute: starts a session of the worker when startDecision() says so (its hours or the
+ * use of the rest of the week may just have begun), and shuts the machine down when its hours have
+ * just ended, or when a session of the worker stopped and the worker is done. */
+async function everyMinute() {
+  if (ticking) return;
+  ticking = true;
+  try {
+    const now = new Date();
+    const since = lastCheck;
+    lastCheck = now.getTime();
+    if (slept(now, since)) noteWake(since);
+    const settings = savedSettings();
+    if (settings && hoursBegan(settings, { now, since })) await startIfMayWork("its hours began");
+    else if (settings && restBegan(settings, restWindow(ownSettings(), weekResetsAt()), { now, since })) await startIfMayWork("the time came to use the rest of the week");
+    else if (settings) await startIfMayWork("a session may start");
+    await checkShutDown("tick", since);
+    if (workerStoppedAt) await checkShutDown("workerStopped", since);
+  } catch (error) {
+    say("a tick", String(error.message));
+  } finally {
+    ticking = false;
+  }
 }
 
 /** Shuts the machine down when shutDownReason() gives a reason, once for the life of the service.
@@ -251,15 +256,24 @@ async function checkShutDown(event, since) {
   if (shutDownStarted) return;
   const settings = savedSettings();
   if (!settings || !settings.shutDownAfterWorker) return;
-  const { idleMs } = await presence();
   const now = new Date();
+  // While a session that the service knows of without asking Orca is at work, the worker is not done,
+  // and nothing else needs asking.
+  if (event === "workerStopped" && (await decideStart(now)).atWork > 0) return;
+  const { idleMs } = await presence();
   const reason = shutDownReason(settings, { event, now, since, lastPromptAt: lastAt("prompt"), idleMs, rest: restAt(now) });
-  if (!reason) return;
-  // A chat of the worker that stops may have handed the next work item to a new chat, which is
-  // starting while this one ends; the new chat's own stop comes later.
+  if (!reason) { if (event === "workerStopped") workerStoppedAt = 0; return; }
+  // A session of the worker that stops may leave others at work, and the service starts another when
+  // there is more to take. The worker is done when no session is at work and there is nothing that it
+  // could take, or the gate refused it (the 5-hour ceiling, nothing left of the week).
+  // Otherwise the next tick looks again.
   if (event === "workerStopped") {
-    await new Promise(resolve => setTimeout(resolve, HANDOFF_WAIT_MS));
-    if (await workerBusy().catch(() => false)) return log("greenhouse worker: a chat of the worker stopped, and another is at work");
+    const decision = await decideStart(now, { orca: true });
+    // The gate refused the worker since its last start or claim: to the service, or to the session
+    // that stopped, perhaps before it claimed anything.
+    const refused = gateNoAt() > Math.max(lastStartAt, ...claimTimes());
+    if (decision.atWork > 0 || !(decision.done || refused)) return;
+    workerStoppedAt = 0;
   }
   if (process.platform !== "win32") { log(`greenhouse worker: ${reason}, but shutting down is only done on Windows`); return; }
   shutDownStarted = true;
@@ -279,53 +293,177 @@ const orcaExe = () => {
 };
 const execFileP = promisify(execFile);
 const START_NAME = "Greenhouse worker's hours";
-const orcaJson = async args => JSON.parse((await execFileP(orcaExe(), [...args, "--json"], { windowsHide: true })).stdout).result;
+// An Orca call that has not answered in this long has failed, so that a hung orca.exe cannot stop the
+// service's ticks.
+const ORCA_TIMEOUT_MS = 60_000;
+const orcaJson = async args => JSON.parse((await execFileP(orcaExe(), [...args, "--json"], { windowsHide: true, timeout: ORCA_TIMEOUT_MS })).stdout).result;
 // The states of an automation's run after it has ended. Any other state is a run still under way.
 const RUN_ENDED = new Set(["completed", "failed", "cancelled", "canceled", "skipped_precheck", "error", "timed_out"]);
+
+// What the service knows of the sessions that it started and of the machine's sleep. Each time is
+// in milliseconds, 0 until it happens in this run of the service.
+let lastStartAt = 0;
+let wokeAt = 0;
+let lastGateNoAt = 0;
+// The times of the service's starts in the last two hours.
+let starts = [];
+// The last claim that found nothing (or the offer used up), and the ready work items that the
+// dashboard listed when the service learned of it.
+let miss = null;
+let lastReason = "";
+const say = (why, reason) => { if (reason !== lastReason) log(`greenhouse worker: not started (${why}): ${reason}`); lastReason = reason; };
+
+// greenhouse.mjs keeps, for each session of the worker, the work item that it claimed and when,
+// whether it paused or finished it, and its Orca chat; and the last claim that found nothing.
+const SESSIONS_FILE = () => path.join(os.homedir(), ".claude", "greenhouse-sessions.json");
+const CLAIM_MISS_FILE = () => path.join(os.homedir(), ".claude", "greenhouse-claim-miss.json");
+// greenhouse.mjs notes here when a session's gate last said no.
+const GATE_NO_FILE = () => path.join(os.homedir(), ".claude", "greenhouse-gate-no.json");
+/** When the gate last said no, to the service or to a session, in milliseconds, or 0. */
+function gateNoAt() {
+  const noted = readJsonFile(GATE_NO_FILE(), null);
+  return Math.max(lastGateNoAt, noted?.at ? Date.parse(noted.at) || 0 : 0);
+}
+// A session at work writes its transcript at least this often (greenhouse.mjs's AT_WORK_MS).
+const AT_WORK_MS = 60 * 60_000;
+/** The worker bot's folder under the bots folder, or null. */
+function workerFolder() {
+  try { return fs.readdirSync(botsDir()).find(isGreenhouseWorker) ?? null; } catch { return null; }
+}
+/** When the transcripts of Claude session `session` in the worker's folder last changed, or 0. */
+function lastWritten(session) {
+  const folder = workerFolder();
+  if (!folder) return 0;
+  const projects = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "projects", path.join(botsDir(), folder).replace(/[^a-zA-Z0-9]/g, "-"));
+  let latest = 0;
+  for (const name of [session + ".jsonl", session]) {
+    try {
+      const stat = fs.statSync(path.join(projects, name));
+      latest = Math.max(latest, stat.mtimeMs);
+      if (stat.isDirectory()) for (const f of fs.readdirSync(path.join(projects, name), { recursive: true }))
+        if (String(f).endsWith(".jsonl")) latest = Math.max(latest, fs.statSync(path.join(projects, name, String(f))).mtimeMs);
+    } catch {}
+  }
+  return latest;
+}
+const readSessions = () => Object.entries(readJsonFile(SESSIONS_FILE(), {}) ?? {});
+/** The sessions of the worker that hold a work item (claimed, neither paused nor finished it) and
+ * wrote their transcripts after `since`. */
+const claimingSessions = since => readSessions().filter(([id, s]) => s?.claimed && !s.paused && s.finished !== s.claimed && lastWritten(id) > since);
+/** The times when sessions on this machine claimed a work item. */
+const claimTimes = () => readSessions().map(([, s]) => (s?.claimedAt ? Date.parse(s.claimedAt) : 0)).filter(Boolean);
+/** The machine woke from a sleep that began after `since`. When a session of the worker was at work
+ * then, the service waits before it starts another (startDecision). */
+function noteWake(since) {
+  if (claimingSessions(since - AT_WORK_MS).length) wokeAt = Date.now();
+}
+
+/** The worker's chats, other than its Home Chat, that Orca shows at work, by their ids. */
+async function liveWorkerChats() {
+  const chats = new Set((await orcaJson(["bot", "chats", "--bot", "Greenhouse Worker"])).chats.filter(c => !c.home && !c.closed).map(c => c.id.toLowerCase()));
+  return (await orcaJson(["agent", "list"])).agents.filter(a => chats.has(String(a.orcaSessionId).toLowerCase()) && a.state !== "done").map(a => String(a.orcaSessionId).toLowerCase());
+}
+/** Whether the installed worker counts its tokens by session, without which two of its sessions at
+ * once would count each other's tokens. */
+function workerNewEnough() {
+  const folder = workerFolder();
+  try { return !!folder && fs.readFileSync(path.join(botsDir(), folder, ".claude", "skills", "greenhouse-api", "greenhouse.mjs"), "utf8").includes("--this-session"); }
+  catch { return false; }
+}
+/** Whether the worker has used what the gate would allocate it: its share of the week, or, while it
+ * may use the rest of the week, nothing short of the whole week (the gate itself checks what is left). */
+function offerUsedUp(now) {
+  const offer = ownOffer();
+  if (!offer) return false;
+  if (restAt(now)) return offer.used >= 1;
+  return offer.used >= current().settings.values.weekShare;
+}
+
+/**
+ * startDecision() for this moment, from what the service last read of the Greenhouse, the worker's
+ * sessions and greenhouse.mjs's notes, with `atWork` beside it. Reads nothing from the Greenhouse.
+ * A session is at work when it holds a work item and wrote within AT_WORK_MS, when the service
+ * started it in the last ten minutes and no claim has answered that start yet, or (with `orca`) when
+ * Orca shows its chat at work and it holds no work item: a chat whose turn ended while it waits on a
+ * command may show as done, and Orca may be slow to show a new chat. Orca is asked only when the rest would start a session,
+ * or with `orca`.
+ */
+async function decideStart(now, { orca = false } = {}) {
+  starts = starts.filter(t => now.getTime() - t < 2 * 60 * 60_000);
+  const noted = readJsonFile(CLAIM_MISS_FILE(), null);
+  const missAt = noted?.at ? Date.parse(noted.at) : 0;
+  if (missAt && missAt !== miss?.at && board.ok) miss = { at: missAt, queueIds: board.queue.map(w => w.id) };
+  const claiming = claimingSessions(now.getTime() - AT_WORK_MS);
+  const flight = startsInFlight({ starts, claims: claimTimes(), now, boardAt: board.at });
+  const known = claiming.length + flight.unclaimed;
+  const decide = atWork => ({
+    atWork,
+    ...startDecision({
+      now,
+      boardOk: board.ok,
+      parallelSessions: current().settings.values.parallelSessions,
+      newEnough: workerNewEnough(),
+      atWork,
+      work: workToTake({ board, login, machine: os.hostname(), heldAtWork: claiming.map(([, s]) => s.claimed), miss, now, pendingStarts: flight.pending }),
+      offerUsedUp: offerUsedUp(now),
+      lastStartAt, wokeAt, lastMissAt: missAt, lastClaimAt: Math.max(0, ...claimTimes()), lastGateNoAt: gateNoAt(), lastWorkerAt,
+    }),
+  });
+  const first = decide(known);
+  if (!first.start && !orca) return first;
+  // Live chats that hold no work item may be the starts on their way or other sessions (one cleaning
+  // up after its report); counting both errs toward a session too many, which only delays a start.
+  const holding = new Set(claiming.map(([id, s]) => s.orca ?? id));
+  const others = (await liveWorkerChats()).filter(chat => !holding.has(chat)).length;
+  return decide(known + others);
+}
+
 let starting = false;
-/** Starts a run of the Greenhouse worker bot when the gate says that it may work now and no run
- * that the service started is still under way. `why` goes in the log. */
+/** Starts one session of the Greenhouse worker bot when startDecision() says so and everything that
+ * the gate checks lets it work: first what it checks before the plan's usage, then the gate itself.
+ * `why` goes in the log, each time the reason not to start changes. Every start goes through here. */
 async function startIfMayWork(why) {
   if (starting) return;
   starting = true;
   try {
+    const now = new Date();
+    const values = withValues(current().settings);
+    const context = { now, lastPromptAt: lastAt("prompt"), rest: restAt(now) };
+    // The worker's setting, its hours and the developer's last prompt first, which need no process.
+    if (!mayWorkBeforeUsage(values, context)) return say(why, "the worker's share, its hours or the developer's last prompt do not allow it");
+    const decision = await decideStart(now);
+    if (!decision.start) return say(why, decision.reason);
+    if (!mayWorkBeforeUsage(values, { ...context, ...(await presence()) })) return say(why, "the power or the developer's presence do not allow it");
     const gate = await workerGateNow();
-    if (!gate.mayWork) return log(`greenhouse worker: not started (${why}): ${gate.reason}`);
+    if (!gate.mayWork) { lastGateNoAt = Date.now(); return say(why, gate.reason); }
+    lastReason = "";
     await startWorker(why);
   } catch (error) {
-    log(`greenhouse worker: starting the worker failed (${why}): ` + String(error.stderr || error.message).trim());
+    say(why, "starting the worker failed: " + String(error.stderr || error.message).trim());
   } finally {
     starting = false;
   }
 }
 
-/** Whether a chat of the worker bot other than its Home Chat is at work. Each chat of the worker
- * hands the next work item to a new chat, so the run that the service started may have ended while
- * the worker carries on in a later chat. */
-async function workerBusy() {
-  const chats = new Set((await orcaJson(["bot", "chats", "--bot", "Greenhouse Worker"])).chats.filter(c => !c.home && !c.closed).map(c => c.id));
-  return (await orcaJson(["agent", "list"])).agents.some(a => chats.has(a.orcaSessionId) && a.state !== "done");
-}
-
-/** Starts a run of the Greenhouse worker bot, as an Orca automation that runs once, a few seconds
+/** Starts a session of the Greenhouse worker bot, as an Orca automation that runs once, a few seconds
  * from now, in a chat of its own: in the bot's main chat, where its owner talks to it, an interrupt
- * from the owner would end the run while it holds a claim. A message to the bot (`orca orchestration send`) would need an Orca terminal to send it
- * from, which the service lacks. Orca keeps such an automation after its run, so the one that the
- * last start made is removed first, unless its run is still under way, when nothing is started.
- * Nothing is started either while a chat of the worker is at work. */
+ * from the owner would end the run while it holds a claim. A message to the bot (`orca orchestration
+ * send`) would need an Orca terminal to send it from, which the service lacks. Each start has an
+ * automation of its own, named START_NAME and the time; Orca keeps such an automation after its run,
+ * so the ones whose runs have ended are removed. */
 async function startWorker(why) {
-  if (await workerBusy()) return log(`greenhouse worker: already working (${why})`);
   for (const a of (await orcaJson(["automations", "list"])).automations) {
-    if (a.name !== START_NAME) continue;
+    if (!a.name.startsWith(START_NAME)) continue;
     const runs = (await orcaJson(["automations", "runs", "--id", a.id])).runs;
-    if (runs.some(r => !RUN_ENDED.has(r.status))) return log(`greenhouse worker: already working (${why})`);
-    await orcaJson(["automations", "remove", a.id]);
+    if (runs.length && runs.every(r => RUN_ENDED.has(r.status))) await orcaJson(["automations", "remove", a.id]);
   }
   const prompt = "Work on the Greenhouse as your SOUL.md says: before each claim run `node greenhouse.mjs gate`, and stop when it says that you may not work.";
   const by = new Date(Date.now() + 5_000).toISOString();
-  await orcaJson(["automations", "create", "--name", START_NAME, "--bot", "Greenhouse Worker", "--runs-in", "new", "--results-to", "chat", "--once", "--by", by, "--prompt", prompt]);
+  await orcaJson(["automations", "create", "--name", `${START_NAME} ${new Date().toISOString()}`, "--bot", "Greenhouse Worker", "--runs-in", "new", "--results-to", "chat", "--once", "--by", by, "--prompt", prompt]);
   lastStartAt = Date.now();
-  log(`greenhouse worker: started the worker (${why})`);
+  starts.push(lastStartAt);
+  workerStoppedAt = 0;
+  log(`greenhouse worker: started a session of the worker (${why})`);
 }
 
 /** Milliseconds since the last keyboard or mouse input and whether the machine is on AC power, as

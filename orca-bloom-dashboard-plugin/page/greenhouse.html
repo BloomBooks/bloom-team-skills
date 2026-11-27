@@ -328,6 +328,7 @@ function readValues() {
   };
   for (const name of PERCENTS) c[name] = form.elements[name].value === "" ? "" : Number(form.elements[name].value) / 100;
   c.weekShare = draggedShare ?? state.settings.values.weekShare;
+  c.parallelSessions = Number(form.elements.parallelSessions.value);
   return c;
 }
 
@@ -367,6 +368,7 @@ function drawValues() {
     valueRow("A 5-hour period that reaches into your work hours", `<div class="line">The worker stops at ${num("fiveHourCeilingInWorkHours", 'min="0" max="100" step="5" aria-label="Percent of a 5-hour period that reaches into your work hours"')} %</div>`),
     valueRow("A 5-hour period that ends before your work hours", `<div class="line">The worker stops at ${num("fiveHourCeilingOtherwise", 'min="0" max="100" step="5" aria-label="Percent of a 5-hour period that ends before your work hours"')} %</div>`),
     valueRow("Stop even during a work item", `<div class="line">When the 5-hour period reaches ${num("fiveHourHardStop", 'min="0" max="100" step="5" aria-label="Stop even during a work item at this percent of the 5-hour period"')} %</div>`),
+    valueRow("How many parallel sessions", `<div class="line"><input type="range" name="parallelSessions" min="1" max="4" step="1" aria-label="How many sessions of the worker may be at work at once"> <output id="parallel-sessions"></output></div>`),
   ].join("");
   for (const box of form.querySelectorAll("[name=workday]")) box.checked = v.workdays.includes(Number(box.value));
   form.elements.workStart.value = v.workStart;
@@ -375,6 +377,8 @@ function drawValues() {
   form.elements.awayAfterMinutes.value = v.awayAfterMinutes;
   form.elements.awayAfterMinutes.disabled = v.whileAtComputer;
   for (const name of PERCENTS) form.elements[name].value = Math.round(v[name] * 100);
+  form.elements.parallelSessions.value = String(v.parallelSessions);
+  $("parallel-sessions").textContent = v.parallelSessions;
 }
 
 function drawPlan() {
@@ -513,6 +517,7 @@ form.addEventListener("input", e => {
     drawShare(draggedShare);
   }
   if (e.target.name === "whileAtComputer") form.elements.awayAfterMinutes.disabled = e.target.checked;
+  if (e.target.name === "parallelSessions") $("parallel-sessions").textContent = e.target.value;
   saveSoon();
 });
 form.addEventListener("change", e => {

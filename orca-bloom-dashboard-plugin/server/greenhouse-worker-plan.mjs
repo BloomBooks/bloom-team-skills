@@ -24,6 +24,7 @@ export const VALUE_DEFAULTS = {
   fiveHourCeilingInWorkHours: 0.5,   // for a 5-hour period that reaches into the developer's work hours
   fiveHourCeilingOtherwise: 0.9,
   fiveHourHardStop: 0.8,             // stop even during a work item at this share of the 5-hour period
+  parallelSessions: 2,               // how many sessions of the worker may be at work at once, 1 to 4
 };
 // What the first version of the page saved as `mode`.
 const OLD_MODES = { off: "off", away: "on", always: "on" };
@@ -60,6 +61,7 @@ export function cleanValues(input = {}) {
     fiveHourCeilingInWorkHours: between(input.fiveHourCeilingInWorkHours, 0, 1, d.fiveHourCeilingInWorkHours),
     fiveHourCeilingOtherwise: between(input.fiveHourCeilingOtherwise, 0, 1, d.fiveHourCeilingOtherwise),
     fiveHourHardStop: between(input.fiveHourHardStop, 0, 1, d.fiveHourHardStop),
+    parallelSessions: Math.round(between(input.parallelSessions, 1, 4, d.parallelSessions)),
   };
 }
 
@@ -167,29 +169,106 @@ function spanAt(settings, now) {
  * request to Claude, so the service asks this first. */
 export const mayWorkBeforeUsage = (settings, context) => workerGate(settings, null, context).reason === NO_USAGE;
 
-// A worker that is not at work is started again this long after it was last active.
-export const RESTART_AFTER_MS = 10 * 60_000;
-// A start that the worker ended within this time found nothing that it could do: no work item
-// ready, or its owner's offer used up. The next start then waits longer, since each start is a
-// chat that costs tokens.
-export const SHORT_RUN_MS = 5 * 60_000;
-export const RESTART_AFTER_SHORT_RUN_MS = 60 * 60_000;
-// How often the service looks at whether to start the worker again.
-export const RESTART_CHECK_MS = 5 * 60_000;
+// The service starts no session of the worker within this long of its last start, so that each
+// start sees the session that the one before it started.
+export const START_GAP_MS = 2 * 60_000;
+// A tick of the service this long after the one before means that the machine slept.
+export const SLEPT_MS = 5 * 60_000;
+// After the machine wakes with sessions of the worker that were at work when it slept, the service
+// starts no session for this long, so that they write again and their work items stay theirs.
+export const WAKE_WAIT_MS = 25 * 60_000;
+// A session that found nothing to claim, or found the offer used up, or a start that led to no claim
+// at all, keeps the service from starting another for this long, unless the Greenhouse shows a work
+// item that was not ready before. Each start is a chat that costs tokens.
+export const MISS_WAIT_MS = 60 * 60_000;
+// After the gate said no, the service asks it again only after this long, since asking reads the
+// plan's usage from Claude.
+export const GATE_AGAIN_MS = 5 * 60_000;
+// A claim of this machine that nobody has reported on for this long, and that no session at work
+// holds, is one that a new session would resume.
+export const QUIET_CLAIM_MS = 60 * 60_000;
+// An installed worker that hands each next work item to a new chat itself (one older than counting
+// its tokens by session) is started only after it has done nothing for this long, so that the
+// service does not start a chat beside the one that it handed to.
+export const OLD_WORKER_QUIET_MS = 10 * 60_000;
+
 /**
- * Whether the service should now look at starting a worker that is not at work. Each chat of the
- * worker starts the next one, so a chat that ends without doing so (it crashed, or its owner spoke
- * to it and it answered) would otherwise leave the worker stopped until its hours next begin.
- * `lastStartAt` is the service's last start of the worker, `lastWorkerAt` the last time that a
- * session of the worker did anything, and `lastCheckAt` the last time this answered yes; each is 0
- * when unknown.
+ * How many work items a new session of the worker on this machine could take, from the Greenhouse's
+ * last dashboard answer `board` ({ at, queue, orders, active }), read at `board.at`: the ready work
+ * items of open orders, and the work items that `login`'s worker holds on `machine` that are paused or
+ * quiet for QUIET_CLAIM_MS and that no session at work holds (`heldAtWork`), less `pendingStarts`,
+ * the sessions started that the answer cannot know of yet. After the last claim that found nothing
+ * (`miss`, { at, queueIds }, with the ready work items listed when the service learned of it), only
+ * a ready work item that is new since then counts, until MISS_WAIT_MS has passed; an answer older
+ * than the miss counts nothing.
  */
-export function restartDue({ now, lastStartAt = 0, lastWorkerAt = 0, lastCheckAt = 0 }) {
+export function workToTake({ board, login, machine, heldAtWork = [], miss = null, now, pendingStarts = 0 }) {
   const t = now.getTime();
-  if (t - lastCheckAt < RESTART_CHECK_MS) return false;
-  if (lastStartAt > 0 && lastWorkerAt - lastStartAt < SHORT_RUN_MS) return t - lastStartAt >= RESTART_AFTER_SHORT_RUN_MS;
-  return t - Math.max(lastStartAt, lastWorkerAt) >= RESTART_AFTER_MS;
+  if (miss && miss.at >= board.at) return 0;
+  const recentMiss = miss && t - miss.at < MISS_WAIT_MS ? new Set(miss.queueIds ?? []) : null;
+  const open = new Set((board.orders ?? []).filter(o => o.status === "open").map(o => o.id));
+  const ready = (board.queue ?? []).filter(w => open.has(w.order_id) && !recentMiss?.has(w.id)).length;
+  const held = new Set(heldAtWork);
+  const resumable = recentMiss ? 0 : (board.active ?? []).filter(w =>
+    String(w.claimed_by ?? "").toLowerCase() === login && w.machine === machine && !held.has(w.id) &&
+    (w.paused_at || !w.reported_at || t - Date.parse(w.reported_at) >= QUIET_CLAIM_MS)).length;
+  return Math.max(0, ready + resumable - pendingStarts);
 }
+
+/**
+ * Whether the service should start another session of the worker now, before it asks the gate:
+ * { start, reason, done }. `done` says that no session is at work and the worker has nothing more to
+ * do for now (no work to take, or the offer used up), which lets the machine shut down after it.
+ *
+ * `atWork` counts the sessions at work; `parallelSessions` is how many the developer allows, and
+ * `newEnough` whether the installed worker counts its tokens by session (without that, one at a
+ * time, and only once it has been quiet for OLD_WORKER_QUIET_MS since `lastWorkerAt`). `work` is
+ * workToTake(). `offerUsedUp` says that the worker has used what the gate would allocate it.
+ * `lastStartAt`, `wokeAt` (0 unless the machine woke with sessions at work), `lastMissAt`,
+ * `lastClaimAt` (the latest claim by any session on this machine), `lastGateNoAt` and `lastWorkerAt`
+ * are times in milliseconds, 0 when unknown.
+ */
+export function startDecision({ now, boardOk, parallelSessions, newEnough, atWork, work, offerUsedUp, lastStartAt = 0, wokeAt = 0, lastMissAt = 0, lastClaimAt = 0, lastGateNoAt = 0, lastWorkerAt = 0 }) {
+  const t = now.getTime();
+  const no = (reason, done = false) => ({ start: false, reason, done: done && atWork === 0 });
+  if (!boardOk) return no("the Greenhouse has not been read since the service started");
+  const allowed = newEnough ? parallelSessions : 1;
+  if (atWork >= allowed) return no(`${atWork} session${atWork === 1 ? " is" : "s are"} at work, of ${allowed} allowed`);
+  if (offerUsedUp) return no("the offer is used up", true);
+  if (work <= 0) return no("the Greenhouse has nothing for this machine", true);
+  if (t - lastStartAt < START_GAP_MS) return no("a session was started less than two minutes ago");
+  if (t - wokeAt < WAKE_WAIT_MS) return no("the machine woke with sessions at work, which report first");
+  if (!newEnough && t - lastWorkerAt < OLD_WORKER_QUIET_MS) return no("the installed worker starts its own next session, and was at work less than ten minutes ago");
+  // A start that led to no claim, and that no claim's miss explains (the chat stopped at the gate,
+  // or failed before it claimed), is not repeated for an hour.
+  if (lastStartAt > lastClaimAt && lastMissAt < lastStartAt && atWork === 0 && t - lastStartAt < MISS_WAIT_MS)
+    return no("the last session that the service started claimed nothing");
+  if (t - lastGateNoAt < GATE_AGAIN_MS) return no("the gate said no less than five minutes ago");
+  return { start: true, reason: "", done: false };
+}
+
+/**
+ * Of the times when the service started a session (`starts`) and the times when sessions on this
+ * machine claimed a work item (`claims`), each claim answering the earliest start before it that no
+ * other claim answered: { unclaimed, pending }. `unclaimed` counts the starts of the last
+ * `recentMs` that no claim answered, sessions that are presumably still starting; `pending` counts
+ * the sessions that a dashboard answer read at `boardAt` cannot know of: every start after it, and
+ * the unclaimed recent starts before it.
+ */
+export function startsInFlight({ starts, claims, now, boardAt, recentMs = 10 * 60_000 }) {
+  const open = [...claims].sort((a, b) => a - b);
+  const unanswered = [];
+  for (const start of [...starts].sort((a, b) => a - b)) {
+    const i = open.findIndex(c => c >= start);
+    if (i >= 0) open.splice(i, 1);
+    else unanswered.push(start);
+  }
+  const recent = unanswered.filter(start => now.getTime() - start < recentMs);
+  return { unclaimed: recent.length, pending: starts.filter(start => start > boardAt).length + recent.filter(start => start <= boardAt).length };
+}
+
+/** Whether a tick at `now`, after the one at `since`, comes after the machine slept. */
+export const slept = (now, since) => now.getTime() - since >= SLEPT_MS;
 
 export function hoursBegan(settings, { now, since }) {
   if (shareOf(settings) <= 0) return false;

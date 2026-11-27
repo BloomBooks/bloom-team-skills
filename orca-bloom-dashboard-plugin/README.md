@@ -268,7 +268,7 @@ starts at 0%, and with 0% the worker does not run (except to use the rest of the
 it, a bar shows what the developer and the worker used this week. The developer also sets the hours when the worker may have
 this machine (days, and a start and end that may run past midnight), whether to wake the machine
 from sleep when those hours begin, whether to shut it down after the worker, whether it may run
-while they use the machine and after how many minutes they count as away, and how careful it is with their 5-hour limit. Their work week (days and hours) decides which
+while they use the machine and after how many minutes they count as away, how careful it is with their 5-hour limit, and how many sessions of the worker may be at work at once (1 to 4, 2 unless they change it). Their work week (days and hours) decides which
 5-hour ceiling applies: a period that is still running when their work hours begin gets the lower
 one. The worker runs at no other time, and only on
 AC power, which no setting changes. The page saves each change to `greenhouse-worker.json` in the data folder.
@@ -276,7 +276,7 @@ AC power, which no setting changes. The page saves each change to `greenhouse-wo
 The Greenhouse worker, an Orca bot, follows these settings through the service
 (`greenhouse-worker.mjs`):
 
-- **The gate.** Before each claim, and every 20 minutes during a work item, the worker runs
+- **The gate.** Before each claim, and every 10 minutes during a work item, the worker runs
   `greenhouse.mjs gate <developer>` from the greenhouse repository, which asks
   `GET /greenhouse-worker/gate`. `workerGate` in `greenhouse-worker-plan.mjs` says no outside the
   worker's hours, on battery, while the developer is at the machine (keyboard
@@ -303,24 +303,38 @@ The Greenhouse worker, an Orca bot, follows these settings through the service
   changes and main has new commits, it pulls, links new skills and installs the worker's
   instructions again, with git and node and no Claude session. A pull that changes the service's
   code restarts the service. A clone on another branch keeps the once-a-day update.
-- **The start.** At the first check after the worker's hours begin (`hoursBegan`) or after the time to use the rest of the week (`restBegan`), and 5 seconds
-  after the page last saved a change to the settings, the service asks the gate. When it says yes
-  and no run that the service started, and no chat of the worker, is still under way, the service hands the bot named
-  "Greenhouse Worker" a run, through an Orca automation named "Greenhouse worker's hours" that runs
-  once (`orca automations create --once`). Orca keeps it after the run, so each start removes the
-  one before. The service log says each time why it did or did not start the worker.
+- **The start.** Each session of the worker does one work item and ends; the service starts every
+  session. Once a minute, at the first check after the worker's hours begin (`hoursBegan`) or after
+  the time to use the rest of the week (`restBegan`), and 5 seconds after the page last saved a
+  change to the settings, `startDecision` in `greenhouse-worker-plan.mjs` says whether to start one,
+  from what the service already has and with no read of the Greenhouse of its own:
+  - fewer sessions at work than the developer allows (one, while the installed worker's
+    `greenhouse.mjs` cannot count its tokens by session). A session is at work while Orca shows its
+    chat at work, or while it holds a work item and its transcript changed in the last hour;
+  - something to take in the last dashboard answer (`workToTake`): a ready work item of an open order,
+    or one that the worker holds on this machine and no session is at, less the sessions started since;
+  - the offer not used up, no start in the last 2 minutes, no gate "no" in the last 5, and no wake in
+    the last 25 minutes from a sleep that sessions were at work in, so that they write again first;
+  - after a claim that found nothing or found the offer used up (`greenhouse.mjs` notes it in
+    `~/.claude/greenhouse-claim-miss.json`), or a start that led to no claim at all, nothing for an
+    hour unless the dashboard shows a work item that was not ready before.
+  Then what the gate checks before the plan's usage, then the gate. A yes hands the bot named
+  "Greenhouse Worker" a run, through an Orca automation named "Greenhouse worker's hours" and the
+  time, that runs once (`orca automations create --once`) in a chat of its own. Orca keeps it after
+  the run, so each start removes the ones whose runs have ended. The service log says why it did not
+  start a session, each time the reason changes.
 - **The shutdown.** With "Shut the machine down" chosen and a share of the week above 0%, the service runs
   Windows' `shutdown /s /t 300` when the worker's hours end, or when a session of the bot ends a
-  turn inside those hours and, a minute later, no other chat of the worker is at work (each work
-  item hands the next to a new chat), which is how the worker stops when the gate says no or the
-  Greenhouse has no work. It does not when the developer sent a prompt or used the keyboard or mouse in the
-  last 20 minutes, or when the machine wakes more than 5 minutes after the hours ended.
+  turn inside those hours and, a minute later, no session is at work and `startDecision` says that
+  the worker is done (nothing to take, or the offer used up). It does not when the developer sent a
+  prompt or used the keyboard or mouse in the last 20 minutes, or when the machine wakes more than 5
+  minutes after the hours ended.
 `shutDownReason` in `greenhouse-worker-plan.mjs` decides; `shutdown /a` cancels in the 5 minutes
 of warning.
 
 The history is `greenhouse-history.jsonl` in the data folder: the time of each prompt from the
 hooks, for the minutes before the developer counts as away, and the times when an Orca bot's session
-(a folder under `~/.orca/bots`) was at work, for starting the worker again. Lines older than 60 days
+(a folder under `~/.orca/bots`) was at work. Lines older than 60 days
 are dropped.
 
 `plan` in `server/greenhouse-worker-plan.mjs` turns the settings and the plan's usage into what
