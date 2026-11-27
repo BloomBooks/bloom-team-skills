@@ -955,7 +955,7 @@ const server = http.createServer(async (req, res) => {
       }
       const ext = path.extname(pathname);
       const file = path.join(dashboardDir, "page", pathname.slice(1));
-      if (STATIC[ext] && !pathname.includes("..") && /^\/(row\.js|dashboard\.css|icons\/icon-\d+\.png|icons\/greenhouse-worker\.(png|svg))$/.test(pathname) && fs.existsSync(file)) {
+      if (STATIC[ext] && !pathname.includes("..") && /^\/(row\.js|dashboard\.css|icons\/icon-\d+\.png|icons\/greenhouse-status\.(png|svg))$/.test(pathname) && fs.existsSync(file)) {
         res.writeHead(200, { "content-type": STATIC[ext], "cache-control": "no-store" });
         return res.end(fs.readFileSync(file));
       }
