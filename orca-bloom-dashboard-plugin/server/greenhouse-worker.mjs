@@ -293,6 +293,10 @@ const orcaExe = () => {
 };
 const execFileP = promisify(execFile);
 const START_NAME = "Greenhouse worker's hours";
+// The model and effort of every session of the worker, on every developer's machine, whatever that
+// machine's own Claude Code settings say. A worker never runs on a model above Opus.
+const WORKER_MODEL = "claude-opus-5-5";
+const WORKER_EFFORT = "medium";
 // An Orca call that has not answered in this long has failed, so that a hung orca.exe cannot stop the
 // service's ticks.
 const ORCA_TIMEOUT_MS = 60_000;
@@ -459,7 +463,7 @@ async function startWorker(why) {
   }
   const prompt = "Work on the Greenhouse as your SOUL.md says: before each claim run `node greenhouse.mjs gate`, and stop when it says that you may not work.";
   const by = new Date(Date.now() + 5_000).toISOString();
-  await orcaJson(["automations", "create", "--name", `${START_NAME} ${new Date().toISOString()}`, "--bot", "Greenhouse Worker", "--runs-in", "new", "--results-to", "chat", "--once", "--by", by, "--prompt", prompt]);
+  await orcaJson(["automations", "create", "--name", `${START_NAME} ${new Date().toISOString()}`, "--bot", "Greenhouse Worker", "--runs-in", "new", "--results-to", "chat", "--model", WORKER_MODEL, "--effort", WORKER_EFFORT, "--once", "--by", by, "--prompt", prompt]);
   lastStartAt = Date.now();
   starts.push(lastStartAt);
   workerStoppedAt = 0;

@@ -320,7 +320,8 @@ The Greenhouse worker, an Orca bot, follows these settings through the service
     hour unless the dashboard shows a work item that was not ready before.
   Then what the gate checks before the plan's usage, then the gate. A yes hands the bot named
   "Greenhouse Worker" a run, through an Orca automation named "Greenhouse worker's hours" and the
-  time, that runs once (`orca automations create --once`) in a chat of its own. Orca keeps it after
+  time, that runs once (`orca automations create --once`) in a chat of its own, on Opus 5.5 at medium
+  effort whatever the machine's own Claude Code settings say. Orca keeps it after
   the run, so each start removes the ones whose runs have ended. The service log says why it did not
   start a session, each time the reason changes.
 - **The shutdown.** With "Shut the machine down" chosen and a share of the week above 0%, the service runs
