@@ -466,6 +466,7 @@ run-bloom skill screenshot-check for dialogs when the app seems unresponsive.
   real path in the clone), so through the symlink the test fails and the CLI branch never runs.
   The preflight report almost went out with the previous run's content.
 - seen again 2026-11-25 (BloomDesktop BL-17178 preflight): same silent exit 0 with no page written; calling it by its `readlink -f` path worked.
+- seen again 2026-11-28 (BloomDesktop BL-17232 preflight, PR 8772): same silent exit 0; the `readlink -f` path worked.
 - **Idea:** Compare `fs.realpathSync(process.argv[1])` with the module's path, or print the usage
   line when the branch is skipped. Meanwhile, run it by its real path (`readlink -f`).
 - **Context:** BL-17109 preflight, building the report for PR 8567.
